@@ -383,9 +383,13 @@ function createTransportCandidates(options) {
     candidates.push(createDemoTransport(typeof options.demo === 'object' ? options.demo : {}));
     return candidates;
   }
+  // Validate configured endpoints independently of runtime transport support.
+  // This keeps configuration errors deterministic in older Node.js versions
+  // and browsers that do not expose a native WebSocket implementation.
+  const urls = backendUrls(options);
   if (globalThis.fetch && globalThis.WebSocket) {
     const credentialProvider = createCredentialProvider(options);
-    backendUrls(options).forEach((url, index) => {
+    urls.forEach((url, index) => {
       const name = url === (options.localApi || DEFAULT_LOCAL_API) ? 'local'
         : (url === (options.cloudApi || DEFAULT_CLOUD_API) ? 'cloud' : `backend-${index + 1}`);
       candidates.push(createBrokerTransport(name, url, credentialProvider));
