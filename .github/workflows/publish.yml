@@ -27,6 +27,7 @@ jobs:
         run: npm install --global npm@11
       - run: npm ci
       - name: Verify tag matches package version
-        run: node -e "const version=require('./package.json').version; if (process.env.GITHUB_REF_NAME !== `v${version}`) { throw new Error(`Tag ${process.env.GITHUB_REF_NAME} does not match package version ${version}`); }"
+        run: |
+          node -e 'const version = require("./package.json").version; if (process.env.GITHUB_REF_NAME !== "v" + version) { console.error("Tag does not match package version " + version); process.exit(1); }'
       - name: Publish package
         run: npm publish --access public
