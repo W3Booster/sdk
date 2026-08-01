@@ -1,0 +1,62 @@
+{
+  "name": "@w3booster/sdk",
+  "version": "0.1.0",
+  "description": "One SDK for realtime W3Booster match data in overlays and web apps.",
+  "type": "module",
+  "main": "./src/index.js",
+  "module": "./src/index.js",
+  "browser": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.js"
+    },
+    "./selectors": {
+      "types": "./src/selectors.d.ts",
+      "import": "./src/selectors.js"
+    },
+    "./standard-game": {
+      "types": "./src/standard-game.d.ts",
+      "import": "./src/standard-game.js"
+    }
+  },
+  "files": [
+    "src",
+    "README.md",
+    "COMPATIBILITY.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "test:types": "tsc -p type-tests/tsconfig.json",
+    "check": "npm test && npm run test:types && npm pack --dry-run",
+    "prepublishOnly": "npm run check"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/W3Booster/sdk.git"
+  },
+  "homepage": "https://w3booster.com/developer/",
+  "bugs": {
+    "url": "https://github.com/W3Booster/sdk/issues"
+  },
+  "keywords": [
+    "warcraft-iii",
+    "overlay",
+    "realtime",
+    "websocket"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "~6.0.3"
+  }
+}
