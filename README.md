@@ -35,7 +35,7 @@ Remote API and WebSocket endpoints must use HTTPS/WSS. Plain HTTP/WS is accepted
 
 There is no login screen inside the app. The SDK consumes the launch credential, keeps it for page reloads, exchanges it for one-use stream tickets, and reconnects automatically. Applications never receive the browser-source channel or secret and never select a transport.
 
-Install with `npm install @w3booster/sdk`. Publish maintainers can verify with `npm pack --dry-run` and release with `npm publish` after signing in to npm.
+Install with `npm install @w3booster/sdk`. Releases are automated: update the package version and changelog, merge that commit to `main`, then push the matching version tag (for example, `v0.2.0`). GitHub Actions verifies the tag, runs the complete prepublish checks, and publishes the public npm package with provenance.
 
 The SDK keeps the complete immutable state while compact updates arrive. Use `subscribe` when a view depends on the whole match, `watch` for a selected value, or domain events for actions:
 
