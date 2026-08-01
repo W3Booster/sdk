@@ -21,12 +21,12 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: npm
           registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Install an OIDC-capable npm CLI
+        run: npm install --global npm@11
       - run: npm ci
       - name: Verify tag matches package version
         run: node -e "const version=require('./package.json').version; if (process.env.GITHUB_REF_NAME !== `v${version}`) { throw new Error(`Tag ${process.env.GITHUB_REF_NAME} does not match package version ${version}`); }"
       - name: Publish package
-        run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.1.1 - 2026-08-01
+
+- Switched automated releases from a long-lived npm token to GitHub Actions trusted publishing with OIDC and automatic provenance.
+- Kept backend URL validation deterministic in runtimes without a native WebSocket implementation.
+
+## 0.1.0 - 2026-08-01
+
 - Added pure live-state selectors under `@w3booster/sdk/selectors` for active matches, explicit broadcaster lookup, team grouping with IDs, player relationships, hero inventory, and BattleTag display names.
 - Added the optional `@w3booster/sdk/standard-game` namespace with immutable shipped Warcraft III object metadata and typed helpers for rawcodes, cooldowns, races, colors, melee modes, hero progression, and weapon/armor upgrades.
 - Added safe, versioned Classic/Reforged icon URL helpers and an overridable asset base URL. Warcraft artwork remains outside the npm package.

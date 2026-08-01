@@ -1,6 +1,6 @@
 {
   "name": "@w3booster/sdk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "One SDK for realtime W3Booster match data in overlays and web apps.",
   "type": "module",
   "main": "./src/index.js",
