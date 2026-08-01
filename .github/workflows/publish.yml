@@ -21,10 +21,13 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          registry-url: https://registry.npmjs.org
           package-manager-cache: false
       - name: Install an OIDC-capable npm CLI
         run: npm install --global npm@11
+      - name: Verify OIDC release environment
+        run: |
+          test -n "$ACTIONS_ID_TOKEN_REQUEST_URL"
+          npm --version
       - run: npm ci
       - name: Verify tag matches package version
         run: |
