@@ -1,4 +1,4 @@
-export const SDK_VERSION = '0.1.1';
+export const SDK_VERSION = '0.1.2';
 export const PROTOCOL_VERSION = '1.0';
 export const SUPPORTED_PROTOCOL_VERSIONS = Object.freeze([PROTOCOL_VERSION]);
 
@@ -399,13 +399,22 @@ function createTransportCandidates(options) {
 }
 
 function backendUrls(options = {}) {
-  const backend = options.backend || 'auto';
+  const backend = launchBackendHint() || options.backend || 'cloud';
   const local = normalizeApiBase(options.localApi || DEFAULT_LOCAL_API, 'localApi');
   const cloud = normalizeApiBase(options.cloudApi || DEFAULT_CLOUD_API, 'cloudApi');
   if (backend === 'local') return [local];
   if (backend === 'cloud') return [cloud];
   if (backend !== 'auto') return [normalizeApiBase(backend, 'backend')];
   return [local, cloud];
+}
+
+function launchBackendHint() {
+  try {
+    const backend = new URLSearchParams(globalThis.location?.search || '').get('backend');
+    return backend === 'local' || backend === 'cloud' ? backend : null;
+  } catch (_) {
+    return null;
+  }
 }
 
 function normalizeApiBase(value, optionName) {

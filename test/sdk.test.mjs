@@ -268,7 +268,7 @@ test('a reconnect resets sequence tracking for the new snapshot', async () => {
   assert.equal(client.match.getState().match.gameTime, 21);
 });
 
-test('the launch credential survives local fallback and is sent to the stream broker', async () => {
+test('the default cloud backend receives the launch credential without probing localhost', async () => {
   const original = {
     fetch: globalThis.fetch,
     WebSocket: globalThis.WebSocket,
@@ -280,7 +280,6 @@ test('the launch credential survives local fallback and is sent to the stream br
   globalThis.history = { replaceState(_state, _title, url) { requests.push({ cleanedUrl: url }); } };
   globalThis.fetch = async (url, options) => {
     requests.push({ url, authorization: options.headers.Authorization, credentials: options.credentials, body: JSON.parse(options.body) });
-    if (String(url).includes('localhost')) throw new Error('local broker unavailable');
     return { ok: true, status: 200, async json() { return { websocketUrl: 'wss://stream.example/apps?ticket=once' }; } };
   };
   globalThis.WebSocket = class FakeWebSocket {
@@ -297,13 +296,13 @@ test('the launch credential survives local fallback and is sent to the stream br
   try {
     const client = await connect({ clientId: 'test_app' });
     const brokerRequests = requests.filter(request => request.url);
-    assert.equal(brokerRequests.length, 2);
+    assert.equal(brokerRequests.length, 1);
     assert.ok(brokerRequests.every(request => request.authorization === 'Bearer launch-secret'));
     assert.ok(brokerRequests.every(request => request.credentials === undefined));
-    assert.match(brokerRequests[1].url, /\/stream\/v1\/stream-tickets$/);
-    assert.deepEqual(brokerRequests[1].body.scopes, []);
-    assert.deepEqual(brokerRequests[1].body.protocolVersions, [PROTOCOL_VERSION]);
-    assert.equal(brokerRequests[1].body.sdkVersion, SDK_VERSION);
+    assert.match(brokerRequests[0].url, /^https:\/\/app\.w3booster\.com:14969\/stream\/v1\/stream-tickets$/);
+    assert.deepEqual(brokerRequests[0].body.scopes, []);
+    assert.deepEqual(brokerRequests[0].body.protocolVersions, [PROTOCOL_VERSION]);
+    assert.equal(brokerRequests[0].body.sdkVersion, SDK_VERSION);
     assert.equal(requests[0].cleanedUrl, '/app');
     await client.disconnect();
   } finally {
@@ -311,6 +310,43 @@ test('the launch credential survives local fallback and is sent to the stream br
     if (original.WebSocket === undefined) delete globalThis.WebSocket; else globalThis.WebSocket = original.WebSocket;
     if (original.location === undefined) delete globalThis.location; else globalThis.location = original.location;
     if (original.history === undefined) delete globalThis.history; else globalThis.history = original.history;
+  }
+});
+
+test('the platform launch parameter selects localhost without application-specific configuration', async () => {
+  const original = { fetch: globalThis.fetch, WebSocket: globalThis.WebSocket, location: globalThis.location };
+  const requests = [];
+  globalThis.location = { search: '?view=dashboard&backend=local', hash: '', pathname: '/app' };
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url: String(url), authorization: options.headers.Authorization });
+    return { ok: true, status: 200, async json() { return { websocketUrl: 'wss://localhost:25081/apps?ticket=once' }; } };
+  };
+  globalThis.WebSocket = class FakeWebSocket {
+    static OPEN = 1;
+    constructor() { this.readyState = 0; this.listeners = new Map(); }
+    addEventListener(type, listener) {
+      this.listeners.set(type, listener);
+      if (type === 'open') queueMicrotask(() => { this.readyState = 1; listener(); });
+    }
+    close() { this.readyState = 3; this.listeners.get('close')?.(); }
+    send() { }
+  };
+
+  try {
+    const client = await connect({
+      clientId: 'test_app',
+      // Platform-issued launch configuration wins over app-specific transport choices.
+      backend: 'cloud',
+      tokenProvider: () => 'local-launch-secret'
+    });
+    assert.equal(requests.length, 1);
+    assert.match(requests[0].url, /^https:\/\/localhost:25080\/stream\/v1\/stream-tickets$/);
+    assert.equal(requests[0].authorization, 'Bearer local-launch-secret');
+    await client.disconnect();
+  } finally {
+    if (original.fetch === undefined) delete globalThis.fetch; else globalThis.fetch = original.fetch;
+    if (original.WebSocket === undefined) delete globalThis.WebSocket; else globalThis.WebSocket = original.WebSocket;
+    if (original.location === undefined) delete globalThis.location; else globalThis.location = original.location;
   }
 });
 
@@ -365,12 +401,13 @@ test('overlay composition authenticates a browser-source session', async () => {
       browserSource: { channel: 'user', secret: 'secret' }
     });
     assert.equal(apps[0].clientId, 'child');
-    assert.equal(requests.length, 3);
-    assert.match(requests[1].url, /\/stream\/v1\/compositor-sessions$/);
-    assert.deepEqual(requests[1].body, { channel: 'user', secret: 'secret', surface: 'ingameOverlay' });
-    assert.match(requests[2].url, /\/stream\/v1\/composite-launches$/);
-    assert.equal(requests[2].authorization, 'Bearer compositor-session');
-    assert.deepEqual(requests[2].body, { surface: 'ingameOverlay' });
+    assert.equal(requests.length, 2);
+    assert.ok(requests.every(request => request.url.startsWith('https://app.w3booster.com:14969/')));
+    assert.match(requests[0].url, /\/stream\/v1\/compositor-sessions$/);
+    assert.deepEqual(requests[0].body, { channel: 'user', secret: 'secret', surface: 'ingameOverlay' });
+    assert.match(requests[1].url, /\/stream\/v1\/composite-launches$/);
+    assert.equal(requests[1].authorization, 'Bearer compositor-session');
+    assert.deepEqual(requests[1].body, { surface: 'ingameOverlay' });
   } finally {
     if (originalFetch === undefined) delete globalThis.fetch; else globalThis.fetch = originalFetch;
   }

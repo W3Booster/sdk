@@ -28,7 +28,7 @@ export interface ConnectOptions<TSettings = JsonObject> {
   /** Uses the scopes configured for the app by default. Pass an array only to request a smaller subset. */
   scopes?: Scope[] | 'configured';
   demo?: boolean | { interval?: number; state?: MatchState<TSettings> };
-  /** auto tries the local platform first and then cloud; local/cloud force one backend. A URL targets a custom platform backend. */
+  /** Defaults to cloud. A platform-provided backend=local|cloud launch parameter takes precedence; applications do not parse it themselves. */
   backend?: 'auto' | 'local' | 'cloud' | string;
   tokenProvider?: () => string | null | Promise<string | null>;
   localApi?: string;
@@ -43,6 +43,7 @@ export interface BrowserSourceCredentials {
 }
 export interface OverlayCompositionOptions {
   api?: string;
+  /** Defaults to cloud. A platform-provided backend=local|cloud launch parameter takes precedence; applications do not parse it themselves. */
   backend?: 'auto' | 'local' | 'cloud' | string;
   localApi?: string;
   cloudApi?: string;

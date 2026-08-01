@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.1.2 - 2026-08-02
+
+- Made platform-issued `backend=local|cloud` launch parameters select the SDK backend without application-specific code.
+- Made W3Booster Cloud the default backend. Local platform connections now require an explicit `backend: 'local'` or `backend: 'auto'` option.
 
 ## 0.1.1 - 2026-08-01
 

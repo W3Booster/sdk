@@ -21,7 +21,7 @@ That is the complete production setup. W3Booster takes the scopes from the appli
 
 Use `demo: true` while developing without a running W3Booster platform. To test real data, start your localhost server and choose **Test locally** on your private app in W3Booster. Add the localhost URLs and start the 12-hour dev session. W3Booster opens the same application, stream-overlay, and in-game-overlay surfaces with real app credentials; your published URLs and every other user remain unchanged.
 
-The default backend mode is `auto`: the SDK tries `https://localhost:25080` and falls back to W3Booster Cloud. Platform developers can force localhost so a broken local backend never silently falls back:
+The SDK connects to W3Booster Cloud by default. Platform developers can explicitly select localhost so a broken local backend never silently falls back:
 
 ```js
 const w3 = await connect({
@@ -30,7 +30,8 @@ const w3 = await connect({
 });
 ```
 
-Use `localApi: 'https://localhost:25080'` to change the local address, or pass a complete URL as `backend` for another platform environment.
+Use `localApi: 'https://localhost:25080'` to change the local address, `backend: 'auto'` to try local and then cloud, or pass a complete URL as `backend` for another platform environment.
+When W3Booster launches an application, the SDK automatically honors the platform-provided `backend=local` or `backend=cloud` URL parameter. Application code must not parse or forward this parameter itself.
 Remote API and WebSocket endpoints must use HTTPS/WSS. Plain HTTP/WS is accepted only for localhost development, preventing launch credentials from being sent over an unencrypted network.
 
 There is no login screen inside the app. The SDK consumes the launch credential, keeps it for page reloads, exchanges it for one-use stream tickets, and reconnects automatically. Applications never receive the browser-source channel or secret and never select a transport.
