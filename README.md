@@ -1,132 +1,240 @@
 # @w3booster/sdk
 
-One small browser SDK for W3Booster overlays and web applications. Developers subscribe to hydrated match state; the SDK chooses the available W3Booster transport.
+Browser SDK for realtime W3Booster match data in applications and overlays. It handles app authorization, transport selection, reconnects, protocol validation, patches, and immutable hydrated state.
+
+## Quick start
+
+```sh
+npm install @w3booster/sdk
+```
 
 ```js
 import { connect } from '@w3booster/sdk';
 
-const w3 = await connect('your_app_id');
-const initialState = await w3.whenReady();
+const client = await connect('your_app_id');
 
-w3.state.subscribe(state => {
-  console.log(state.match, state.players);
-});
-
-w3.on('hero.inventory.changed', ({ player, inventory }) => {
-  console.log(player.name, inventory);
+const unsubscribe = client.state.subscribe(state => {
+  render(state.match, state.players);
 });
 ```
 
-That is the complete production setup. W3Booster takes the scopes from the application record, selects the transport, supplies the launch credential, reconnects, validates messages, applies patches, and keeps immutable state. Pass a `scopes` array only when an app intentionally wants a smaller subset than it declared.
+The client ID is the public, immutable identifier generated when an app is created in W3Booster. It is not a secret. Scopes come from the application record by default, so normal applications do not pass connection URLs, credentials, or scopes.
 
-Use `demo: true` while developing without a running W3Booster platform. To test real data, start your localhost server and choose **Test locally** on your private app in W3Booster. Add the localhost URLs and start the 12-hour dev session. W3Booster opens the same application, stream-overlay, and in-game-overlay surfaces with real app credentials; your published URLs and every other user remain unchanged.
-
-The SDK connects to W3Booster Cloud by default. Platform developers can explicitly select localhost so a broken local backend never silently falls back:
+Use `demo: true` when W3Booster is not running:
 
 ```js
-const w3 = await connect({
+const client = await connect({ clientId: 'your_app_id', demo: true });
+```
+
+For real data during development, run the app on localhost and use **Apps → Developer → My apps → Test locally**. The temporary session supplies real credentials and replaces only your app surfaces. Application code remains unchanged.
+
+W3Booster Cloud is the default backend. A platform-provided `?backend=local` or `?backend=cloud` launch parameter is handled by the SDK automatically; application code must not parse or forward it. Platform developers can force the local API explicitly:
+
+```js
+const client = await connect({
   clientId: 'your_app_id',
   backend: 'local'
 });
 ```
 
-Use `localApi: 'https://localhost:25080'` to change the local address, `backend: 'auto'` to try local and then cloud, or pass a complete URL as `backend` for another platform environment.
-When W3Booster launches an application, the SDK automatically honors the platform-provided `backend=local` or `backend=cloud` URL parameter. Application code must not parse or forward this parameter itself.
-Remote API and WebSocket endpoints must use HTTPS/WSS. Plain HTTP/WS is accepted only for localhost development, preventing launch credentials from being sent over an unencrypted network.
+`backend: 'auto'` tries local and then cloud. A complete HTTPS URL selects another platform environment. Remote HTTP and WebSocket endpoints must use HTTPS/WSS; unencrypted HTTP/WS is accepted only for localhost.
 
-There is no login screen inside the app. The SDK consumes the launch credential, keeps it for page reloads, exchanges it for one-use stream tickets, and reconnects automatically. Applications never receive the browser-source channel or secret and never select a transport.
+## State lifecycle
 
-Install with `npm install @w3booster/sdk`. Releases are automated: update the package version and changelog, merge that commit to `main`, then push the matching version tag (for example, `v0.2.0`). GitHub Actions verifies the tag, runs the complete prepublish checks, and publishes the public npm package with provenance.
-
-The SDK keeps the complete immutable state while compact updates arrive. Use `subscribe` when a view depends on the whole match, `watch` for a selected value, or domain events for actions:
+`connect()` resolves when a transport is connected. Use `whenReady()` when work must wait for the first hydrated snapshot:
 
 ```js
-const stopClock = w3.state.watch(
-  state => state.match.gameTime,
-  seconds => drawClock(seconds)
-);
-
-w3.on('match.started', ({ match }) => showMatch(match));
-w3.on('player.resources.changed', ({ player, resources }) => updateEconomy(player.id, resources));
-w3.on('hero.changed', ({ player, hero }) => updateHero(player.id, hero));
+const initialState = await client.whenReady(); // 10-second default timeout
 ```
 
-Useful events include `state.ready`, `state.changed`, `match.started`, `match.changed`, `match.ended`, `player.changed`, `player.resources.changed`, `player.stats.changed`, `player.upgrades.changed`, `hero.changed`, `hero.inventory.changed`, and `hero.abilities.changed`. Every `on`, `watch`, and `subscribe` call returns an unsubscribe function.
+`client.state` is the authoritative source of current data:
 
-Settings defined in your application metadata are available as `state.application.settings`. When a user saves settings, the SDK reconnects and emits `application.settings.changed`.
+- `get()` returns the current state or `null` before the first snapshot.
+- `player(id)` returns one current player or `null`.
+- `subscribe(listener)` runs immediately when state already exists and after every update.
+- `watch(selector, listener)` runs for the first selected value and then when its structural value changes.
+- Every subscription method returns an unsubscribe function.
 
-Type your settings and the entire event/store API follows that type:
+The initial snapshot emits `state.ready` and `state.changed`. Match, player, and hero domain events describe changes after that snapshot; they are not a replacement for rendering initial state. In particular, an already-running match does not synthesize `match.started` when the app opens.
+
+```js
+const stopClock = client.state.watch(
+  state => state.match.gameTime,
+  (seconds, previousSeconds) => drawClock(seconds, previousSeconds)
+);
+
+client.on('match.started', ({ match }) => showNewMatch(match));
+client.on('player.resources.changed', ({ player, resources }) => updateEconomy(player.id, resources));
+client.on('hero.changed', ({ player, hero }) => updateHero(player.id, hero));
+```
+
+`client.status` is the current connection state. The `status` event reports later transitions such as `reconnecting`, `connected`, and `error`. Automatic network reconnects preserve hydrated state. An explicit `disconnect()` closes transports and clears state and diagnostics; existing subscriptions remain registered if the same client is connected again.
+
+Concurrent `connect()` calls share one connection attempt. To cancel an initial connection while a view is being destroyed, pass an `AbortSignal`; cancellation rejects with the standard `AbortError` name:
+
+```js
+const controller = new AbortController();
+const connection = connect({ clientId: 'your_app_id', signal: controller.signal });
+controller.abort();
+```
+
+## Scopes and capabilities
+
+An application requests scopes in its W3Booster metadata. The server filters every snapshot to the granted scopes. Passing `scopes` to `connect()` can only request a smaller subset.
+
+| Scope | Capability | Conditional state |
+| --- | --- | --- |
+| `match:read` | `match` | Match lifecycle, time, map, mode, realm, and broadcaster IDs |
+| `players:read` | `players` | Player identity, race, team, color, and position |
+| `stats:read` | `stats` | Ranking statistics and main-account data |
+| `heroes:read` | `heroes` | Heroes, health, mana, abilities, and inventory |
+| `upgrades:read` | `upgrades` | Completed, active, and researching upgrades |
+| `resources:read` | `resources` | Gold, lumber, supply, and worker supply |
+| `controlgroups:read` | `controlgroups` | Control-group front units and sizes |
+| `overlay:read` | `overlay` | Overlay settings and recorder runtime values |
+
+A granted scope does not guarantee that data exists in every match or account context. Check `state.capabilities` and keep conditional fields optional:
+
+```js
+client.state.subscribe(state => {
+  const canShowResources = state.capabilities.includes('resources');
+  const resources = canShowResources ? state.players[0]?.resources : undefined;
+  renderResources(resources);
+});
+```
+
+## Events
+
+Useful events include:
+
+- `state.ready`, `state.changed`
+- `match.started`, `match.changed`, `match.ended`
+- `player.added`, `player.changed`, `player.removed`
+- `player.resources.changed`, `player.stats.changed`, `player.upgrades.changed`
+- `hero.added`, `hero.changed`, `hero.removed`
+- `hero.inventory.changed`, `hero.abilities.changed`
+- `application.settings.changed`
+- `status`, `error`, and `stream.gap`
+
+`on()` and `once()` return unsubscribe functions. Listener failures are isolated and forwarded to the `error` event so one application callback cannot interrupt state delivery.
+
+## Typed application settings
+
+Settings defined in application metadata are delivered as `state.application.settings`. Type the settings once and the state, events, and store inherit that type:
 
 ```ts
 interface Settings {
   layout: 'compact' | 'wide';
-  showHeroes: boolean;
+  showHeroes?: boolean;
 }
 
-const w3 = await connect<Settings>('your_app_id');
-w3.state.subscribe(state => setLayout(state.application?.settings.layout));
+const client = await connect<Settings>('your_app_id');
+
+client.state.subscribe(state => {
+  const settings = state.application?.settings;
+  if (settings) setLayout(settings.layout);
+});
 ```
 
-The package exports the complete public data model, including `MatchState`, `Match`, `Player`, `Hero`, `Resources`, statistics, upgrades, capabilities, protocol envelopes, patches, surfaces, scopes, and all event payloads. State is validated at runtime and unknown additive fields are preserved for forward compatibility.
+`client.host.setSetting(path, value)` returns `true` when a command was delivered to the W3Booster host, not when persistence has completed. Treat the later `application.settings.changed` event as confirmation of the current saved value.
 
-## State selectors
+## Errors and troubleshooting
 
-Import pure, framework-free conveniences from `@w3booster/sdk/selectors`. Selectors derive common values from live state without changing it:
+Handle initial connection failures around `connect()` and later stream or listener failures with the `error` event:
 
 ```js
-import { broadcasterPlayer, groupPlayersByTeam, heroInventory } from '@w3booster/sdk/selectors';
+import {
+  connect,
+  ConnectionError,
+  PermissionRequiredError,
+  ProtocolError
+} from '@w3booster/sdk';
+
+try {
+  const client = await connect('your_app_id');
+  client.on('error', error => {
+    if (error instanceof ProtocolError) console.error(error.code, error.details);
+    else console.error(error);
+  });
+} catch (error) {
+  if (error instanceof PermissionRequiredError) {
+    showMessage('Enable and open this app from W3Booster.');
+  } else if (error instanceof ConnectionError) {
+    console.error(error.message, error.causes);
+  } else {
+    throw error;
+  }
+}
+```
+
+Common causes:
+
+- **Permission required:** the URL was opened directly, the app is disabled, or its temporary development session expired.
+- **No initial state:** `whenReady()` timed out before the platform supplied a snapshot.
+- **Local connection failure:** trust the W3Booster localhost certificate and verify the local backend is running.
+- **Protocol error:** inspect `ProtocolError.code`; the SDK requests a resync automatically after invalid state or a sequence gap.
+- **Missing fields:** verify the application scope, the matching capability, and whether that data exists for the current match.
+
+The package targets modern ESM browsers with `fetch`, `WebSocket`, and `AbortController`. Node.js is supported for tooling and tests; realtime Node usage must provide an appropriate WebSocket environment or a testing transport.
+
+## Low-latency recorder data
+
+During active observer and replay matches, the SDK automatically consumes the local recorder socket advertised by authenticated platform state. The platform remains authoritative for identity, permissions, settings, capabilities, and the initial snapshot; the local socket overlays volatile match values such as game time, HUD scale, resources, heroes, and upgrades. If that socket disconnects, cached recorder values stop overriding authenticated platform snapshots until the recorder reconnects and sends fresh data.
+
+Only loopback and private-network socket addresses are accepted. Capabilities still control all exposed fields. Set `localRecorder: false` only when an application deliberately needs to disable this behavior. `client.diagnostics.localTransport` is `recorder-local` while it is active.
+
+## Selectors
+
+Pure state helpers live in `@w3booster/sdk/selectors`:
+
+```js
+import {
+  broadcasterPlayer,
+  groupPlayersByTeam,
+  heroInventory,
+  playerRelationship
+} from '@w3booster/sdk/selectors';
 
 const broadcaster = broadcasterPlayer(state.match, state.players);
 const teams = groupPlayersByTeam(state.players);
-const items = heroInventory(broadcaster?.heroes?.[0]);
+const relation = playerRelationship(state.players[0], state.match, state.players);
+const inventory = heroInventory(broadcaster?.heroes?.[0]);
 ```
 
-The selector namespace also provides `isActiveMatch()`, `battleTagName()`, and `playerRelationship()`. Grouping retains each protocol `teamId`; ordering teams or assigning relationship colors remains an application presentation decision. `broadcasterPlayer()` returns `null` if the configured identity is absent. Pass `{ fallbackToFirst: true }` only when that fallback is intentional.
+Also available: `isActiveMatch()` and `battleTagName()`. Selectors preserve protocol meaning without imposing presentation rules such as team ordering or colors.
 
 ## Warcraft III standard-game data
 
-Live state and static game knowledge are separate. Import the optional standard-game namespace when an app needs Warcraft III's shipped object metadata or ruleset helpers:
+Optional static Warcraft III knowledge lives in `@w3booster/sdk/standard-game` so applications that only need live state do not bundle the object table:
 
 ```js
 import * as standardGame from '@w3booster/sdk/standard-game';
 
 const hero = standardGame.getObject('Hamg');
-console.log(hero?.icon);                         // btnheroarchmage.png
-console.log(standardGame.iconUrl('Hamg'));       // hosted Reforged icon URL
-console.log(standardGame.getAbilityCooldown('AHbz', 1)); // 6
-console.log(standardGame.raceName('night-elf'));         // Night Elf
-console.log(standardGame.isMode('gm-1v1', '1v1'));       // true
-
-const cooldown = standardGame.abilityCooldown(heroAbility, state.match.gameTime);
-const stats = standardGame.statsForMode(player, state.match.mode);
+const icon = standardGame.iconUrl('Hamg', { graphics: 'reforged' });
+const cooldown = standardGame.abilityCooldown(ability, state.match.gameTime);
+const progress = standardGame.heroExperienceState(heroState.experience);
 const clock = standardGame.dayNightState(state.match.gameTime);
-const heroProgress = standardGame.heroExperienceState(hero.experience);
-const showUpgrade = standardGame.isWeaponOrArmorUpgrade(upgrade.name);
 ```
 
-The namespace provides immutable rawcode metadata, hosted icon URLs, numeric field lookup, ability cooldown state, weapon/armor-upgrade classification, race labels, Warcraft player colors, mode-specific statistics, the standard day/night clock, and hero experience progression. It owns Warcraft semantics such as activation timestamp units so applications do not need to reproduce them. It does not own application presentation rules such as sprite frames, team palettes, or team ordering. It is a subpath so apps that only need realtime state do not bundle the object table.
+The namespace includes immutable shipped-object metadata, Classic/Reforged icon URLs, cooldowns, upgrade classification, race labels, player colors, melee modes, statistics selection, the day/night clock, and hero progression. Custom maps can replace these objects and rules; live recorder values remain authoritative.
 
-Icons default to the immutable `https://assets.w3booster.com/wc3/standard-game/v1/` catalog. Select Classic graphics or replace the base for local/offline hosting:
+Icons default to the immutable `https://assets.w3booster.com/wc3/standard-game/v1/` catalog. Pass `baseUrl` for a local asset mirror. The npm package contains metadata and URL helpers, not Blizzard artwork.
+
+## Host actions
+
+Embedded surfaces can ask W3Booster to perform supported host actions:
 
 ```js
-const icon = standardGame.iconUrl('Hamg', {
-  graphics: state.match.isReforged ? 'reforged' : 'classic',
-  baseUrl: 'http://localhost:8080'
-});
+client.host.openWindow({ path: '?view=compact', width: 520, height: 620 });
+client.host.command('my.command', { value: 1 });
 ```
 
-`assetManifestUrl()` returns the catalog manifest. The npm package contains metadata and URL helpers, not Blizzard artwork.
+Host methods return `false` outside the W3Booster host.
 
-Here, **standard game** means the objects and constants shipped by Blizzard, including standard melee and campaign objects. A custom map can replace or add object data, gameplay constants, triggers, and assets; the SDK does not claim that standard-game metadata describes those changes. Live recorder values remain authoritative whenever they are available.
+## Advanced subpaths
 
-Application surfaces can ask W3Booster to open an app-owned subwindow. This is useful for compact controls or secondary tools:
+- `@w3booster/sdk/compositor` contains browser-source composition APIs used by W3Booster's platform compositor. Its watcher renews expired browser-source sessions and reauthorizes reconnects automatically. Ordinary applications do not import it.
+- `@w3booster/sdk/testing` contains `createDemoTransport` and custom transport types for SDK and integration tests. Application demo mode normally uses `connect({ demo: true })` instead.
 
-```js
-w3.host.openWindow({ path: '?view=compact', width: 520, height: 620 });
-```
-
-For supported platform actions, use `w3.host.command(name, payload)`. Both methods return `false` when the app is running outside the W3Booster host.
-
-Use `w3.host.setSetting(path, value)` for the common settings case. Existing `w3.match`, `MatchStore`, `getState()`, and `getPlayer()` APIs remain as compatibility aliases. See `COMPATIBILITY.md` for the Semantic Versioning and protocol-support policy.
-
-Run tests with `npm test`.
+The complete public data model is exported from `@w3booster/sdk`. See `COMPATIBILITY.md` for the Semantic Versioning and protocol policy and `CHANGELOG.md` for release changes.

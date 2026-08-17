@@ -1,56 +1,41 @@
-export const SDK_VERSION = '0.1.2';
-export const PROTOCOL_VERSION = '1.0';
-export const SUPPORTED_PROTOCOL_VERSIONS = Object.freeze([PROTOCOL_VERSION]);
+import { SDK_VERSION, PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS } from './version.js';
+import { createDemoTransport } from './testing.js';
+
+export { SDK_VERSION, PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS } from './version.js';
 
 const KNOWN_SCOPES = new Set(['match:read', 'players:read', 'stats:read', 'heroes:read', 'upgrades:read', 'resources:read', 'controlgroups:read', 'overlay:read']);
 const DEFAULT_LOCAL_API = 'https://localhost:25080';
 const DEFAULT_CLOUD_API = 'https://app.w3booster.com:14969';
 const MAX_MESSAGE_LENGTH = 5 * 1024 * 1024;
+const CONNECTION_TIMEOUT = 5000;
 const UNSAFE_OBJECT_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
+const MATCH_STATUSES = new Set(['starting', 'running', 'finished', 'none']);
+const RACES = new Set(['random', 'human', 'orc', 'undead', 'night-elf']);
+const APP_SURFACES = new Set(['application', 'streamOverlay', 'ingameOverlay']);
+const LOCAL_HERO_ALIASES = new Map([
+  ['Edmm', 'Edem'], ['Nrob', 'Ntin'], ['Nalm', 'Nalc'], ['Nal2', 'Nalc'], ['Nal3', 'Nalc']
+]);
+const LOCAL_ABILITY_ALIASES = new Map([
+  ['AUfa', 'AUfu'], ['ANc1', 'ANcs'], ['ANc2', 'ANcs'], ['ANc3', 'ANcs'],
+  ['ANs1', 'ANsy'], ['ANs2', 'ANsy'], ['ANs3', 'ANsy'],
+  ['ANg1', 'ANrg'], ['ANg2', 'ANrg'], ['ANg3', 'ANrg'], ['ANia', 'ANic']
+]);
+const LOCAL_UTILITY_ABILITIES = new Set([
+  'AEtq', 'AHav', 'AEme', 'AEsf', 'AEsv', 'AHmt', 'AHpx', 'AHre', 'ANch', 'ANtm',
+  'AOeq', 'AOre', 'AOvd', 'AOww', 'AUan', 'AUdd', 'AUin', 'ANef', 'ANrg', 'ANvc',
+  'ANdo', 'ANst', 'ANto', 'AUls'
+]);
 
 /** Connect to W3Booster without choosing a local or cloud transport. */
 export async function connect(options) {
   const client = new W3BoosterClient(options);
-  await client.connect();
-  return client;
-}
-
-/** Return authenticated child overlays for W3Booster's single overlay compositor. */
-export async function getOverlayComposition(options = {}) {
-  if (!globalThis.fetch) return [];
-  const browserSource = readBrowserSource(options);
-  const surface = options.surface || browserSource?.surface || 'streamOverlay';
-  let credential = options.tokenProvider
-    ? await options.tokenProvider()
-    : (browserSource ? null : readCompositorCredential(surface));
-  const bases = options.api ? [normalizeApiBase(options.api, 'api')] : backendUrls(options);
-  const errors = [];
-  for (let index = 0; index < bases.length; index++) {
-    try {
-      if (!credential && browserSource) {
-        credential = await bootstrapBrowserSourceSession(
-          bases[index],
-          { ...browserSource, surface },
-          index === 0 ? 500 : 5000
-        );
-      }
-      const response = await fetchWithTimeout(`${bases[index]}/stream/v1/composite-launches`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(credential ? { Authorization: `Bearer ${credential}` } : {})
-        },
-        body: JSON.stringify({ surface })
-      }, index === 0 ? 500 : 5000);
-      if (!response.ok) throw new Error(`overlay compositor returned ${response.status}`);
-      const result = await response.json();
-      return Array.isArray(result?.apps) ? result.apps : [];
-    } catch (error) {
-      errors.push(error);
-    }
+  try {
+    await client.connect();
+    return client;
+  } catch (error) {
+    await client.disconnect();
+    throw error;
   }
-  if (!credential && !browserSource) return [];
-  throw new ConnectionError('Could not load enabled app overlays.', errors);
 }
 
 export class W3BoosterClient {
@@ -58,17 +43,50 @@ export class W3BoosterClient {
     this.options = normalizeConnectOptions(options);
     this.events = new W3BoosterEventEmitter();
     this.state = new StateStore(error => this.emit('error', error));
-    this.match = this.state;
     this.host = new W3BoosterHost(this.options.clientId);
     this.host.startAutoResize();
     this.status = 'idle';
-    this.diagnostics = { sdkVersion: SDK_VERSION, protocolVersion: null, transport: null };
+    this.diagnostics = { sdkVersion: SDK_VERSION, protocolVersion: null, transport: null, localTransport: null };
     this.sequence = 0;
     this.transport = null;
+    this.pendingTransport = null;
+    this.connectPromise = null;
+    this.disconnectPromise = null;
+    this.connectionController = null;
+    this.connectionGeneration = 0;
+    this.closedTransports = new WeakSet();
+    this.localRecorderTransport = new LocalRecorderTransport({
+      enabled: this.options.localRecorder !== false,
+      onUpdates: updates => this.handleLocalRecorderUpdates(updates),
+      onStatus: active => { this.diagnostics.localTransport = active ? 'recorder-local' : null; },
+      onError: error => this.emit('error', error)
+    });
   }
 
   async connect() {
-    if (this.status === 'connected') return this;
+    if (this.status === 'connected' || this.status === 'reconnecting') return this;
+    if (this.connectPromise) return this.connectPromise;
+    const generation = ++this.connectionGeneration;
+    const controller = new AbortController();
+    this.connectionController = controller;
+    const externalSignal = this.options.signal;
+    const abortFromExternalSignal = () => controller.abort(externalSignal?.reason);
+    if (externalSignal?.aborted) abortFromExternalSignal();
+    else externalSignal?.addEventListener('abort', abortFromExternalSignal, { once: true });
+    const attempt = this.openConnection(generation, controller.signal);
+    this.connectPromise = attempt;
+    try {
+      return await attempt;
+    } finally {
+      externalSignal?.removeEventListener('abort', abortFromExternalSignal);
+      if (this.connectPromise === attempt) this.connectPromise = null;
+      if (this.connectionController === controller) this.connectionController = null;
+    }
+  }
+
+  async openConnection(generation, signal) {
+    throwIfAborted(signal);
+    this.host.startAutoResize();
     this.setStatus('connecting');
     const candidates = this.options.transport
       ? [this.options.transport]
@@ -76,23 +94,41 @@ export class W3BoosterClient {
     const errors = [];
 
     for (const transport of candidates) {
+      throwIfAborted(signal);
+      this.closedTransports.delete(transport);
+      this.pendingTransport = transport;
       try {
-        await transport.open({
+        await abortable(transport.open({
           clientId: this.options.clientId,
           scopes: [...this.options.scopes],
           protocolVersions: SUPPORTED_PROTOCOL_VERSIONS,
-          onMessage: message => this.handleMessage(message),
-          onStatus: status => this.setStatus(status),
-          onError: error => this.emit('error', error)
-        });
+          signal,
+          onMessage: message => {
+            if (generation === this.connectionGeneration) this.handleMessage(message);
+          },
+          onStatus: status => {
+            if (generation === this.connectionGeneration) this.setStatus(status);
+          },
+          onError: error => {
+            if (generation === this.connectionGeneration) this.emit('error', error);
+          }
+        }), signal);
+        throwIfAborted(signal);
+        if (generation !== this.connectionGeneration) throw createAbortError();
+        this.pendingTransport = null;
         this.transport = transport;
         this.diagnostics.transport = transport.name;
         this.setStatus('connected');
         return this;
       } catch (error) {
+        if (this.pendingTransport === transport) this.pendingTransport = null;
         errors.push(error);
-        await transport.close?.();
-        if (error instanceof PermissionRequiredError) throw error;
+        await this.closeTransport(transport);
+        if (signal.aborted || generation !== this.connectionGeneration || isAbortError(error)) throw createAbortError();
+        if (error instanceof PermissionRequiredError) {
+          this.setStatus('error');
+          throw error;
+        }
       }
     }
 
@@ -109,11 +145,38 @@ export class W3BoosterClient {
   whenReady(options) { return this.state.whenReady(options); }
 
   async disconnect() {
-    await this.transport?.close?.();
+    if (this.disconnectPromise) return this.disconnectPromise;
+    const operation = this.closeConnection();
+    this.disconnectPromise = operation;
+    try { await operation; }
+    finally { if (this.disconnectPromise === operation) this.disconnectPromise = null; }
+  }
+
+  async closeConnection() {
+    const pendingConnection = this.connectPromise;
+    this.connectionGeneration += 1;
+    this.connectionController?.abort(createAbortError());
+    this.connectionController = null;
+    const transports = new Set([this.pendingTransport, this.transport].filter(Boolean));
+    this.pendingTransport = null;
     this.transport = null;
+    await Promise.allSettled([...transports].map(transport => this.closeTransport(transport)));
+    if (pendingConnection) await Promise.allSettled([pendingConnection]);
+    if (this.connectPromise === pendingConnection) this.connectPromise = null;
+    this.localRecorderTransport.close();
     this.sequence = 0;
+    this.state.reset();
+    this.diagnostics.protocolVersion = null;
+    this.diagnostics.transport = null;
+    this.diagnostics.localTransport = null;
     this.host.stopAutoResize();
     this.setStatus('closed');
+  }
+
+  closeTransport(transport) {
+    if (!transport || this.closedTransports.has(transport)) return;
+    this.closedTransports.add(transport);
+    return transport.close?.();
   }
 
   handleMessage(rawMessage) {
@@ -149,8 +212,10 @@ export class W3BoosterClient {
       return;
     }
     if (nextState) {
+      nextState = this.localRecorderTransport.applyTo(nextState);
       const state = this.state.setState(nextState);
       emitDomainEvents(previousState, state, (type, data) => this.emit(type, data));
+      this.localRecorderTransport.configure(state);
       this.emit(message.type, message.type === 'state.snapshot' ? state : message.data);
       return;
     }
@@ -165,6 +230,21 @@ export class W3BoosterClient {
     this.transport?.resync?.();
   }
 
+  handleLocalRecorderUpdates(updates) {
+    const previousState = this.state.get();
+    if (!previousState) return;
+    try {
+      const nextState = validateState(applyLocalRecorderUpdates(previousState, updates), this.options.clientId);
+      if (deepEqual(previousState, nextState)) return;
+      const state = this.state.setState(nextState);
+      emitDomainEvents(previousState, state, (type, data) => this.emit(type, data));
+    } catch (error) {
+      this.emit('error', error instanceof ProtocolError
+        ? error
+        : new ProtocolError('INVALID_LOCAL_UPDATE', 'The local recorder update was invalid.', error));
+    }
+  }
+
   emit(type, data) { this.events.emit(type, data); }
 
   setStatus(status) {
@@ -172,6 +252,304 @@ export class W3BoosterClient {
     this.status = status;
     this.emit('status', status);
   }
+}
+
+/**
+ * Low-latency transport for the recorder's observer/replay socket.
+ * The platform snapshot remains authoritative for identity, permissions, and
+ * settings; this feed only overlays volatile match values that the recorder
+ * deliberately publishes only on the local system.
+ */
+class LocalRecorderTransport {
+  constructor({ enabled, onUpdates, onStatus, onError }) {
+    this.enabled = enabled;
+    this.onUpdates = onUpdates;
+    this.onStatus = onStatus;
+    this.onError = onError;
+    this.urls = [];
+    this.signature = '';
+    this.matchId = '';
+    this.latest = new Map();
+    this.socket = null;
+    this.retryTimer = null;
+    this.retryAttempt = 0;
+    this.urlIndex = 0;
+    this.stopped = false;
+    this.active = false;
+  }
+
+  configure(state) {
+    const observerOrReplay = state?.match?.isObserver === true || state?.match?.isReplay === true;
+    const active = state?.match?.status === 'starting' || state?.match?.status === 'running';
+    const urls = active && observerOrReplay && this.enabled
+      ? localRecorderUrls(state?.overlay?.misc?.localServerUrls)
+      : [];
+    const signature = `${String(state?.match?.id || '')}|${urls.join('|')}`;
+    if (signature === this.signature) return;
+
+    this.stopSocket();
+    this.signature = signature;
+    this.matchId = String(state?.match?.id || '');
+    this.urls = urls;
+    this.latest.clear();
+    this.retryAttempt = 0;
+    this.urlIndex = 0;
+    this.stopped = false;
+    this.onStatus(false);
+    if (urls.length) this.connect();
+  }
+
+  applyTo(state) {
+    if (!state || !this.active || !this.latest.size || String(state.match?.id || '') !== this.matchId) return state;
+    return applyLocalRecorderUpdates(state, [...this.latest.values()]);
+  }
+
+  close() {
+    this.stopped = true;
+    this.signature = '';
+    this.urls = [];
+    this.latest.clear();
+    this.active = false;
+    this.stopSocket();
+    this.onStatus(false);
+  }
+
+  connect() {
+    if (this.stopped || !this.urls.length || !globalThis.WebSocket || this.socket) return;
+    const url = this.urls[this.urlIndex++ % this.urls.length];
+    let opened = false;
+    try {
+      const socket = new WebSocket(url);
+      this.socket = socket;
+      socket.addEventListener('open', () => {
+        if (this.socket !== socket) return;
+        opened = true;
+        this.active = true;
+        this.retryAttempt = 0;
+        this.onStatus(true);
+      });
+      socket.addEventListener('message', event => {
+        if (this.socket !== socket || !opened) return;
+        try {
+          const updates = parseLocalRecorderMessage(event.data);
+          const applicable = updates.filter(update => updateMatchesMatch(update, this.matchId));
+          if (!applicable.length) return;
+          for (const update of applicable) {
+            const cached = structuredCloneSafe(update);
+            cached.__w3boosterReceivedAt = Date.now();
+            const key = localUpdateKey(cached);
+            // Reinsert replacements so replaying the cache preserves the most
+            // recent recorder ordering (notably player-slot switches).
+            this.latest.delete(key);
+            this.latest.set(key, cached);
+          }
+          this.onUpdates([...this.latest.values()]);
+        } catch (error) {
+          this.onError(error instanceof ProtocolError
+            ? error
+            : new ProtocolError('INVALID_LOCAL_UPDATE', 'The local recorder update was invalid.', error));
+        }
+      });
+      socket.addEventListener('error', () => {
+        if (opened) this.onError(new ConnectionError('The local recorder stream failed.'));
+      });
+      socket.addEventListener('close', () => {
+        if (this.socket !== socket) return;
+        this.socket = null;
+        this.active = false;
+        this.latest.clear();
+        this.onStatus(false);
+        this.scheduleReconnect();
+      });
+    } catch (error) {
+      this.socket = null;
+      this.scheduleReconnect();
+    }
+  }
+
+  scheduleReconnect() {
+    if (this.stopped || this.retryTimer || !this.urls.length) return;
+    const delay = Math.min(250 * (2 ** this.retryAttempt++), 5000);
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      this.connect();
+    }, delay);
+  }
+
+  stopSocket() {
+    clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    const socket = this.socket;
+    this.socket = null;
+    this.active = false;
+    socket?.close?.();
+  }
+}
+
+function parseLocalRecorderMessage(value) {
+  if (typeof value === 'string' && value.length > MAX_MESSAGE_LENGTH) {
+    throw new ProtocolError('MESSAGE_TOO_LARGE', 'The local recorder update exceeded the safety limit.');
+  }
+  let updates;
+  try { updates = typeof value === 'string' ? JSON.parse(value) : value; }
+  catch (error) { throw new ProtocolError('INVALID_LOCAL_UPDATE', 'The local recorder update was not valid JSON.', error); }
+  if (!Array.isArray(updates)) throw new ProtocolError('INVALID_LOCAL_UPDATE', 'Local recorder updates must be an array.');
+  assertSafeValue(updates, 'local recorder updates');
+  return updates.filter(isPlainObject);
+}
+
+function localRecorderUrls(value) {
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(value.map(candidate => {
+    try {
+      const parsed = new URL(String(candidate));
+      if (!['ws:', 'wss:'].includes(parsed.protocol) || parsed.username || parsed.password) return null;
+      if (!isLocalNetworkHost(parsed.hostname)) return null;
+      return parsed.toString();
+    } catch (_) { return null; }
+  }).filter(Boolean)));
+}
+
+function isLocalNetworkHost(hostname) {
+  const host = String(hostname || '').replace(/^\[|\]$/g, '').toLowerCase();
+  if (host === 'localhost' || host === '::1' || host.startsWith('127.')) return true;
+  if (host.startsWith('10.') || host.startsWith('192.168.')) return true;
+  const match = /^172\.(\d+)\./.exec(host);
+  return !!match && Number(match[1]) >= 16 && Number(match[1]) <= 31;
+}
+
+function updateMatchesMatch(update, matchId) {
+  return update.matchId === undefined || String(update.matchId) === String(matchId);
+}
+
+function localUpdateKey(update) {
+  const playerId = localUpdatePlayerId(update);
+  if (update.class === 'W3Resource') return `${update.class}:${playerId}:${String(update.type)}`;
+  if (update.class === 'W3Player') return `${update.class}:${playerId}`;
+  if (update.class === 'W3Unit') return `${update.class}:${playerId}:${String(update.type)}`;
+  if (update.class === 'W3Research') return `${update.class}:${playerId}:${String(update.type)}:${String(update.level)}`;
+  return String(update.class || 'unknown');
+}
+
+function applyLocalRecorderUpdates(state, updates) {
+  const next = structuredCloneSafe(state);
+  for (const update of updates || []) {
+    if (!isPlainObject(update) || !updateMatchesMatch(update, next.match?.id)) continue;
+    const player = next.players?.find(candidate => String(candidate.id) === String(localUpdatePlayerId(update)));
+    if (update.class === 'W3GameTime' && hasCapability(next, 'match') && Number.isFinite(Number(update.value))) {
+      next.match.gameTime = Number(update.value);
+    } else if (update.class === 'W3ChatbarState' && hasCapability(next, 'overlay') && next.overlay?.misc) {
+      next.overlay.misc.chatbarOpen = Number(update.value) === 1;
+    } else if (update.class === 'W3HudScale' && hasCapability(next, 'overlay') && next.overlay?.misc) {
+      const hudScale = normalizedHudScale(update.value);
+      if (hudScale !== null) next.overlay.misc.hudScale = hudScale;
+    } else if (update.class === 'W3TeamColor' && hasCapability(next, 'overlay') && next.overlay?.misc) {
+      next.overlay.misc.teamColors = Boolean(update.value);
+    } else if (update.class === 'W3Resource' && hasCapability(next, 'resources') && player) {
+      const resource = localResourceName(update.type);
+      const value = Number(update.value);
+      if (!resource || !Number.isFinite(value)) continue;
+      player.resources ||= { gold: 0, lumber: 0, supply: 0, supplyCap: 0, workerSupply: 0 };
+      player.resources[resource] = resource === 'gold' || resource === 'lumber' ? value / 10 : value;
+    } else if (update.class === 'W3Player' && hasCapability(next, 'controlgroups') && player &&
+        String(player.id) === String(next.match?.broadcasterPlayerId) && isPlainObject(update.controlgroups)) {
+      player.controlgroups = structuredCloneSafe(update.controlgroups);
+    } else if (update.class === 'W3PlayerSlot' && hasCapability(next, 'match') && Number.isFinite(Number(update.value))) {
+      const broadcasterPlayerId = String(Number(update.value));
+      next.match.broadcasterPlayerId = broadcasterPlayerId;
+      next.match.realBroadcasterPlayerId = broadcasterPlayerId;
+    } else if (update.class === 'W3Unit' && update.isHero && hasCapability(next, 'heroes') && player) {
+      applyLocalHeroUpdate(player, update);
+    } else if (update.class === 'W3Research' && hasCapability(next, 'upgrades') && player) {
+      applyLocalResearchUpdate(player, update);
+    }
+  }
+  return next;
+}
+
+function hasCapability(state, capability) {
+  return Array.isArray(state?.capabilities) && state.capabilities.includes(capability);
+}
+
+function applyLocalHeroUpdate(player, update) {
+  const heroId = LOCAL_HERO_ALIASES.get(String(update.type)) || String(update.type || '');
+  if (!heroId) return;
+  const experience = Number(update.experience) || 0;
+  const abilities = Array.isArray(update.abilities)
+    ? [...update.abilities]
+      .sort((left, right) => left?.order < right?.order ? 1 : -1)
+      .filter(isPlainObject)
+      .map(ability => {
+        const name = LOCAL_ABILITY_ALIASES.get(String(ability.type)) || String(ability.type || '');
+        return {
+          id: `A${String(player.id)}${name}`,
+          name,
+          level: LOCAL_UTILITY_ABILITIES.has(name) ? 0 : Number(ability.level) || 0,
+          lastActivation: Number(ability.lastActivation) || 0
+        };
+      })
+    : [];
+  const hero = {
+    id: heroId,
+    name: heroId,
+    experience,
+    level: localHeroLevel(experience),
+    abilities,
+    inventory: Array.isArray(update.inventory) ? structuredCloneSafe(update.inventory) : [],
+    ...(update.hitpoints !== undefined ? { hitpoints: structuredCloneSafe(update.hitpoints) } : {}),
+    ...(update.mana !== undefined ? { mana: structuredCloneSafe(update.mana) } : {})
+  };
+  player.heroes ||= [];
+  const index = player.heroes.findIndex(candidate => String(candidate.id) === heroId);
+  if (index >= 0) player.heroes[index] = hero;
+  else player.heroes.push(hero);
+}
+
+function applyLocalResearchUpdate(player, update) {
+  const name = String(update.type || '');
+  const level = Number(update.level);
+  if (!name || !Number.isFinite(level)) return;
+  const gametime = Number(update.__w3boosterReceivedAt) || Date.now();
+  player.upgrades ||= { upgrades: [], active: [], researching: [] };
+  player.upgrades.upgrades ||= [];
+  player.upgrades.active ||= [];
+  player.upgrades.researching ||= [];
+  if (!player.upgrades.upgrades.some(upgrade => upgrade.name === name && upgrade.level === level)) {
+    player.upgrades.upgrades.push({ name, level, gametime });
+  }
+  const active = player.upgrades.active.find(upgrade => upgrade.name === name);
+  if (active) active.level = level;
+  else player.upgrades.active.push({ name, gametime, level });
+}
+
+function localHeroLevel(experience) {
+  const thresholds = [0, 200, 500, 900, 1400, 2000, 2700, 3500, 4400, 5400];
+  let level = 1;
+  while (level < thresholds.length && experience >= thresholds[level]) level++;
+  return level;
+}
+
+function localUpdatePlayerId(update) {
+  return update.slotId ?? (update.class === 'W3Player' ? update.id : undefined);
+}
+
+function localResourceName(type) {
+  switch (Number(type)) {
+    case 1: return 'gold';
+    case 2: return 'lumber';
+    case 5: return 'supply';
+    case 4: return 'supplyCap';
+    case 99: return 'workerSupply';
+    default: return null;
+  }
+}
+
+function normalizedHudScale(value) {
+  const raw = Number(value);
+  if (!Number.isFinite(raw) || raw < 0 || raw > 128) return null;
+  let percent = ((raw <= 24 ? raw / 2.4 : 10 + (raw - 24) / 1.15) * 10) / 10;
+  percent = percent < 50 ? Math.round(percent) : Math.ceil(percent);
+  return (percent / 100) * 0.5 + 0.5;
 }
 
 /** Small host bridge for application surfaces embedded by W3Booster. */
@@ -250,9 +628,7 @@ export class StateStore {
     this.onListenerError = onListenerError;
   }
   get() { return this.state; }
-  getState() { return this.state; }
-  player(playerId) { return this.getPlayer(playerId); }
-  getPlayer(playerId) { return this.state?.players?.find(player => String(player.id) === String(playerId)) || null; }
+  player(playerId) { return this.state?.players?.find(player => String(player.id) === String(playerId)) || null; }
   subscribe(listener) {
     if (typeof listener !== 'function') throw new TypeError('listener must be a function');
     this.subscribers.add(listener);
@@ -264,6 +640,7 @@ export class StateStore {
     [...this.subscribers].forEach(listener => this.notify(listener));
     return this.state;
   }
+  reset() { this.state = null; }
   notify(listener) {
     try { listener(this.state); }
     catch (error) { this.onListenerError(error); }
@@ -301,9 +678,6 @@ export class StateStore {
     });
   }
 }
-
-/** @deprecated Use StateStore. */
-export const MatchStore = StateStore;
 
 function hostWindow() {
   if (!globalThis.window) return null;
@@ -377,8 +751,6 @@ function normalizeConnectOptions(value) {
 
 function createTransportCandidates(options) {
   const candidates = [];
-  const bridge = globalThis.__W3BOOSTER_SDK_BRIDGE__ || globalThis.w3booster?.sdk;
-  if (bridge?.openStream) candidates.push(createBridgeTransport(bridge));
   if (options.demo) {
     candidates.push(createDemoTransport(typeof options.demo === 'object' ? options.demo : {}));
     return candidates;
@@ -433,32 +805,9 @@ function normalizeApiBase(value, optionName) {
   return url.toString().replace(/\/$/, '');
 }
 
-function readBrowserSource(options) {
-  if (options.browserSource) return options.browserSource;
-  if (!globalThis.location) return null;
-  const parameters = new URLSearchParams(globalThis.location.search);
-  const channel = parameters.get('channel');
-  const secret = parameters.get('secret');
-  if (!channel || !secret) return null;
-  const surface = parameters.has('w3hwnd') ? 'ingameOverlay' : 'streamOverlay';
-  return { channel, secret, surface };
-}
-
-function createBridgeTransport(bridge) {
-  let stream;
-  return {
-    name: 'bridge',
-    async open(context) {
-      stream = await bridge.openStream({ clientId: context.clientId, scopes: context.scopes, protocolVersions: [...context.protocolVersions] });
-      stream.onMessage(context.onMessage);
-    },
-    resync() { stream?.resync?.(); },
-    close() { return stream?.close?.(); }
-  };
-}
-
 function createBrokerTransport(name, baseUrl, credentialProvider) {
   let socket;
+  let pendingSocket;
   let context;
   let reconnectTimer;
   let reconnectAttempt = 0;
@@ -478,7 +827,7 @@ function createBrokerTransport(name, baseUrl, credentialProvider) {
         protocolVersions: [...context.protocolVersions],
         sdkVersion: SDK_VERSION
       })
-    }, name === 'local' ? 350 : 5000);
+    }, CONNECTION_TIMEOUT, context.signal);
 
     if (response.status === 401 || response.status === 403) {
       const body = await response.json().catch(() => ({}));
@@ -486,28 +835,51 @@ function createBrokerTransport(name, baseUrl, credentialProvider) {
     }
     if (!response.ok) throw new Error(`${name} broker returned ${response.status}`);
     const ticket = await response.json();
-    const negotiatedVersion = ticket?.protocolVersion || PROTOCOL_VERSION;
+    const negotiatedVersion = ticket?.protocolVersion;
     if (!supportsProtocolVersion(negotiatedVersion)) {
       throw new ProtocolError('UNSUPPORTED_PROTOCOL', `The server selected unsupported protocol ${negotiatedVersion}.`, { negotiatedVersion });
     }
     const websocketUrl = validateWebSocketUrl(ticket?.websocketUrl);
     await new Promise((resolve, reject) => {
       const candidate = new WebSocket(websocketUrl);
+      pendingSocket = candidate;
       let opened = false;
+      let settled = false;
+      const finish = (callback, value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        context.signal?.removeEventListener('abort', abort);
+        if (pendingSocket === candidate) pendingSocket = null;
+        callback(value);
+      };
+      const abort = () => {
+        finish(reject, createAbortError());
+        candidate.close();
+      };
+      const timer = setTimeout(() => {
+        finish(reject, new ConnectionError(`${name} WebSocket did not open in time.`));
+        candidate.close();
+      }, CONNECTION_TIMEOUT);
+      if (context.signal?.aborted) return abort();
+      context.signal?.addEventListener('abort', abort, { once: true });
       candidate.addEventListener('open', () => {
+        if (stopped || context.signal?.aborted) return abort();
         opened = true;
         socket = candidate;
-        resolve();
+        finish(resolve);
       }, { once: true });
       candidate.addEventListener('error', () => {
         const error = new Error(`${name} WebSocket failed`);
-        if (!opened) reject(error);
+        if (!opened) finish(reject, error);
         else context.onError(error);
       });
-      candidate.addEventListener('message', event => context.onMessage(event.data));
+      candidate.addEventListener('message', event => {
+        if (socket === candidate) context.onMessage(event.data);
+      });
       candidate.addEventListener('close', () => {
         if (socket === candidate) socket = null;
-        if (!opened) reject(new Error(`${name} WebSocket closed before connecting`));
+        if (!opened) finish(reject, new Error(`${name} WebSocket closed before connecting`));
         else if (!stopped) scheduleReconnect();
       });
     });
@@ -547,6 +919,8 @@ function createBrokerTransport(name, baseUrl, credentialProvider) {
       stopped = true;
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
+      pendingSocket?.close();
+      pendingSocket = null;
       socket?.close();
       socket = null;
     }
@@ -564,30 +938,6 @@ function createCredentialProvider(options) {
   };
 }
 
-async function bootstrapBrowserSourceSession(baseUrl, connection, timeout = 5000) {
-  const response = await fetchWithTimeout(`${baseUrl}/stream/v1/compositor-sessions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      channel: connection.channel,
-      secret: connection.secret,
-      surface: connection.surface || 'streamOverlay'
-    })
-  }, timeout);
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    if (response.status === 401 || response.status === 403) {
-      throw new PermissionRequiredError(body.error || 'This browser source is not authorized.');
-    }
-    throw new Error(`overlay session broker returned ${response.status}`);
-  }
-  const result = await response.json();
-  if (!result?.sessionToken) throw new Error('Overlay session broker returned no credential.');
-  storeCompositorCredential(connection.surface || 'streamOverlay', result.sessionToken);
-  hideBrowserSourceCredentials();
-  return result.sessionToken;
-}
-
 function readLaunchCredential(clientId) {
   if (!globalThis.location) return null;
   const hash = new URLSearchParams(globalThis.location.hash.replace(/^#/, ''));
@@ -601,61 +951,17 @@ function readLaunchCredential(clientId) {
   try { return globalThis.sessionStorage?.getItem(`w3booster.session.${clientId}`) || null; } catch (_) { return null; }
 }
 
-function readCompositorCredential(surface) {
-  try { return globalThis.sessionStorage?.getItem(`w3booster.compositor.${surface}`) || null; } catch (_) { return null; }
-}
-
-function storeCompositorCredential(surface, credential) {
-  try { globalThis.sessionStorage?.setItem(`w3booster.compositor.${surface}`, credential); } catch (_) { }
-}
-
-function hideBrowserSourceCredentials() {
-  if (!globalThis.location || !globalThis.history?.replaceState) return;
-  const search = new URLSearchParams(globalThis.location.search || '');
-  if (!search.has('channel') && !search.has('secret')) return;
-  search.delete('channel');
-  search.delete('secret');
-  const query = search.toString();
-  const path = `${globalThis.location.pathname || '/'}${query ? `?${query}` : ''}${globalThis.location.hash || ''}`;
-  globalThis.history.replaceState(null, '', path);
-}
-
-async function fetchWithTimeout(url, options, timeout) {
+async function fetchWithTimeout(url, options, timeout, signal) {
   const controller = new AbortController();
+  const abort = () => controller.abort(signal?.reason);
   const timer = setTimeout(() => controller.abort(), timeout);
+  if (signal?.aborted) abort();
+  else signal?.addEventListener('abort', abort, { once: true });
   try { return await fetch(url, { ...options, signal: controller.signal }); }
-  finally { clearTimeout(timer); }
-}
-
-export function createDemoTransport(options = {}) {
-  let timer;
-  let sequence = 0;
-  const state = structuredCloneSafe(options.state || createDemoState());
-  return {
-    name: 'demo',
-    async open(context) {
-      context.onMessage({ version: '1.0', sequence: ++sequence, type: 'state.snapshot', data: state });
-      timer = setInterval(() => {
-        state.match.gameTime += 1;
-        state.players[0].resources.gold += 7;
-        state.players[1].resources.gold += 6;
-        context.onMessage({ version: '1.0', sequence: ++sequence, type: 'state.snapshot', data: state });
-      }, options.interval || 1000);
-    },
-    close() { clearInterval(timer); },
-    resync() { }
-  };
-}
-
-function createDemoState() {
-  return {
-    capabilities: ['match', 'players', 'heroes', 'resources'],
-    match: { id: 'demo-match', status: 'running', gameTime: 0, mode: '1v1', map: 'Echo Isles', realm: 'W3Champions' },
-    players: [
-      { id: '0', name: 'Northwind', race: 'human', team: 0, resources: { gold: 520, lumber: 185, supply: 34, supplyCap: 50 }, heroes: [{ id: 'Hamg', name: 'Archmage', level: 4 }] },
-      { id: '1', name: 'Ironclaw', race: 'orc', team: 1, resources: { gold: 470, lumber: 210, supply: 38, supplyCap: 50 }, heroes: [{ id: 'Obla', name: 'Blademaster', level: 4 }] }
-    ]
-  };
+  finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', abort);
+  }
 }
 
 function emitDomainEvents(previous, state, emit) {
@@ -731,8 +1037,8 @@ function emitHeroEvents(playerId, previousPlayer, player, state, emit) {
     }
     if (!previousHero || !hero || deepEqual(previousHero, hero)) return;
     emit('hero.changed', { ...context, changedFields: changedKeys(previousHero, hero) });
-    const previousInventory = previousHero.inventory || previousHero.items || [];
-    const inventory = hero.inventory || hero.items || [];
+    const previousInventory = previousHero.inventory || [];
+    const inventory = hero.inventory || [];
     if (!deepEqual(previousInventory, inventory)) {
       emit('hero.inventory.changed', { ...context, inventory, previousInventory });
     }
@@ -767,7 +1073,7 @@ function parseProtocolMessage(rawMessage) {
   try { message = typeof rawMessage === 'string' ? JSON.parse(rawMessage) : rawMessage; }
   catch (error) { throw new ProtocolError('INVALID_JSON', 'The W3Booster stream sent invalid JSON.', error); }
   if (!isPlainObject(message)) throw new ProtocolError('INVALID_ENVELOPE', 'The W3Booster stream message must be an object.');
-  const version = message.version || PROTOCOL_VERSION;
+  const version = message.version;
   if (!supportsProtocolVersion(version)) {
     throw new ProtocolError('UNSUPPORTED_PROTOCOL', `Unsupported W3Booster protocol ${String(version)}.`, { receivedVersion: version });
   }
@@ -804,20 +1110,30 @@ function validateState(value, clientId) {
       !Number.isFinite(state.match.gameTime) || typeof state.match.mode !== 'string') {
     throw new ProtocolError('INVALID_STATE', 'State match contains invalid core fields.');
   }
+  if (!MATCH_STATUSES.has(state.match.status)) throw new ProtocolError('INVALID_STATE', `Unknown match status: ${state.match.status}`);
+  validateOptionalFields(state.match, {
+    map: 'string', realm: 'string', paused: 'boolean', isReplay: 'boolean', isReforged: 'boolean', isObserver: 'boolean',
+    broadcasterPlayerId: 'string', realBroadcasterPlayerId: 'string', startedAt: 'string'
+  }, 'State match');
+  if (state.match.startedAt !== undefined && !Number.isFinite(Date.parse(state.match.startedAt))) {
+    throw new ProtocolError('INVALID_STATE', 'State match startedAt must be an ISO-8601 timestamp.');
+  }
   if (state.players === undefined) state.players = [];
   if (!Array.isArray(state.players)) throw new ProtocolError('INVALID_STATE', 'State players must be an array.');
   const playerIds = new Set();
   state.players.forEach((player, index) => {
-    if (!isPlainObject(player) || (typeof player.id !== 'string' && typeof player.id !== 'number')) {
+    if (!isPlainObject(player) || typeof player.id !== 'string' || !player.id) {
       throw new ProtocolError('INVALID_STATE', `Player ${index} has no valid ID.`);
     }
-    const id = String(player.id);
+    const id = player.id;
     if (playerIds.has(id)) throw new ProtocolError('INVALID_STATE', `Player ID ${id} occurs more than once.`);
     playerIds.add(id);
+    validatePlayer(player, id);
     if (player.heroes !== undefined && !Array.isArray(player.heroes)) {
       throw new ProtocolError('INVALID_STATE', `Player ${id} heroes must be an array.`);
     }
-    normalizePlayerUpgradeRawcodes(player);
+    for (const hero of player.heroes || []) validateHero(hero, id);
+    if (player.upgrades !== undefined) validateUpgrades(player.upgrades, id);
   });
   if (state.application !== undefined) {
     if (!isPlainObject(state.application) || state.application.clientId !== clientId) {
@@ -826,18 +1142,139 @@ function validateState(value, clientId) {
     if (!isPlainObject(state.application.settings)) {
       throw new ProtocolError('INVALID_STATE', 'Application settings must be an object.');
     }
+    validateOptionalFields(state.application, { surface: 'string', development: 'boolean' }, 'Application state');
+    if (state.application.surface !== undefined && !APP_SURFACES.has(state.application.surface)) {
+      throw new ProtocolError('INVALID_STATE', `Unknown application surface: ${state.application.surface}`);
+    }
+  }
+  if (state.overlay !== undefined) {
+    if (!isPlainObject(state.overlay) || !isPlainObject(state.overlay.settings) || !isPlainObject(state.overlay.misc)) {
+      throw new ProtocolError('INVALID_STATE', 'Overlay state must contain settings and misc objects.');
+    }
+    validateOptionalFields(state.overlay.misc, {
+      chatbarOpen: 'boolean', hudScale: 'number', matchscoreWins: 'number', matchscoreLosses: 'number', teamColors: 'boolean'
+    }, 'Overlay runtime state');
   }
   return state;
 }
 
-/** W3Booster historically appended an upgrade level to four-character rawcodes. Normalize at ingress. */
-function normalizePlayerUpgradeRawcodes(player) {
-  if (!isPlainObject(player.upgrades)) return;
+function validatePlayer(player, id) {
+  validateOptionalFields(player, { name: 'string', team: 'number', colorId: 'number', isAI: 'boolean' }, `Player ${id}`);
+  if (player.race !== undefined && (!RACES.has(player.race))) {
+    throw new ProtocolError('INVALID_STATE', `Player ${id} has an invalid race.`);
+  }
+  if (player.startPosition !== undefined) validatePoint(player.startPosition, `Player ${id} startPosition`);
+  if (player.resources !== undefined) validateResources(player.resources, id);
+  if (player.controlgroups !== undefined) validateControlGroups(player.controlgroups, id);
+  if (player.stats !== undefined) validateStatsCollection(player.stats, id);
+  if (player.mainAccount !== undefined) validateMainAccount(player.mainAccount, id);
+}
+
+function validatePoint(value, label) {
+  if (!isPlainObject(value) || !Number.isFinite(value.x) || !Number.isFinite(value.y)) {
+    throw new ProtocolError('INVALID_STATE', `${label} must contain finite x and y coordinates.`);
+  }
+}
+
+function validateResources(resources, playerId) {
+  if (!isPlainObject(resources)) throw new ProtocolError('INVALID_STATE', `Player ${playerId} resources must be an object.`);
+  for (const field of ['gold', 'lumber', 'supply', 'supplyCap']) {
+    if (!Number.isFinite(resources[field])) throw new ProtocolError('INVALID_STATE', `Player ${playerId} resources.${field} must be a finite number.`);
+  }
+  if (resources.workerSupply !== undefined && !Number.isFinite(resources.workerSupply)) {
+    throw new ProtocolError('INVALID_STATE', `Player ${playerId} resources.workerSupply must be a finite number.`);
+  }
+}
+
+function validateControlGroups(controlgroups, playerId) {
+  if (!isPlainObject(controlgroups)) throw new ProtocolError('INVALID_STATE', `Player ${playerId} controlgroups must be an object.`);
+  for (const [key, group] of Object.entries(controlgroups)) {
+    if (!isPlainObject(group) || typeof group.frontunit !== 'string' || !Number.isFinite(group.size)) {
+      throw new ProtocolError('INVALID_STATE', `Player ${playerId} controlgroup ${key} is invalid.`);
+    }
+  }
+}
+
+function validateStatsCollection(stats, playerId) {
+  if (!isPlainObject(stats)) throw new ProtocolError('INVALID_STATE', `Player ${playerId} stats must be an object.`);
+  for (const key of ['solo', 'team', 'team4', 'ffa']) {
+    const value = stats[key];
+    if (value === undefined) continue;
+    if (!isPlainObject(value) || !Number.isFinite(value.wins) || !Number.isFinite(value.losses) || !Number.isFinite(value.winRate)) {
+      throw new ProtocolError('INVALID_STATE', `Player ${playerId} stats.${key} is invalid.`);
+    }
+    validateOptionalFields(value, { rank: 'number', level: 'number' }, `Player ${playerId} stats.${key}`);
+    if (value.league !== undefined && typeof value.league !== 'string' && typeof value.league !== 'number') {
+      throw new ProtocolError('INVALID_STATE', `Player ${playerId} stats.${key}.league is invalid.`);
+    }
+  }
+}
+
+function validateMainAccount(account, playerId) {
+  if (!isPlainObject(account) || typeof account.name !== 'string') {
+    throw new ProtocolError('INVALID_STATE', `Player ${playerId} mainAccount is invalid.`);
+  }
+  validateOptionalFields(account, { country: 'string' }, `Player ${playerId} mainAccount`);
+  if (account.mainRace !== undefined && !RACES.has(account.mainRace) && !Number.isFinite(account.mainRace)) {
+    throw new ProtocolError('INVALID_STATE', `Player ${playerId} mainAccount.mainRace is invalid.`);
+  }
+}
+
+function validateHero(hero, playerId) {
+  if (!isPlainObject(hero) || typeof hero.id !== 'string' || !hero.id || typeof hero.name !== 'string' || !Number.isFinite(hero.level)) {
+    throw new ProtocolError('INVALID_STATE', `Player ${playerId} contains a hero without a valid ID.`);
+  }
+  if (Object.prototype.hasOwnProperty.call(hero, 'items')) {
+    throw new ProtocolError('INVALID_STATE', `Hero ${String(hero.id)} must use inventory, not items.`);
+  }
+  if (hero.inventory !== undefined && (!Array.isArray(hero.inventory) || hero.inventory.some(item => typeof item !== 'string'))) {
+    throw new ProtocolError('INVALID_STATE', `Hero ${String(hero.id)} inventory must be an array of rawcodes.`);
+  }
+  if (hero.experience !== undefined && !Number.isFinite(hero.experience)) {
+    throw new ProtocolError('INVALID_STATE', `Hero ${String(hero.id)} experience must be a finite number.`);
+  }
+  for (const field of ['hitpoints', 'mana']) {
+    if (hero[field] !== undefined && (!isPlainObject(hero[field]) || !Number.isFinite(hero[field].current) || !Number.isFinite(hero[field].max))) {
+      throw new ProtocolError('INVALID_STATE', `Hero ${String(hero.id)} ${field} must contain finite current and max values.`);
+    }
+  }
+  if (hero.abilities !== undefined) {
+    if (!Array.isArray(hero.abilities)) throw new ProtocolError('INVALID_STATE', `Hero ${String(hero.id)} abilities must be an array.`);
+    for (const ability of hero.abilities) {
+      if (!isPlainObject(ability) || typeof ability.id !== 'string' || typeof ability.name !== 'string' || !Number.isFinite(ability.level) ||
+          (ability.lastActivation !== undefined && !Number.isFinite(ability.lastActivation))) {
+        throw new ProtocolError('INVALID_STATE', `Hero ${String(hero.id)} contains an invalid ability.`);
+      }
+    }
+  }
+}
+
+function validateUpgrades(upgrades, playerId) {
+  if (!isPlainObject(upgrades)) throw new ProtocolError('INVALID_STATE', `Player ${playerId} upgrades must be an object.`);
   for (const collection of ['upgrades', 'active', 'researching']) {
-    if (!Array.isArray(player.upgrades[collection])) continue;
-    for (const upgrade of player.upgrades[collection]) {
-      if (!isPlainObject(upgrade) || typeof upgrade.name !== 'string') continue;
-      if (upgrade.name.length > 4 && /^\d+$/.test(upgrade.name.slice(4))) upgrade.name = upgrade.name.slice(0, 4);
+    if (!Array.isArray(upgrades[collection])) {
+      throw new ProtocolError('INVALID_STATE', `Player ${playerId} upgrades.${collection} must be an array.`);
+    }
+    for (const upgrade of upgrades[collection]) {
+      if (!isPlainObject(upgrade) || typeof upgrade.name !== 'string' || !upgrade.name ||
+          !Number.isFinite(upgrade.level) || upgrade.level < 1 || !Number.isFinite(upgrade.gametime)) {
+        throw new ProtocolError('INVALID_STATE', `Player ${playerId} contains an invalid ${collection} upgrade.`);
+      }
+      if (upgrade.name.length > 4 && /^\d+$/.test(upgrade.name.slice(4))) {
+        throw new ProtocolError('INVALID_STATE', `Upgrade ${upgrade.name} must carry its level separately.`);
+      }
+      if (collection === 'researching') {
+        validateOptionalFields(upgrade, { researchStart: 'string', researchFinish: 'string' }, `Player ${playerId} researching upgrade`);
+      }
+    }
+  }
+}
+
+function validateOptionalFields(value, fields, label) {
+  for (const [field, type] of Object.entries(fields)) {
+    if (value[field] === undefined) continue;
+    if (typeof value[field] !== type || type === 'number' && !Number.isFinite(value[field])) {
+      throw new ProtocolError('INVALID_STATE', `${label}.${field} must be a ${type}.`);
     }
   }
 }
@@ -941,6 +1378,23 @@ function reportListenerError(error) {
   else globalThis.console?.error?.('W3Booster SDK listener failed:', error);
 }
 
+function createAbortError() {
+  if (typeof globalThis.DOMException === 'function') return new DOMException('W3Booster connection was cancelled.', 'AbortError');
+  const error = new Error('W3Booster connection was cancelled.');
+  error.name = 'AbortError';
+  return error;
+}
+function isAbortError(error) { return error?.name === 'AbortError'; }
+function throwIfAborted(signal) { if (signal?.aborted) throw createAbortError(); }
+function abortable(promise, signal) {
+  if (!signal) return promise;
+  throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(createAbortError());
+    signal.addEventListener('abort', abort, { once: true });
+    Promise.resolve(promise).then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+  });
+}
 function structuredCloneSafe(value) { if (value === undefined || value === null) return value; return globalThis.structuredClone ? structuredClone(value) : JSON.parse(JSON.stringify(value)); }
 function deepFreeze(value) {
   const pending = [value];

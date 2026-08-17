@@ -1,6 +1,6 @@
 {
   "name": "@w3booster/sdk",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "One SDK for realtime W3Booster match data in overlays and web apps.",
   "type": "module",
   "main": "./src/index.js",
@@ -20,6 +20,14 @@
     "./standard-game": {
       "types": "./src/standard-game.d.ts",
       "import": "./src/standard-game.js"
+    },
+    "./compositor": {
+      "types": "./src/compositor.d.ts",
+      "import": "./src/compositor.js"
+    },
+    "./testing": {
+      "types": "./src/testing.d.ts",
+      "import": "./src/testing.js"
     }
   },
   "files": [

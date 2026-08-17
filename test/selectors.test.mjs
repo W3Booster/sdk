@@ -36,8 +36,8 @@ test('selectors expose common match and player derivations', () => {
   assert.equal(groupPlayersByTeam([{ id: 'unknown' }])[0].teamId, null);
 });
 
-test('selectors hide compatibility fields and preserve non-BattleTag hashes', () => {
-  assert.deepEqual(heroInventory({ items: ['ratf'], inventory: ['ignored'] }), ['ratf']);
+test('selectors expose canonical inventory and preserve non-BattleTag hashes', () => {
+  assert.deepEqual(heroInventory({ inventory: ['ratf'] }), ['ratf']);
   assert.deepEqual(heroInventory({ inventory: ['rin1'] }), ['rin1']);
   assert.deepEqual(heroInventory(undefined), []);
   assert.equal(battleTagName('W3Pad#1234'), 'W3Pad');

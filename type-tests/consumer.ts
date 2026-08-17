@@ -11,6 +11,9 @@ import { connect } from '../src/index.js';
 import { broadcasterPlayer, groupPlayersByTeam, heroInventory } from '../src/selectors.js';
 import type { PlayerTeam } from '../src/selectors.js';
 import * as standardGame from '../src/standard-game.js';
+import { getOverlayComposition } from '../src/compositor.js';
+import { createDemoTransport } from '../src/testing.js';
+import type { TestingConnectOptions, Transport } from '../src/testing.js';
 
 interface ExampleSettings {
   layout: 'compact' | 'wide';
@@ -18,11 +21,13 @@ interface ExampleSettings {
 }
 
 async function useSdk() {
+  const abortController = new AbortController();
   const client: W3BoosterClient<ExampleSettings> = await connect<ExampleSettings>('app_example');
+  const recorderClient = await connect<ExampleSettings>({ clientId: 'app_example', localRecorder: true, signal: abortController.signal });
   const state: MatchState<ExampleSettings> = await client.whenReady();
   const layout: 'compact' | 'wide' | undefined = state.application?.settings.layout;
   const player: Player | null = client.state.player('0');
-  const store: StateStore<ExampleSettings> = client.match;
+  const store: StateStore<ExampleSettings> = client.state;
   const scopes: Scope[] = ['match:read', 'players:read'];
   const overlayRuntime: OverlayRuntimeState | undefined = state.overlay?.misc;
   const archmageIcon: string | undefined = standardGame.getIcon('Hamg');
@@ -45,7 +50,10 @@ async function useSdk() {
   client.on('hero.changed', event => console.log(event.player.id, event.hero.level, event.changedFields));
   client.on('application.settings.changed', event => console.log(event.settings.layout));
   client.host.setSetting('layout', 'wide');
-  console.log(layout, player, store, scopes, message, overlayRuntime?.hudScale, archmageIcon, archmageIconUrl, heroLevel, broadcaster, teams, inventory, cooldown);
+  const demoTransport: Transport = createDemoTransport<ExampleSettings>();
+  const testingOptions: TestingConnectOptions<ExampleSettings> = { clientId: 'app_example', transport: demoTransport };
+  const composition = await getOverlayComposition({ surface: 'streamOverlay' });
+  console.log(layout, player, store, scopes, message, overlayRuntime?.hudScale, archmageIcon, archmageIconUrl, heroLevel, broadcaster, teams, inventory, cooldown, recorderClient.diagnostics.localTransport, testingOptions, composition);
 }
 
 void useSdk;

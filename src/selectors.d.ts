@@ -17,5 +17,5 @@ export function playerRelationship(
   match: Pick<Match, 'broadcasterPlayerId'> | null | undefined,
   players: readonly Player[]
 ): PlayerRelationship;
-export function heroInventory(hero: Pick<Hero, 'items' | 'inventory'> | null | undefined): readonly string[];
+export function heroInventory(hero: Pick<Hero, 'inventory'> | null | undefined): readonly string[];
 export function battleTagName(name?: string): string | undefined;

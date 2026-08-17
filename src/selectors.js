@@ -29,9 +29,9 @@ export function playerRelationship(player, match, players) {
   return Number(player.team) === Number(broadcaster.team) ? 'ally' : 'opponent';
 }
 
-/** Read hero items without exposing the protocol's items/inventory compatibility alias. */
+/** Read a hero's item-slot inventory. */
 export function heroInventory(hero) {
-  return hero?.items ?? hero?.inventory ?? [];
+  return hero?.inventory ?? [];
 }
 
 /** Remove a numeric BattleTag discriminator while preserving ordinary hash characters. */

@@ -14,4 +14,4 @@ Static Warcraft III standard-game knowledge is versioned with the SDK and expose
 
 Hosted artwork has its own immutable catalog version in the URL, for example `wc3/standard-game/v1`. Existing files inside a released catalog are never replaced with different artwork or meaning. A new incompatible catalog uses a new URL version independently of the npm package version. Applications may replace the asset base URL without changing rawcodes or catalog paths.
 
-The aliases `client.match`, `MatchStore`, `getState()`, and `getPlayer()` remain supported. New code should prefer `client.state`, `StateStore`, `get()`, and `player()`.
+The canonical application API is the root `@w3booster/sdk` export with `client.state`, `StateStore`, `get()`, and `player()`. Platform compositor infrastructure and testing transports use the dedicated `/compositor` and `/testing` subpaths. Protocol envelopes require an explicit negotiated version, and public state uses one representation for each field.

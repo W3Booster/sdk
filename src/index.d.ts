@@ -1,4 +1,4 @@
-export const SDK_VERSION: '0.1.0';
+export const SDK_VERSION: '0.2.0';
 export const PROTOCOL_VERSION: '1.0';
 export const SUPPORTED_PROTOCOL_VERSIONS: readonly ['1.0'];
 
@@ -25,6 +25,8 @@ export type Race = 'random' | 'human' | 'orc' | 'undead' | 'night-elf';
 
 export interface ConnectOptions<TSettings = JsonObject> {
   clientId: string;
+  /** Cancels the initial connection attempt. It does not disconnect an already connected client. */
+  signal?: AbortSignal;
   /** Uses the scopes configured for the app by default. Pass an array only to request a smaller subset. */
   scopes?: Scope[] | 'configured';
   demo?: boolean | { interval?: number; state?: MatchState<TSettings> };
@@ -33,30 +35,8 @@ export interface ConnectOptions<TSettings = JsonObject> {
   tokenProvider?: () => string | null | Promise<string | null>;
   localApi?: string;
   cloudApi?: string;
-  transport?: Transport;
-}
-
-export interface BrowserSourceCredentials {
-  channel: string;
-  secret: string;
-  surface?: OverlaySurface;
-}
-export interface OverlayCompositionOptions {
-  api?: string;
-  /** Defaults to cloud. A platform-provided backend=local|cloud launch parameter takes precedence; applications do not parse it themselves. */
-  backend?: 'auto' | 'local' | 'cloud' | string;
-  localApi?: string;
-  cloudApi?: string;
-  tokenProvider?: () => string | null | Promise<string | null>;
-  /** Stable credentials from the user's W3Booster browser-source URL. */
-  browserSource?: BrowserSourceCredentials;
-  surface?: OverlaySurface;
-}
-export interface OverlayCompositionApp {
-  appId: string;
-  clientId: string;
-  name: string;
-  url: string;
+  /** Prefer the recorder's low-latency observer/replay feed when the platform exposes one. Defaults to true. */
+  localRecorder?: boolean;
 }
 
 export interface ApplicationState<TSettings = JsonObject> {
@@ -120,13 +100,11 @@ export interface Hero {
   hitpoints?: ValuePool;
   mana?: ValuePool;
   abilities?: HeroAbility[];
-  items?: string[];
-  /** Alias supported for applications that model item slots as an inventory. */
   inventory?: string[];
   [key: string]: unknown;
 }
-export interface CompletedUpgrade { name: string; gametime: number }
-export interface ActiveUpgrade extends CompletedUpgrade { level: number }
+export interface CompletedUpgrade { name: string; level: number; gametime: number }
+export interface ActiveUpgrade extends CompletedUpgrade {}
 export interface ResearchingUpgrade extends ActiveUpgrade { researchStart?: string; researchFinish?: string }
 export interface UpgradeState {
   upgrades: CompletedUpgrade[];
@@ -193,37 +171,20 @@ export interface W3BoosterEventMap<TSettings = JsonObject> {
   'stream.gap': { expected: number; received: number };
   'state.snapshot': MatchState<TSettings>;
   'state.patch': JsonPatchOperation[];
-  'platform.reload': Record<string, never>;
 }
 
-export interface TransportContext {
-  clientId: string;
-  /** Empty means all scopes configured for this app. */
-  scopes: Scope[];
-  protocolVersions: readonly string[];
-  onMessage: (message: unknown) => void;
-  onStatus: (status: ConnectionStatus) => void;
-  onError: (error: unknown) => void;
-}
-export interface Transport {
-  name: string;
-  open(context: TransportContext): Promise<void>;
-  resync?(): void;
-  close?(): void | Promise<void>;
-}
 export interface ReadyOptions { timeout?: number }
 export class StateStore<TSettings = JsonObject> {
+  /** Current hydrated state, or null until the first snapshot after connecting. */
   get(): MatchState<TSettings> | null;
-  getState(): MatchState<TSettings> | null;
   player(playerId: string | number): Player | null;
-  getPlayer(playerId: string | number): Player | null;
+  /** Runs immediately when state already exists and after every later state update. */
   subscribe(listener: (state: MatchState<TSettings>) => void): () => void;
+  /** Runs immediately for the first selected value, then only when its structural value changes. */
   watch<T>(selector: (state: MatchState<TSettings>) => T, listener: (value: T, previousValue: T | undefined, state: MatchState<TSettings>) => void): () => void;
+  /** Wait for the first state snapshot. The default timeout is 10 seconds; zero disables the timeout. */
   whenReady(options?: ReadyOptions): Promise<MatchState<TSettings>>;
 }
-/** @deprecated Use StateStore. The alias remains for backwards compatibility. */
-export { StateStore as MatchStore };
-
 export class W3BoosterEventEmitter<TSettings = JsonObject> {
   on<K extends keyof W3BoosterEventMap<TSettings>>(type: K, listener: (data: W3BoosterEventMap<TSettings>[K]) => void): () => void;
   on(type: '*', listener: (event: { type: keyof W3BoosterEventMap<TSettings>; data: W3BoosterEventMap<TSettings>[keyof W3BoosterEventMap<TSettings>] }) => void): () => void;
@@ -237,12 +198,11 @@ export interface Diagnostics {
   sdkVersion: string;
   protocolVersion: string | null;
   transport: string | null;
+  localTransport: 'recorder-local' | null;
 }
 export class W3BoosterClient<TSettings = JsonObject> {
   /** Complete platform state. */
   readonly state: StateStore<TSettings>;
-  /** @deprecated Use state. Preserved as an alias for backwards compatibility. */
-  readonly match: StateStore<TSettings>;
   readonly events: W3BoosterEventEmitter<TSettings>;
   readonly host: W3BoosterHost;
   readonly diagnostics: Diagnostics;
@@ -257,6 +217,7 @@ export class W3BoosterClient<TSettings = JsonObject> {
   once(type: string, listener: (data: unknown) => void): () => void;
   off<K extends keyof W3BoosterEventMap<TSettings>>(type: K, listener: (data: W3BoosterEventMap<TSettings>[K]) => void): void;
   off(type: string, listener: (data: unknown) => void): void;
+  /** Close transports and clear hydrated state. Event subscriptions remain usable if this client reconnects. */
   disconnect(): Promise<void>;
 }
 export interface OpenWindowOptions { path?: string; width?: number; height?: number; title?: string }
@@ -272,5 +233,3 @@ export class PermissionRequiredError extends Error { authorizeUrl?: string }
 export class ConnectionError extends Error { causes: unknown[] }
 export class ProtocolError extends Error { code: string; details?: unknown }
 export function connect<TSettings = JsonObject>(options: ConnectOptions<TSettings> | string): Promise<W3BoosterClient<TSettings>>;
-export function getOverlayComposition(options?: OverlayCompositionOptions): Promise<OverlayCompositionApp[]>;
-export function createDemoTransport<TSettings = JsonObject>(options?: { interval?: number; state?: MatchState<TSettings> }): Transport;
