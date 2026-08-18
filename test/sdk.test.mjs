@@ -15,6 +15,13 @@ import {
 import { getOverlayComposition, watchOverlayComposition } from '../src/compositor.js';
 
 const waitForRecorderFrame = () => new Promise(resolve => setTimeout(resolve, 25));
+const waitForDeferredModule = async predicate => {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (predicate()) return;
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  assert.fail('Timed out waiting for a deferred SDK module.');
+};
 
 test('runtime version matches the npm package version', async () => {
   const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
@@ -946,6 +953,7 @@ test('observer and replay sessions use the low-latency recorder transport locall
     };
     context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: baseline });
 
+    await waitForDeferredModule(() => sockets.length === 1);
     assert.equal(sockets.length, 1);
     assert.equal(sockets[0].url, 'ws://127.0.0.1:48123/');
     const authenticatedState = client.state.get();
@@ -1070,6 +1078,7 @@ test('the local recorder rotates URLs when a socket never opens', async () => {
         application: { clientId: 'test_app', settings: {} }
       }
     });
+    await waitForDeferredModule(() => sockets.length === 1);
     assert.equal(sockets[0].url, 'ws://127.0.0.1:48123/');
     runTimer(5000);
     assert.equal(sockets[0].closed, true);
@@ -1107,6 +1116,7 @@ test('the local recorder feed cannot bypass SDK capabilities', async () => {
       overlay: { settings: {}, misc: { hudScale: 1, localServerUrls: ['ws://localhost:48123'] } },
       application: { clientId: 'overlay_only', settings: {} }
     } });
+    await waitForDeferredModule(() => socket !== undefined);
     socket.emit('open');
     socket.emit('message', JSON.stringify([
       { class: 'W3HudScale', value: 70 },
@@ -1146,6 +1156,7 @@ test('a disconnected local recorder cannot mask newer authenticated snapshots', 
   try {
     await client.connect();
     context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: snapshot(100) });
+    await waitForDeferredModule(() => socket !== undefined);
     socket.emit('open');
     socket.emit('message', JSON.stringify([
       { class: 'W3Resource', matchId: 'observer-match', slotId: 0, type: 1, value: 1230 }
@@ -1188,6 +1199,7 @@ test('invalid local recorder updates are not cached into later platform snapshot
   try {
     await client.connect();
     stream.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: snapshot(1) });
+    await waitForDeferredModule(() => socket !== undefined);
     socket.emit('open');
     socket.emit('message', JSON.stringify([{
       class: 'W3Unit', matchId: 'observer-match', slotId: 0, type: 'Hamg', isHero: true, hitpoints: 'invalid'

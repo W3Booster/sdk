@@ -9,18 +9,21 @@ npm install @w3booster/sdk
 ```
 
 ```js
-import { connect } from '@w3booster/sdk';
+import { createClient } from '@w3booster/sdk';
 
 const lifetime = new AbortController();
-const client = await connect({
+const client = createClient({
   clientId: 'your_app_id',
   signal: lifetime.signal
 });
 
-client.state.subscribe(state => {
+client.lifecycle.subscribe(snapshot => {
+  const state = snapshot.state;
   if (!state) return;
   render(state.match, state.players);
 }, { signal: lifetime.signal });
+
+await client.start();
 
 // When the page or component is disposed:
 lifetime.abort();
@@ -28,10 +31,11 @@ lifetime.abort();
 
 The client ID is the public, immutable identifier generated when an app is created in W3Booster. It is not a secret. Scopes come from the application record by default, so normal applications do not pass connection URLs, credentials, or scopes.
 
-Use `demo: true` when W3Booster is not running:
+Use `demo: true` when W3Booster is not running. Demo support is loaded on demand and stays out of normal production startup:
 
 ```js
-const client = await connect({ clientId: 'your_app_id', demo: true });
+const client = createClient({ clientId: 'your_app_id', demo: true });
+await client.start();
 ```
 
 The built-in demo includes representative players, resources, heroes, upgrades, statistics, control groups, overlay runtime, and application metadata. Supply typed settings without constructing a complete state:
@@ -64,7 +68,7 @@ Platform integrations that explicitly provide a `tokenProvider` should return th
 
 ## State lifecycle
 
-`connect()` resolves when a transport is connected. Use `whenReady()` when work only needs any hydrated snapshot, including preserved state during reconnect. Use `whenSynchronized()` when rendering or an action must wait for a fresh snapshot from the current connection:
+`start()` is the canonical long-lived frontend entry point and resolves with synchronized state by default. The lower-level `connect()` resolves when only a transport is connected. Use `whenReady()` when work only needs any hydrated snapshot, including preserved state during reconnect. Use `whenSynchronized()` when rendering or an action must wait for a fresh snapshot from the current connection:
 
 ```js
 const initialState = await client.whenReady(); // 10-second default timeout
@@ -90,7 +94,7 @@ await client.start({ signal });
 
 `start()` defaults to synchronized state with no timeout and rejects if synchronization becomes permanently impossible. Its optional signal cancels transport opening and readiness together and closes an incomplete startup. Pass `{ until: 'connected' }` for a transport-only startup or an explicit `timeout` when the UI wants a bounded wait. Runtime construction is intentionally rejected; use `connect()` or `createClient()` so internal mutable stores and transports remain encapsulated behind frozen read-only facades.
 
-`client.lifecycle` publishes connection status, current state, freshness, and the current connection/synchronization error as one snapshot. Non-fatal recorder and consumer-listener problems are published as structured `issue` events without turning healthy match data into a connection failure. It is the preferred UI integration point when those values feed one view model. The narrower `state.subscribe()`, `subscribeStatus()`, and event APIs remain useful when a feature needs only one stream.
+`client.lifecycle` publishes connection status, current state, freshness, and the current connection/synchronization error as one snapshot. Non-fatal recorder and consumer-listener problems—including listeners attached to a generated application runtime—are published as structured `issue` events without turning healthy match data into a connection failure. The legacy untyped `error` event mirrors issues for compatibility and is deprecated for new integrations. The lifecycle store is the preferred UI integration point when its values feed one view model. The narrower `state.subscribe()`, `subscribeStatus()`, and event APIs remain useful when a feature needs only one stream.
 
 `client.state` is the authoritative source of current data:
 
@@ -155,7 +159,7 @@ const client = createClient({
 });
 
 client.state.subscribe(state => renderConnectionState(state), { signal });
-client.on('error', error => report(error), { signal });
+client.on('issue', issue => report(issue.error, issue), { signal });
 await client.connect();
 await client.whenSynchronized({ signal });
 
@@ -248,7 +252,7 @@ The event's `settings` and `previousSettings` values can be `undefined` when app
 
 ## Errors and troubleshooting
 
-Handle initial connection failures around `connect()` and later stream or listener failures with the `error` event:
+Handle initial connection failures around `connect()` and later non-fatal stream or listener problems with the structured `issue` event:
 
 ```js
 import {
@@ -262,7 +266,8 @@ import {
 
 try {
   const client = await connect('your_app_id');
-  client.on('error', error => {
+  client.on('issue', ({ error, source, recoverable }) => {
+    console.warn({ source, recoverable });
     if (error instanceof ProtocolError) console.error(error.code, error.details);
     else console.error(error);
   });
@@ -348,17 +353,17 @@ Also available: `isActiveMatch()`, `battleTagName()`, `upgradeIdentity()`, and `
 
 ## Warcraft III standard-game data
 
-Lightweight Warcraft III rules live in `@w3booster/sdk/standard-game`. The much larger shipped object table and functions that depend on it use the opt-in `@w3booster/sdk/standard-game/objects` entry point:
+Lightweight Warcraft III rules live in `@w3booster/sdk/standard-game`. Icon metadata and cooldown metadata use separate opt-in entry points so frontends pay only for the data they use. The backwards-compatible combined object table remains available from `@w3booster/sdk/standard-game/objects`:
 
 ```js
 import * as standardGame from '@w3booster/sdk/standard-game';
-import * as standardGameObjects from '@w3booster/sdk/standard-game/objects';
+import * as standardGameIcons from '@w3booster/sdk/standard-game/icons';
+import * as standardGameCooldowns from '@w3booster/sdk/standard-game/cooldowns';
 import { resolveAssetBaseUrl } from '@w3booster/sdk/assets';
 
-const hero = standardGameObjects.getObject('Hamg');
-const icon = standardGameObjects.iconUrl('Hamg', { graphics: 'reforged' });
-const cooldown = standardGameObjects.abilityCooldown(ability, state.match.gameTime);
-const cooldowns = standardGameObjects.abilityCooldownsForState(state);
+const icon = standardGameIcons.iconUrl('Hamg', { graphics: 'reforged' });
+const cooldown = standardGameCooldowns.abilityCooldown(ability, state.match.gameTime);
+const cooldowns = standardGameCooldowns.abilityCooldownsForState(state);
 const selectedCooldown = cooldowns.get(ability); // keyed by the hydrated ability object
 const progress = standardGame.heroExperienceState(heroState.experience);
 const clock = standardGame.dayNightState(state.match.gameTime);
@@ -370,11 +375,13 @@ const leftToRight = standardGame.orderHeadToHeadPlayers(players);
 const presentationTeams = standardGame.orderMatchTeams(state.players, state.match, { reverse: false });
 const presentationColor = standardGame.presentationPlayerColor(player, state.match, state.players, runtime);
 const displayLevel = standardGame.formatHeroLevelProgress(heroState);
-const assets = standardGameObjects.createAssetResolver({ baseUrl: resolveAssetBaseUrl() });
+const assets = standardGameIcons.createAssetResolver({ baseUrl: resolveAssetBaseUrl() });
 const heroIcon = assets.hero(state.match, heroState);
 ```
 
-The lightweight namespace includes upgrade classification, race labels, player colors, melee modes, preferred statistics selection, game-time formatting, the day/night clock, hero progression, safe current/max ratios, canonical observer/replay team ordering, and native or simplified presentation colors. The object namespace adds immutable shipped-object metadata, Classic/Reforged icon URLs, a reusable match-aware asset resolver, individual cooldown lookup, and whole-state cooldown derivation. Custom maps can replace these objects and rules; live recorder values remain authoritative.
+The lightweight namespace includes upgrade classification, race labels, player colors, melee modes, preferred statistics selection, game-time formatting, the day/night clock, hero progression, safe current/max ratios, canonical observer/replay team ordering, and native or simplified presentation colors. The icon namespace adds Classic/Reforged URLs and a match-aware resolver; the cooldown namespace adds individual and whole-state cooldown derivation. Custom maps can replace these objects and rules; live recorder values remain authoritative.
+
+The trusted W3Booster server masks W3Champions four-player FFA opponent identities before issuing the scoped application stream. The current broadcaster remains identifiable; other players arrive with positional labels, random race, and no main-account metadata. Applications and the consumer-controlled SDK do not implement or enforce this privacy boundary.
 
 Icons default to the immutable `https://static.w3booster.com/assets/wc3/standard-game/v1/` catalog. Pass `baseUrl` for a local asset mirror. The npm package contains metadata and URL helpers, not Blizzard artwork.
 
@@ -484,6 +491,8 @@ const lifecycle$ = new Observable(subscriber =>
 - `@w3booster/sdk/assets` contains versioned URL helpers for shared hosted assets such as country flags.
 - `@w3booster/sdk/app` owns typed application bindings created from generated public metadata.
 - `@w3booster/sdk/standard-game/objects` contains the optional shipped object table, icon URLs, and ability-cooldown lookup.
+- `@w3booster/sdk/standard-game/icons` contains only standard-game icon metadata and URL resolvers.
+- `@w3booster/sdk/standard-game/cooldowns` contains only standard-game ability cooldown metadata and derivation.
 - `@w3booster/sdk/compositor` contains browser-source composition APIs used by W3Booster's platform compositor. Its watcher renews expired browser-source sessions and reauthorizes reconnects automatically. Ordinary applications do not import it.
 - `@w3booster/sdk/settings` contains settings-schema types, validation, default derivation, and database-definition code generation.
 - `@w3booster/sdk/testing` contains `createDemoTransport` and custom transport types for SDK and integration tests. Application demo mode normally uses `connect({ demo: true })` instead.

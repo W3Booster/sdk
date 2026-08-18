@@ -29,7 +29,8 @@ export function assertSafeValue(value, path, seen = new Set()) {
 
 export function structuredCloneSafe(value) {
   if (value === undefined || value === null) return value;
-  return globalThis.structuredClone ? structuredClone(value) : JSON.parse(JSON.stringify(value));
+  const nativeClone = Reflect.get(globalThis, 'structuredClone');
+  return typeof nativeClone === 'function' ? nativeClone(value) : JSON.parse(JSON.stringify(value));
 }
 
 export function deepFreeze(value) {

@@ -105,3 +105,18 @@ test('managed application runtime start and stop are single-flight operations', 
   await Promise.all([runtime.stop(), runtime.stop()]);
   assert.equal(runtime.client.status, 'closed');
 });
+
+test('managed application runtime listener failures use the client issue channel', async () => {
+  const app = defineApplication(definition);
+  const runtime = app.createRuntime({ demo: { interval: 0 } });
+  const issues = [];
+  runtime.client.on('issue', issue => issues.push(issue));
+  runtime.lifecycle.subscribe(() => { throw new Error('runtime consumer failed'); });
+
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].source, 'listener');
+  assert.equal(issues[0].recoverable, true);
+  assert.equal(issues[0].error.message, 'runtime consumer failed');
+  assert.equal(runtime.lifecycle.get().error, null);
+  await runtime.stop();
+});

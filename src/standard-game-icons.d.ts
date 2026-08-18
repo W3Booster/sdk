@@ -1,20 +1,9 @@
-import type { CompletedUpgrade, Hero, HeroAbility, Match, MatchState } from './index.js';
-import type { AbilityCooldownState } from './standard-game-cooldowns.js';
-export type { AbilityCooldownState } from './standard-game-cooldowns.js';
+import type { CompletedUpgrade, Hero, HeroAbility, Match } from './index.js';
 
-export interface StandardGameObjectMetadata {
-  readonly icon?: string;
-  readonly [field: string]: string | undefined;
-}
 export type WarcraftGraphics = 'classic' | 'reforged';
-export interface AssetUrlOptions {
-  readonly graphics?: WarcraftGraphics;
-  readonly baseUrl?: string;
-}
-export const objects: Readonly<Record<string, StandardGameObjectMetadata>>;
+export interface AssetUrlOptions { readonly graphics?: WarcraftGraphics; readonly baseUrl?: string }
 export const assetBaseUrl: 'https://static.w3booster.com/assets';
 export const assetCatalogVersion: 'v1';
-export function getObject(rawcode: string): StandardGameObjectMetadata | undefined;
 export function getIcon(rawcode: string): string | undefined;
 export function iconFileName(identifier: string): string | undefined;
 export function iconUrl(identifier: string, options?: AssetUrlOptions): string | undefined;
@@ -31,7 +20,3 @@ export interface StandardGameAssetResolver {
   item(match: Pick<Match, 'isReforged'>, rawcode: string | null | undefined): string | undefined;
 }
 export function createAssetResolver(options?: Pick<AssetUrlOptions, 'baseUrl'>): StandardGameAssetResolver;
-export function getAbilityCooldown(rawcode: string, level?: number): number | undefined;
-export function numberField(rawcode: string, field: string): number | undefined;
-export function abilityCooldown(ability: HeroAbility, gameTime: number): AbilityCooldownState | undefined;
-export function abilityCooldownsForState<TSettings extends object>(state: MatchState<TSettings>): ReadonlyMap<HeroAbility, AbilityCooldownState>;

@@ -28,6 +28,14 @@
       "types": "./src/standard-game-objects.d.ts",
       "import": "./src/standard-game-objects.js"
     },
+    "./standard-game/icons": {
+      "types": "./src/standard-game-icons.d.ts",
+      "import": "./src/standard-game-icons.js"
+    },
+    "./standard-game/cooldowns": {
+      "types": "./src/standard-game-cooldowns.d.ts",
+      "import": "./src/standard-game-cooldowns.js"
+    },
     "./assets": {
       "types": "./src/assets.d.ts",
       "import": "./src/assets.js"
@@ -64,8 +72,9 @@
   "scripts": {
     "test": "node --test",
     "test:browser": "node scripts/browser-smoke.mjs",
+    "test:compat": "eslint \"src/**/*.js\"",
     "test:types": "tsc -p type-tests/tsconfig.json",
-    "check": "npm test && npm run test:types && npm pack --dry-run",
+    "check": "npm test && npm run test:types && npm run test:compat && npm pack --dry-run",
     "prepublishOnly": "npm run check"
   },
   "publishConfig": {
@@ -96,6 +105,8 @@
   ],
   "license": "MIT",
   "devDependencies": {
+    "eslint": "^9.39.5",
+    "eslint-plugin-compat": "^6.2.1",
     "typescript": "~6.0.3"
   }
 }

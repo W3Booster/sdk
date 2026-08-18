@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as standardGame from '../src/standard-game.js';
 import * as standardGameObjects from '../src/standard-game-objects.js';
+import * as standardGameIcons from '../src/standard-game-icons.js';
+import * as standardGameCooldowns from '../src/standard-game-cooldowns.js';
 
 test('standard-game object namespace exposes optional shipped metadata and asset URLs', () => {
   assert.equal(standardGameObjects.getIcon('Hamg'), 'btnheroarchmage.png');
@@ -50,6 +52,12 @@ test('standard-game helpers normalize melee modes, races, colors, and hero progr
 test('standard-game metadata is immutable shared data', () => {
   assert.equal(Object.isFrozen(standardGameObjects.objects), true);
   assert.equal(Object.isFrozen(standardGameObjects.getObject('Hamg')), true);
+});
+
+test('specialized standard-game entry points preserve the combined API values', () => {
+  assert.equal(standardGameIcons.getIcon('Hamg'), standardGameObjects.getIcon('Hamg'));
+  assert.equal(standardGameIcons.getIcon('Rema3'), standardGameObjects.getIcon('Rema3'));
+  assert.equal(standardGameCooldowns.getAbilityCooldown('AHbz', 2), standardGameObjects.getAbilityCooldown('AHbz', 2));
 });
 
 test('standard-game asset resolvers bind the catalog and derive graphics from match state', () => {

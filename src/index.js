@@ -1,6 +1,7 @@
 import { SDK_VERSION, PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS } from './version.js';
-import { createDemoTransport } from './testing.js';
 import { emitDomainEvents } from './internal/domain.js';
+import { registerConsumerIssueReporter } from './internal/consumer-issues.js';
+import { DeferredLocalRecorderTransport } from './internal/deferred-recorder.js';
 import {
   ConnectionError,
   classifyW3BoosterError,
@@ -14,7 +15,6 @@ import { createReconnectBackoff } from './internal/websocket.js';
 import { createBrokerTransport, createCredentialProvider } from './internal/broker.js';
 import { canUseHostCapability, captureHostContext, W3BoosterHost } from './internal/host.js';
 import { applyPatch, normalizeStatePatch, parseProtocolMessage, validateState } from './internal/protocol.js';
-import { applyLocalRecorderUpdates, LocalRecorderTransport } from './internal/recorder.js';
 import {
   ClientLifecycleStore,
   handleListenerResult,
@@ -125,7 +125,7 @@ export class W3BoosterClient {
     this.#runtime.connectionGeneration = 0;
     this.#runtime.fatalProtocolError = null;
     this.#runtime.closedTransports = new WeakSet();
-    this.#runtime.localRecorderTransport = new LocalRecorderTransport({
+    this.#runtime.localRecorderTransport = new DeferredLocalRecorderTransport({
       enabled: this.#runtime.options.localRecorder !== false,
       onUpdates: updates => this.#handleLocalRecorderUpdates(updates),
       onStatus: active => { this.#runtime._diagnostics.localTransport = active ? 'recorder-local' : null; },
@@ -133,6 +133,9 @@ export class W3BoosterClient {
         source: 'recorder', severity: 'warning', recoverable: true
       })
     });
+    registerConsumerIssueReporter(this, error => this.#reportIssue(error, {
+      source: 'listener', severity: 'error', recoverable: true
+    }));
     Object.freeze(this);
   }
 
@@ -261,7 +264,7 @@ export class W3BoosterClient {
     try {
       candidates = this.#runtime.options.transport
         ? [this.#runtime.options.transport]
-        : createTransportCandidates(this.#runtime.options);
+        : await createTransportCandidates(this.#runtime.options);
     } catch (error) {
       throw error;
     }
@@ -500,7 +503,10 @@ export class W3BoosterClient {
     const previousState = this.#state.get();
     if (!previousState) return false;
     try {
-      const nextState = validateState(applyLocalRecorderUpdates(previousState, updates), this.#runtime.options.clientId, false);
+      let nextState = publicApplicationState(this.#runtime.platformState);
+      nextState = this.#runtime.localRecorderTransport.applyTo(nextState);
+      nextState = this.#runtime.localRecorderTransport.applyUpdates(nextState, updates);
+      nextState = validateState(nextState, this.#runtime.options.clientId, false);
       if (deepEqual(previousState, nextState)) return true;
       const state = this.#state.setState(nextState);
       emitDomainEvents(previousState, state, (type, data) => this.#emit(type, data));
@@ -711,9 +717,10 @@ function normalizeReconnectOptions(value) {
   return { maxAttempts, initialDelay, maxDelay };
 }
 
-function createTransportCandidates(options) {
+async function createTransportCandidates(options) {
   const candidates = [];
   if (options.demo) {
+    const { createDemoTransport } = await import('./testing.js');
     candidates.push(createDemoTransport(typeof options.demo === 'object' ? options.demo : {}));
     return candidates;
   }

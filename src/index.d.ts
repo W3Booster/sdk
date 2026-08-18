@@ -258,6 +258,7 @@ export interface W3BoosterEventMap<TSettings extends object = JsonObject> {
   'hero.abilities.changed': HeroEvent<TSettings> & { readonly abilities: readonly HeroAbility[]; readonly previousAbilities: readonly HeroAbility[] };
   'application.settings.changed': { readonly settings: DeepReadonly<TSettings> | undefined; readonly previousSettings: DeepReadonly<TSettings> | undefined; readonly application?: ApplicationState<TSettings>; readonly state: MatchState<TSettings> };
   status: ConnectionStatus;
+  /** @deprecated Use `issue` for structured diagnostics and `client.lifecycle.error` for connection/synchronization failures. */
   error: unknown;
   issue: W3BoosterIssue;
   'stream.gap': { readonly expected: number; readonly received: number };

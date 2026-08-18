@@ -1,4 +1,5 @@
 import { PROTOCOL_VERSION } from './version.js';
+import { structuredCloneSafe as clone } from './internal/values.js';
 
 /** Create a deterministic in-browser data source for SDK and application tests. */
 export function createDemoTransport(options = {}) {
@@ -88,10 +89,6 @@ export function createDemoState(options = {}) {
     };
   }
   return state;
-}
-
-function clone(value) {
-  return globalThis.structuredClone ? structuredClone(value) : JSON.parse(JSON.stringify(value));
 }
 
 function platformState(state) {

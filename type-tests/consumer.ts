@@ -13,6 +13,8 @@ import { broadcasterFirstTeams, broadcasterPlayer, currentUpgrades, groupPlayers
 import type { PlayerTeam } from '../src/selectors.js';
 import * as standardGame from '../src/standard-game.js';
 import * as standardGameObjects from '../src/standard-game-objects.js';
+import * as standardGameIcons from '../src/standard-game-icons.js';
+import * as standardGameCooldowns from '../src/standard-game-cooldowns.js';
 import { countryFlagUrl } from '../src/assets.js';
 import { getOverlayComposition } from '../src/compositor.js';
 import { createDemoState, createDemoTransport } from '../src/testing.js';
@@ -43,6 +45,8 @@ async function useSdk() {
   const overlayRuntime: OverlayRuntimeState | undefined = state.overlay?.runtime;
   const archmageIcon: string | undefined = standardGameObjects.getIcon('Hamg');
   const archmageIconUrl: string | undefined = standardGameObjects.iconUrl('Hamg', { graphics: 'reforged' });
+  const specializedIconUrl: string | undefined = standardGameIcons.iconUrl('Hamg', { graphics: 'reforged' });
+  const specializedCooldown: number | undefined = standardGameCooldowns.getAbilityCooldown('AHbz', 1);
   const germanFlagUrl: string | undefined = countryFlagUrl('DE');
   const heroLevel: number = standardGame.heroExperienceState(500).level;
   const heroHealth: number = standardGame.valuePoolRatio({ current: 50, max: 100 });
@@ -164,7 +168,7 @@ async function useSdk() {
   const connectionError = new ConnectionError('connection', [permissionError]);
   const protocolError = new ProtocolError('INVALID_TEST', 'protocol', { field: 'value' });
   const development: boolean | undefined = composition[0]?.development;
-  console.log(layout, player, store, scopes, message, synchronizedState, state ? store.isSynchronized : false, overlayRuntime?.hudScale, archmageIcon, archmageIconUrl, heroIcon, germanFlagUrl, heroLevel, broadcaster, teams, orderedTeams, presentationTeams, inventory, stableRuntime, inventoryKey, current, upgradeKey, presentationColor, displayLevel, resourcesAvailable, fixture, cooldown, cooldowns, resolvedSettings, recorderClient.diagnostics.localTransport, testingOptions, testingClient, synchronousTransport, scopedClient, configuredDemo, composition, development, connectionError, protocolError, hostCapabilities, canOpenWindow, hostCapabilityStatus);
+  console.log(layout, player, store, scopes, message, synchronizedState, state ? store.isSynchronized : false, overlayRuntime?.hudScale, archmageIcon, archmageIconUrl, specializedIconUrl, specializedCooldown, heroIcon, germanFlagUrl, heroLevel, broadcaster, teams, orderedTeams, presentationTeams, inventory, stableRuntime, inventoryKey, current, upgradeKey, presentationColor, displayLevel, resourcesAvailable, fixture, cooldown, cooldowns, resolvedSettings, recorderClient.diagnostics.localTransport, testingOptions, testingClient, synchronousTransport, scopedClient, configuredDemo, composition, development, connectionError, protocolError, hostCapabilities, canOpenWindow, hostCapabilityStatus);
 }
 
 void useSdk;

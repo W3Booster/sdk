@@ -2,6 +2,7 @@ import { connect, createClient } from './index.js';
 import { isPlainObject, validateAbortSignal } from './internal/network.js';
 import { isKnownScope } from './internal/scopes.js';
 import { resolveSettings } from './settings.js';
+import { reportConsumerIssue } from './internal/consumer-issues.js';
 
 /**
  * Bind immutable public application metadata to the SDK runtime.
@@ -91,7 +92,7 @@ function createApplicationRuntime(application, options) {
     const next = makeRuntimeSnapshot(application, client, lifecycle, host);
     if (sameRuntimeSnapshot(snapshot, next)) return;
     snapshot = next;
-    for (const listener of [...subscribers]) notify(listener, snapshot);
+    for (const listener of [...subscribers]) notify(client, listener, snapshot);
   };
   const unsubscribeClient = client.lifecycle.subscribe(next => { lifecycle = next; publish(); });
   const unsubscribeHost = client.host.lifecycle.subscribe(next => { host = next; publish(); });
@@ -111,7 +112,7 @@ function createApplicationRuntime(application, options) {
           subscriptionOptions.signal?.removeEventListener('abort', unsubscribe);
         };
         subscriptionOptions.signal?.addEventListener('abort', unsubscribe, { once: true });
-        notify(listener, snapshot);
+        notify(client, listener, snapshot);
         return unsubscribe;
       }
     }),
@@ -158,16 +159,11 @@ function sameRuntimeSnapshot(left, right) {
     left.settings === right.settings && left.host === right.host;
 }
 
-function notify(listener, value) {
+function notify(client, listener, value) {
   try {
     const result = listener(value);
-    if (result && typeof result.then === 'function') Promise.resolve(result).catch(reportListenerError);
-  } catch (error) { reportListenerError(error); }
-}
-
-function reportListenerError(error) {
-  if (typeof globalThis.reportError === 'function') globalThis.reportError(error);
-  else globalThis.console?.error?.('W3Booster SDK application runtime listener failed:', error);
+    if (result && typeof result.then === 'function') Promise.resolve(result).catch(error => reportConsumerIssue(client, error));
+  } catch (error) { reportConsumerIssue(client, error); }
 }
 
 function isDeepFrozen(value, seen = new Set()) {

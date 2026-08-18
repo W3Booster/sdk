@@ -67,6 +67,8 @@ import { connect, type MatchState } from '@w3booster/sdk';
 import { broadcasterPlayer } from '@w3booster/sdk/selectors';
 import { heroExperienceState } from '@w3booster/sdk/standard-game';
 import { iconUrl } from '@w3booster/sdk/standard-game/objects';
+import { heroIconUrl } from '@w3booster/sdk/standard-game/icons';
+import { getAbilityCooldown } from '@w3booster/sdk/standard-game/cooldowns';
 import { countryFlagUrl } from '@w3booster/sdk/assets';
 import { getOverlayComposition } from '@w3booster/sdk/compositor';
 import { createDemoTransport, type TestingConnectOptions } from '@w3booster/sdk/testing';
@@ -86,6 +88,8 @@ declare const state: MatchState<Settings>;
 const player = broadcasterPlayer(state.match, state.players);
 const experience = heroExperienceState(500);
 const icon = iconUrl('Hamg');
+const heroIcon = heroIconUrl({ id: 'Hamg' });
+const abilityCooldown = getAbilityCooldown('AHbz', 1);
 const flag = countryFlagUrl('DE');
 const composition = getOverlayComposition({ surface: 'streamOverlay' });
 const schema = validateSettingsSchema<Settings>({ version: 1, sections: [] });
@@ -95,7 +99,7 @@ const app = defineApplication<Settings, readonly ['match:read']>({
 const generatedSettings: W3BoosterAppSettings = { display: { layout: 'compact' } };
 const generatedClient = w3boosterApp.connect({ demo: { settings: generatedSettings } });
 const generatedLifecycleClient = w3boosterApp.createClient({ demo: { settings: generatedSettings } });
-void [clientPromise, generatedClient, generatedLifecycleClient, player, experience, icon, flag, composition, schema, app];
+void [clientPromise, generatedClient, generatedLifecycleClient, player, experience, icon, heroIcon, abilityCooldown, flag, composition, schema, app];
 `);
 
     const runtimeResult = await run(process.execPath, ['--input-type=module', '--eval', `
@@ -104,6 +108,8 @@ await Promise.all([
   '@w3booster/sdk/selectors',
   '@w3booster/sdk/standard-game',
   '@w3booster/sdk/standard-game/objects',
+  '@w3booster/sdk/standard-game/icons',
+  '@w3booster/sdk/standard-game/cooldowns',
   '@w3booster/sdk/assets',
   '@w3booster/sdk/compositor',
   '@w3booster/sdk/settings',

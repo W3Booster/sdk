@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Kept the SDK framework-neutral and documented that framework lifecycle, dependency injection, and UI state belong in consuming applications.
+- Routed generated application-runtime listener failures through the structured client issue channel.
+- Deferred demo and local-recorder modules until they are actually needed.
+- Split standard-game icon and cooldown metadata into independently importable entry points while preserving the combined objects API.
+- Documented that trust-sensitive identity redaction is enforced by the platform server, not by consumer-controlled SDK code.
+- Added compatibility linting against the declared browser targets.
+
 ## 0.2.0 - 2026-08-18
 
 - Added a managed generated-application runtime that atomically exposes connection state, resolved settings, and reactive host capabilities with single-flight startup and teardown.

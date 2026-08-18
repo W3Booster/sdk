@@ -1,5 +1,6 @@
 import { isKnownScope } from './internal/scopes.js';
 import { isPlainObject } from './internal/network.js';
+import { structuredCloneSafe as clone } from './internal/values.js';
 
 const SETTING_TYPES = new Set(['boolean', 'text', 'number', 'select', 'country']);
 const UNSAFE_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
@@ -199,7 +200,6 @@ function mergeObjects(defaults, settings) {
 }
 function isMergeableObject(value) { return isPlainObject(value); }
 function indentJson(value, spaces) { return JSON.stringify(value, null, 2).replace(/\n/g, `\n${' '.repeat(spaces)}`); }
-function clone(value) { return globalThis.structuredClone ? structuredClone(value) : JSON.parse(JSON.stringify(value)); }
 function freeze(value) { if (value && typeof value === 'object' && !Object.isFrozen(value)) { Object.values(value).forEach(freeze); Object.freeze(value); } return value; }
 function sameJson(left, right) { return JSON.stringify(left) === JSON.stringify(right); }
 function fail(message) { throw new TypeError(`Invalid W3Booster settings definition: ${message}.`); }
