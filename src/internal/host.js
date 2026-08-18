@@ -16,7 +16,14 @@ export class W3BoosterHost {
     this.authenticated = false;
     this.targetOrigin = '*';
     this._capabilities = Object.freeze([]);
+    this._capabilityStatus = 'unavailable';
+    this._lifecycleSnapshot = Object.freeze({
+      available: false,
+      capabilities: this._capabilities,
+      capabilityStatus: this._capabilityStatus
+    });
     this.capabilitySubscribers = new Set();
+    this.lifecycleSubscribers = new Set();
     this.resizeObserver = null;
     this.resizeFrame = null;
     this.resizeListener = null;
@@ -29,9 +36,15 @@ export class W3BoosterHost {
 
   get available() { return !!hostWindow(this.authenticated); }
   get capabilities() { return this._capabilities; }
+  get capabilityStatus() { return this._capabilityStatus; }
+  getLifecycleSnapshot() { return this._lifecycleSnapshot; }
   supports(capability) {
     if (!HOST_CAPABILITIES.has(capability)) throw new TypeError(`Unknown W3Booster host capability: ${String(capability)}`);
     return this._capabilities.includes(capability);
+  }
+  can(capability) {
+    if (!HOST_CAPABILITIES.has(capability)) throw new TypeError(`Unknown W3Booster host capability: ${String(capability)}`);
+    return canUseHostCapability(this._lifecycleSnapshot, capability);
   }
 
   subscribeCapabilities(listener, options = {}) {
@@ -49,10 +62,26 @@ export class W3BoosterHost {
     return unsubscribe;
   }
 
+  subscribeLifecycle(listener, options = {}) {
+    if (typeof listener !== 'function') throw new TypeError('listener must be a function');
+    if (!isPlainObject(options)) throw new TypeError('subscription options must be an object');
+    validateAbortSignal(options.signal);
+    if (options.signal?.aborted) return () => {};
+    this.lifecycleSubscribers.add(listener);
+    const unsubscribe = () => {
+      this.lifecycleSubscribers.delete(listener);
+      options.signal?.removeEventListener('abort', unsubscribe);
+    };
+    options.signal?.addEventListener('abort', unsubscribe, { once: true });
+    this.#notifyLifecycleListener(listener);
+    return unsubscribe;
+  }
+
   authenticate(context) {
     this.authenticated = context?.trusted === true;
     this.targetOrigin = context?.origin || '*';
     if (this.authenticated) {
+      this.#setCapabilityState([], 'pending');
       hostEventTarget()?.addEventListener?.('message', this.responseListener);
       queueMicrotask(() => { if (this.authenticated) void this.refreshCapabilities(); });
     }
@@ -67,16 +96,14 @@ export class W3BoosterHost {
       pending.reject(new ConnectionError('W3Booster disconnected before the host action completed.', [], 'HOST_UNAVAILABLE'));
     }
     this.pendingRequests.clear();
-    this.#setCapabilities([]);
+    this.#setCapabilityState([], 'unavailable');
   }
 
-  openWindow(options = {}) { return this.#post('host.open-window', { options }); }
-  openWindowAndWait(options = {}) {
-    assertSafeValue(options, 'open window options');
+  openWindow(options = {}) {
+    validateOpenWindowOptions(options);
     return this.#requestMessage('host.open-window', { options }, 'opening an application window');
   }
-  closeWindow() { return this.#post('host.close-window', {}); }
-  closeWindowAndWait() { return this.#requestMessage('host.close-window', {}, 'closing the application window'); }
+  closeWindow() { return this.#requestMessage('host.close-window', {}, 'closing the application window'); }
 
   changeMatchScore(side, delta) {
     if (!['wins', 'losses'].includes(side)) throw new TypeError('side must be wins or losses');
@@ -84,22 +111,12 @@ export class W3BoosterHost {
     return this.command('overlay.match-score.change', { side, delta });
   }
 
-  changeMatchScoreAndWait(side, delta) {
-    if (!['wins', 'losses'].includes(side)) throw new TypeError('side must be wins or losses');
-    if (![1, -1].includes(delta)) throw new TypeError('delta must be 1 or -1');
-    return this.commandAndWait('overlay.match-score.change', { side, delta });
-  }
-
   resetMatchScore() { return this.command('overlay.match-score.reset'); }
-  resetMatchScoreAndWait() { return this.commandAndWait('overlay.match-score.reset'); }
 
   command(command, payload) {
-    if (!command || typeof command !== 'string') throw new TypeError('command is required');
-    return this.#post('host.command', { command, payload });
-  }
-
-  commandAndWait(command, payload) {
-    if (!command || typeof command !== 'string') throw new TypeError('command is required');
+    if (typeof command !== 'string' || !command.trim() || command.length > 160) {
+      throw new TypeError('command must be a non-empty string of at most 160 characters');
+    }
     if (payload !== undefined) assertSafeValue(payload, 'host command payload');
     return this.#request(command, payload);
   }
@@ -147,26 +164,58 @@ export class W3BoosterHost {
   }
 
   async refreshCapabilities() {
+    if (!this.authenticated) return this._capabilities;
+    if (this._capabilityStatus !== 'known') this.#setCapabilityState(this._capabilities, 'pending');
     try {
       const result = await this.#request('host.capabilities.get');
-      if (!this.authenticated || !Array.isArray(result?.capabilities)) return this._capabilities;
-      this.#setCapabilities(result.capabilities.filter(capability => HOST_CAPABILITIES.has(capability)));
-    } catch (_) {
-      // Older hosts do not advertise capabilities. Named actions still fail explicitly when requested.
+      if (!this.authenticated) return this._capabilities;
+      if (result == null) {
+        this.#setCapabilityState([], 'legacy');
+        return this._capabilities;
+      }
+      if (!Array.isArray(result?.capabilities)) throw new TypeError('The W3Booster host returned invalid capabilities.');
+      this.#setCapabilityState(result.capabilities.filter(capability => HOST_CAPABILITIES.has(capability)), 'known');
+    } catch (error) {
+      if (this.authenticated && this._capabilityStatus === 'pending') {
+        // Older hosts either acknowledge unknown generic commands without a
+        // value or reject them explicitly. Other failures must not enable UI.
+        const status = error instanceof HostActionError && error.code === 'UNKNOWN_COMMAND'
+          ? 'legacy'
+          : 'unavailable';
+        this.#setCapabilityState([], status);
+      }
     }
     return this._capabilities;
   }
 
-  #setCapabilities(capabilities) {
+  #setCapabilityState(capabilities, status) {
     const next = Object.freeze(Array.from(new Set(capabilities)));
-    if (next.length === this._capabilities.length && next.every((value, index) => value === this._capabilities[index])) return;
+    const available = this.available;
+    const unchanged = next.length === this._capabilities.length &&
+      next.every((value, index) => value === this._capabilities[index]) &&
+      status === this._capabilityStatus && available === this._lifecycleSnapshot.available;
+    if (unchanged) return;
     this._capabilities = next;
+    this._capabilityStatus = status;
+    this._lifecycleSnapshot = Object.freeze({
+      available,
+      capabilities: next,
+      capabilityStatus: status
+    });
     [...this.capabilitySubscribers].forEach(listener => this.#notifyCapabilityListener(listener));
+    [...this.lifecycleSubscribers].forEach(listener => this.#notifyLifecycleListener(listener));
   }
 
   #notifyCapabilityListener(listener) {
     try {
-      const result = listener(this._capabilities);
+      const result = listener(this._capabilities, this._capabilityStatus);
+      if (result && typeof result.then === 'function') Promise.resolve(result).catch(this.onListenerError);
+    } catch (error) { this.onListenerError(error); }
+  }
+
+  #notifyLifecycleListener(listener) {
+    try {
+      const result = listener(this._lifecycleSnapshot);
       if (result && typeof result.then === 'function') Promise.resolve(result).catch(this.onListenerError);
     } catch (error) { this.onListenerError(error); }
   }
@@ -252,6 +301,27 @@ export class W3BoosterHost {
     }
     this.resizeFrame = null;
     this.resizeListener = null;
+  }
+}
+
+export function canUseHostCapability(snapshot, capability) {
+  if (!HOST_CAPABILITIES.has(capability)) throw new TypeError(`Unknown W3Booster host capability: ${String(capability)}`);
+  if (!snapshot?.available || snapshot.capabilityStatus === 'pending' || snapshot.capabilityStatus === 'unavailable') return false;
+  return snapshot.capabilityStatus === 'legacy' || snapshot.capabilities?.includes(capability) === true;
+}
+
+function validateOpenWindowOptions(options) {
+  if (!isPlainObject(options)) throw new TypeError('open window options must be an object');
+  assertSafeValue(options, 'open window options');
+  for (const field of ['path', 'title']) {
+    if (options[field] !== undefined && typeof options[field] !== 'string') {
+      throw new TypeError(`open window ${field} must be a string`);
+    }
+  }
+  for (const field of ['width', 'height']) {
+    if (options[field] !== undefined && (!Number.isFinite(options[field]) || options[field] <= 0)) {
+      throw new TypeError(`open window ${field} must be a positive number`);
+    }
   }
 }
 

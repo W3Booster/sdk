@@ -115,13 +115,15 @@ export interface OverlayRuntimeState {
   readonly chatbarOpen?: boolean;
   /** CSS scale multiplier normalized by W3Booster from 0.5 through 1.0. */
   readonly hudScale?: number;
-  readonly matchscoreWins?: number;
-  readonly matchscoreLosses?: number;
+  readonly matchScore?: MatchScore;
   readonly teamColors?: boolean;
 }
+export interface MatchScore {
+  readonly wins: number;
+  readonly losses: number;
+}
 export interface OverlayState {
-  readonly settings: DeepReadonly<JsonObject>;
-  readonly misc: OverlayRuntimeState;
+  readonly runtime: OverlayRuntimeState;
 }
 export interface MatchState<TSettings extends object = JsonObject> {
   readonly capabilities: readonly Capability[];
@@ -217,9 +219,9 @@ export interface Player {
   readonly stats?: PlayerStatsCollection;
 }
 
-export interface JsonPatchAdd { op: 'add'; path: string; value: JsonValue }
-export interface JsonPatchReplace { op: 'replace'; path: string; value: JsonValue }
-export interface JsonPatchRemove { op: 'remove'; path: string }
+export interface JsonPatchAdd { readonly op: 'add'; readonly path: string; readonly value: JsonValue }
+export interface JsonPatchReplace { readonly op: 'replace'; readonly path: string; readonly value: JsonValue }
+export interface JsonPatchRemove { readonly op: 'remove'; readonly path: string }
 export type JsonPatchOperation = JsonPatchAdd | JsonPatchReplace | JsonPatchRemove;
 export interface ProtocolEnvelope<TType extends string = string, TData = unknown> {
   version: string;
@@ -230,15 +232,15 @@ export interface ProtocolEnvelope<TType extends string = string, TData = unknown
 export type SnapshotMessage<TSettings extends object = JsonObject> = ProtocolEnvelope<'state.snapshot', MatchState<TSettings>>;
 export type PatchMessage = ProtocolEnvelope<'state.patch', readonly JsonPatchOperation[]>;
 
-export interface StateChangedEvent<TSettings extends object = JsonObject> { state: MatchState<TSettings>; previousState: MatchState<TSettings> | null; initial: boolean }
-export interface MatchChangedEvent<TSettings extends object = JsonObject> { match: Match; previousMatch: Match; changedFields: string[]; state: MatchState<TSettings> }
-export interface MatchLifecycleEvent<TSettings extends object = JsonObject> { match: Match; previousMatch?: Match; nextMatch?: Match; state: MatchState<TSettings> }
-export interface PlayerEvent<TSettings extends object = JsonObject> { playerId: string; player: Player; previousPlayer?: Player; state: MatchState<TSettings> }
-export interface PlayerChangedEvent<TSettings extends object = JsonObject> extends PlayerEvent<TSettings> { changedFields: string[] }
-export interface HeroEvent<TSettings extends object = JsonObject> extends PlayerEvent<TSettings> { heroId: string; hero: Hero; previousHero?: Hero }
-export interface HeroChangedEvent<TSettings extends object = JsonObject> extends HeroEvent<TSettings> { changedFields: string[] }
+export interface StateChangedEvent<TSettings extends object = JsonObject> { readonly state: MatchState<TSettings>; readonly previousState: MatchState<TSettings> | null; readonly initial: boolean }
+export interface MatchChangedEvent<TSettings extends object = JsonObject> { readonly match: Match; readonly previousMatch: Match; readonly changedFields: readonly string[]; readonly state: MatchState<TSettings> }
+export interface MatchLifecycleEvent<TSettings extends object = JsonObject> { readonly match: Match; readonly previousMatch?: Match; readonly nextMatch?: Match; readonly state: MatchState<TSettings> }
+export interface PlayerEvent<TSettings extends object = JsonObject> { readonly playerId: string; readonly player: Player; readonly previousPlayer?: Player; readonly state: MatchState<TSettings> }
+export interface PlayerChangedEvent<TSettings extends object = JsonObject> extends PlayerEvent<TSettings> { readonly changedFields: readonly string[] }
+export interface HeroEvent<TSettings extends object = JsonObject> extends PlayerEvent<TSettings> { readonly heroId: string; readonly hero: Hero; readonly previousHero?: Hero }
+export interface HeroChangedEvent<TSettings extends object = JsonObject> extends HeroEvent<TSettings> { readonly changedFields: readonly string[] }
 export interface W3BoosterEventMap<TSettings extends object = JsonObject> {
-  'state.ready': { state: MatchState<TSettings> };
+  'state.ready': { readonly state: MatchState<TSettings> };
   'state.changed': StateChangedEvent<TSettings>;
   'match.started': MatchLifecycleEvent<TSettings>;
   'match.changed': MatchChangedEvent<TSettings>;
@@ -246,26 +248,24 @@ export interface W3BoosterEventMap<TSettings extends object = JsonObject> {
   'player.added': PlayerEvent<TSettings>;
   'player.changed': PlayerChangedEvent<TSettings>;
   'player.removed': PlayerEvent<TSettings>;
-  'player.resources.changed': PlayerEvent<TSettings> & { resources?: Resources; previousResources?: Resources };
-  'player.stats.changed': PlayerEvent<TSettings> & { stats?: PlayerStatsCollection; previousStats?: PlayerStatsCollection };
-  'player.upgrades.changed': PlayerEvent<TSettings> & { upgrades?: UpgradeState; previousUpgrades?: UpgradeState };
+  'player.resources.changed': PlayerEvent<TSettings> & { readonly resources?: Resources; readonly previousResources?: Resources };
+  'player.stats.changed': PlayerEvent<TSettings> & { readonly stats?: PlayerStatsCollection; readonly previousStats?: PlayerStatsCollection };
+  'player.upgrades.changed': PlayerEvent<TSettings> & { readonly upgrades?: UpgradeState; readonly previousUpgrades?: UpgradeState };
   'hero.added': HeroEvent<TSettings>;
   'hero.changed': HeroChangedEvent<TSettings>;
   'hero.removed': HeroEvent<TSettings>;
-  'hero.inventory.changed': HeroEvent<TSettings> & { inventory: readonly string[]; previousInventory: readonly string[] };
-  'hero.abilities.changed': HeroEvent<TSettings> & { abilities: readonly HeroAbility[]; previousAbilities: readonly HeroAbility[] };
-  'application.settings.changed': { settings: DeepReadonly<TSettings> | undefined; previousSettings: DeepReadonly<TSettings> | undefined; application?: ApplicationState<TSettings>; state: MatchState<TSettings> };
+  'hero.inventory.changed': HeroEvent<TSettings> & { readonly inventory: readonly string[]; readonly previousInventory: readonly string[] };
+  'hero.abilities.changed': HeroEvent<TSettings> & { readonly abilities: readonly HeroAbility[]; readonly previousAbilities: readonly HeroAbility[] };
+  'application.settings.changed': { readonly settings: DeepReadonly<TSettings> | undefined; readonly previousSettings: DeepReadonly<TSettings> | undefined; readonly application?: ApplicationState<TSettings>; readonly state: MatchState<TSettings> };
   status: ConnectionStatus;
   error: unknown;
   issue: W3BoosterIssue;
-  'stream.gap': { expected: number; received: number };
-  'state.snapshot': MatchState<TSettings>;
-  'state.patch': JsonPatchOperation[];
+  'stream.gap': { readonly expected: number; readonly received: number };
 }
 export type W3BoosterEvent<TSettings extends object = JsonObject> = {
   [TType in keyof W3BoosterEventMap<TSettings>]: {
-    type: TType;
-    data: W3BoosterEventMap<TSettings>[TType];
+    readonly type: TType;
+    readonly data: W3BoosterEventMap<TSettings>[TType];
   }
 }[keyof W3BoosterEventMap<TSettings>];
 
@@ -280,10 +280,10 @@ export interface StateStore<TSettings extends object = JsonObject> {
   /** True only when state belongs to the current connected transport generation. */
   readonly isSynchronized: boolean;
   player(playerId: string | number): Player | null;
-  /** Runs immediately when state already exists and after every later state update. */
-  subscribe(listener: (state: MatchState<TSettings>) => void | Promise<void>, options?: SubscriptionOptions): () => void;
-  /** Runs immediately for the first selected value, then according to the configured equality function. */
-  watch<T>(selector: (state: MatchState<TSettings>) => T, listener: (value: T, previousValue: T | undefined, state: MatchState<TSettings>) => void | Promise<void>, options?: WatchOptions<T>): () => void;
+  /** Runs immediately and after every later state update or reset. Null means no hydrated state is currently available. */
+  subscribe(listener: (state: MatchState<TSettings> | null) => void | Promise<void>, options?: SubscriptionOptions): () => void;
+  /** Runs immediately for the first selected value, including unavailable state, then according to the configured equality function. */
+  watch<T>(selector: (state: MatchState<TSettings> | null) => T, listener: (value: T, previousValue: T | undefined, state: MatchState<TSettings> | null) => void | Promise<void>, options?: WatchOptions<T>): () => void;
   /** Wait for the first state snapshot. The default timeout is 10 seconds; zero disables the timeout. */
   whenReady(options?: ReadyOptions): Promise<MatchState<TSettings>>;
   /** Wait for a complete snapshot belonging to the current transport generation. */
@@ -355,9 +355,25 @@ export class W3BoosterClient<TSettings extends object = JsonObject> {
   /** Close transports and clear hydrated state. Event subscriptions remain usable if this client reconnects. */
   disconnect(): Promise<void>;
 }
-export interface OpenWindowOptions { path?: string; width?: number; height?: number; title?: string }
+export interface OpenWindowOptions {
+  readonly path?: string;
+  readonly width?: number;
+  readonly height?: number;
+  readonly title?: string;
+}
 export type MatchScoreSide = 'wins' | 'losses';
 export type HostCapability = 'window:open' | 'window:close' | 'match-score:write' | 'settings:write' | 'resize:report' | 'command';
+export type HostCapabilityStatus = 'unavailable' | 'pending' | 'known' | 'legacy';
+export interface HostLifecycleSnapshot {
+  readonly available: boolean;
+  readonly capabilities: readonly HostCapability[];
+  readonly capabilityStatus: HostCapabilityStatus;
+}
+export interface HostLifecycleStore {
+  get(): HostLifecycleSnapshot;
+  /** Runs immediately and whenever host availability or capability discovery changes. */
+  subscribe(listener: (snapshot: HostLifecycleSnapshot) => void | Promise<void>, options?: SubscriptionOptions): () => void;
+}
 type StringKey<T> = Extract<keyof T, string>;
 export type SettingsPath<TSettings> = string extends keyof TSettings ? string : {
   [TKey in StringKey<TSettings>]: NonNullable<TSettings[TKey]> extends readonly unknown[]
@@ -376,22 +392,25 @@ export type SettingsPathValue<TSettings, TPath extends string> = string extends 
       ? Exclude<TSettings[TPath], undefined>
       : never;
 export interface W3BoosterHost<TSettings extends object = JsonObject> {
+  readonly lifecycle: HostLifecycleStore;
   readonly available: boolean;
   readonly capabilities: readonly HostCapability[];
+  /** Discovery state. `legacy` means the host accepts actions but cannot advertise them. */
+  readonly capabilityStatus: HostCapabilityStatus;
   supports(capability: HostCapability): boolean;
-  /** Ask the authenticated host to advertise supported actions. Older hosts resolve with an empty list. */
+  /** Whether an action should currently be offered, including compatibility with legacy hosts. */
+  can(capability: HostCapability): boolean;
+  /** Ask the authenticated host to advertise supported actions. Older hosts transition to `legacy`. */
   refreshCapabilities(): Promise<readonly HostCapability[]>;
-  subscribeCapabilities(listener: (capabilities: readonly HostCapability[]) => void | Promise<void>, options?: SubscriptionOptions): () => void;
-  openWindow(options?: OpenWindowOptions): boolean;
-  openWindowAndWait(options?: OpenWindowOptions): Promise<unknown>;
-  closeWindow(): boolean;
-  closeWindowAndWait(): Promise<unknown>;
-  changeMatchScore(side: MatchScoreSide, delta: 1 | -1): boolean;
-  changeMatchScoreAndWait(side: MatchScoreSide, delta: 1 | -1): Promise<unknown>;
-  resetMatchScore(): boolean;
-  resetMatchScoreAndWait(): Promise<unknown>;
-  command(command: string, payload?: unknown): boolean;
-  commandAndWait(command: string, payload?: unknown): Promise<unknown>;
+  subscribeCapabilities(
+    listener: (capabilities: readonly HostCapability[], status: HostCapabilityStatus) => void | Promise<void>,
+    options?: SubscriptionOptions
+  ): () => void;
+  openWindow(options?: OpenWindowOptions): Promise<unknown>;
+  closeWindow(): Promise<unknown>;
+  changeMatchScore(side: MatchScoreSide, delta: 1 | -1): Promise<unknown>;
+  resetMatchScore(): Promise<unknown>;
+  command(command: string, payload?: unknown): Promise<unknown>;
   /** Persist a setting and resolve only after the host confirms the saved settings. */
   setSetting<TPath extends SettingsPath<TSettings>>(path: TPath, value: SettingsPathValue<TSettings, TPath>): Promise<DeepReadonly<TSettings>>;
   startAutoResize(): void;
@@ -422,3 +441,4 @@ export function createClient<TSettings extends object = JsonObject>(options: Con
 export function isAbortError(error: unknown): boolean;
 export function isW3BoosterError(error: unknown): error is PermissionRequiredError | ConnectionError | ProtocolError | HostActionError;
 export function classifyW3BoosterError(error: unknown): W3BoosterErrorInfo;
+export function canUseHostCapability(snapshot: HostLifecycleSnapshot, capability: HostCapability): boolean;

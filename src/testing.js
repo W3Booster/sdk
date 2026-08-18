@@ -18,7 +18,7 @@ export function createDemoTransport(options = {}) {
           development: true
         };
       }
-      context.onMessage({ version: PROTOCOL_VERSION, sequence: ++sequence, type: 'state.snapshot', data: state });
+      context.onMessage({ version: PROTOCOL_VERSION, sequence: ++sequence, type: 'state.snapshot', data: platformState(state) });
       if (interval === 0) return;
       timer = setInterval(() => {
         state.match.gameTime += 1;
@@ -27,7 +27,7 @@ export function createDemoTransport(options = {}) {
           const resources = state.players[index]?.resources;
           if (resources && Number.isFinite(resources.gold)) resources.gold += gold;
         });
-        context.onMessage({ version: PROTOCOL_VERSION, sequence: ++sequence, type: 'state.snapshot', data: state });
+        context.onMessage({ version: PROTOCOL_VERSION, sequence: ++sequence, type: 'state.snapshot', data: platformState(state) });
       }, interval);
     },
     close() { clearInterval(timer); },
@@ -76,8 +76,7 @@ export function createDemoState(options = {}) {
       }
     ],
     overlay: {
-      settings: {},
-      misc: { hudScale: 1, chatbarOpen: false, matchscoreWins: 0, matchscoreLosses: 0, teamColors: true }
+      runtime: { hudScale: 1, chatbarOpen: false, matchScore: { wins: 0, losses: 0 }, teamColors: true }
     }
   };
   if (options.clientId) {
@@ -93,4 +92,19 @@ export function createDemoState(options = {}) {
 
 function clone(value) {
   return globalThis.structuredClone ? structuredClone(value) : JSON.parse(JSON.stringify(value));
+}
+
+function platformState(state) {
+  const snapshot = clone(state);
+  if (!snapshot.overlay?.runtime) return snapshot;
+  const runtime = snapshot.overlay.runtime;
+  const matchScore = runtime.matchScore;
+  snapshot.overlay = {
+    misc: {
+      ...runtime,
+      ...(matchScore ? { matchscoreWins: matchScore.wins, matchscoreLosses: matchScore.losses } : {})
+    }
+  };
+  delete snapshot.overlay.misc.matchScore;
+  return snapshot;
 }

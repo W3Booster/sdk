@@ -36,6 +36,10 @@
       "types": "./src/settings.d.ts",
       "import": "./src/settings.js"
     },
+    "./app": {
+      "types": "./src/app.d.ts",
+      "import": "./src/app.js"
+    },
     "./compositor": {
       "types": "./src/compositor.d.ts",
       "import": "./src/compositor.js"
@@ -44,9 +48,9 @@
       "types": "./src/testing.d.ts",
       "import": "./src/testing.js"
     },
-    "./frontend": {
-      "types": "./src/frontend.d.ts",
-      "import": "./src/frontend.js"
+    "./react": {
+      "types": "./src/react.d.ts",
+      "import": "./src/react.js"
     }
   },
   "files": [
@@ -70,6 +74,12 @@
   "engines": {
     "node": ">=18"
   },
+  "browserslist": [
+    "Chrome >= 92",
+    "Edge >= 92",
+    "Firefox >= 90",
+    "Safari >= 15.4"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/W3Booster/sdk.git"

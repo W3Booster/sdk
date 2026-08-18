@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 
 const run = promisify(execFile);
 const repository = dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
+const MINIMUM_CHROMIUM_MAJOR = 92;
 const html = `<!doctype html>
 <html><body data-result="pending"><script type="module">
   import { connect, createClient } from '/src/index.js';
@@ -34,6 +35,11 @@ const html = `<!doctype html>
 </script></body></html>`;
 
 const chrome = await findChrome();
+const { stdout: chromeVersion } = await run(chrome, ['--version']);
+const chromiumMajor = Number(chromeVersion.match(/(?:Chrome|Chromium)\s+(\d+)/)?.[1]);
+if (!Number.isSafeInteger(chromiumMajor) || chromiumMajor < MINIMUM_CHROMIUM_MAJOR) {
+  throw new Error(`Chrome or Chromium ${MINIMUM_CHROMIUM_MAJOR}+ is required; found ${chromeVersion.trim() || 'an unknown version'}.`);
+}
 const profile = await mkdtemp(join(tmpdir(), 'w3booster-sdk-chrome-'));
 const server = createServer(async (request, response) => {
   try {

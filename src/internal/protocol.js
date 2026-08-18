@@ -101,13 +101,21 @@ export function validateState(value, clientId, cloneState = true) {
     }
   }
   if (state.overlay !== undefined) {
-    if (!isPlainObject(state.overlay) || !isPlainObject(state.overlay.settings) || !isPlainObject(state.overlay.misc)) {
-      throw new ProtocolError('INVALID_STATE', 'Overlay state must contain settings and misc objects.');
+    const runtime = state.overlay?.misc ?? state.overlay?.runtime;
+    if (!isPlainObject(state.overlay) || !isPlainObject(runtime)) {
+      throw new ProtocolError('INVALID_STATE', 'Overlay state must contain a runtime object.');
     }
-    validateOptionalFields(state.overlay.misc, {
+    if (state.overlay.settings !== undefined && !isPlainObject(state.overlay.settings)) {
+      throw new ProtocolError('INVALID_STATE', 'Legacy overlay settings must be an object when present.');
+    }
+    validateOptionalFields(runtime, {
       chatbarOpen: 'boolean', hudScale: 'number', matchscoreWins: 'number', matchscoreLosses: 'number', teamColors: 'boolean'
     }, 'Overlay runtime state');
-    if (state.overlay.misc.hudScale !== undefined && (state.overlay.misc.hudScale < 0.5 || state.overlay.misc.hudScale > 1)) {
+    if (runtime.matchScore !== undefined && (!isPlainObject(runtime.matchScore) ||
+        !Number.isFinite(runtime.matchScore.wins) || !Number.isFinite(runtime.matchScore.losses))) {
+      throw new ProtocolError('INVALID_STATE', 'Overlay runtime matchScore must contain finite wins and losses.');
+    }
+    if (runtime.hudScale !== undefined && (runtime.hudScale < 0.5 || runtime.hudScale > 1)) {
       throw new ProtocolError('INVALID_STATE', 'Overlay runtime state.hudScale must be between 0.5 and 1.0.');
     }
   }

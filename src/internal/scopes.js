@@ -1,0 +1,14 @@
+const KNOWN_SCOPES = new Set([
+  'match:read',
+  'players:read',
+  'stats:read',
+  'heroes:read',
+  'upgrades:read',
+  'resources:read',
+  'controlgroups:read',
+  'overlay:read'
+]);
+
+export function isKnownScope(value) {
+  return typeof value === 'string' && KNOWN_SCOPES.has(value);
+}

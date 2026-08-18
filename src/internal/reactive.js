@@ -25,7 +25,7 @@ export class StateStore {
       options.signal?.removeEventListener('abort', unsubscribe);
     };
     options.signal?.addEventListener('abort', unsubscribe, { once: true });
-    if (this.state) this.notify(listener);
+    this.notify(listener);
     return unsubscribe;
   }
   setState(nextState, options = {}) {
@@ -38,9 +38,11 @@ export class StateStore {
     return this.state;
   }
   reset(reason = createAbortError('W3Booster state was reset before it became ready.'), options = {}) {
+    const hadState = this.state !== null;
     this.state = null;
     this.synchronized = false;
     if (options.publish !== false) this.publishSnapshot();
+    if (hadState) [...this.subscribers].forEach(listener => this.notify(listener));
     for (const waiter of [...this.readyWaiters]) waiter.reject(reason);
     for (const waiter of [...this.synchronizationWaiters]) waiter.reject(reason);
   }
@@ -48,6 +50,13 @@ export class StateStore {
     if (!this.synchronized) return false;
     this.synchronized = false;
     if (options.publish !== false) this.publishSnapshot();
+    return true;
+  }
+  markSynchronized(options = {}) {
+    if (!this.state || this.synchronized) return false;
+    this.synchronized = true;
+    if (options.publish !== false) this.publishSnapshot();
+    for (const waiter of [...this.synchronizationWaiters]) waiter.resolve(this.state);
     return true;
   }
   publishSnapshot() {
@@ -149,6 +158,7 @@ export class ClientLifecycleStore {
 export class W3BoosterEventEmitter {
   constructor(onListenerError = reportListenerError) {
     this.listeners = new Map();
+    this.unknownListeners = new Map();
     this.onListenerError = onListenerError;
   }
   on(type, listener, options = {}) {
@@ -158,7 +168,8 @@ export class W3BoosterEventEmitter {
     if (!this.listeners.has(type)) this.listeners.set(type, new Set());
     this.listeners.get(type).add(listener);
     const unsubscribe = () => {
-      this.off(type, listener);
+      this.listeners.get(type)?.delete(listener);
+      if (this.listeners.get(type)?.size === 0) this.listeners.delete(type);
       options.signal?.removeEventListener('abort', unsubscribe);
     };
     options.signal?.addEventListener('abort', unsubscribe, { once: true });
@@ -172,18 +183,47 @@ export class W3BoosterEventEmitter {
     }, options);
     return unsubscribe;
   }
-  onUnknown(type, listener, options) { return this.on(type, listener, options); }
-  onceUnknown(type, listener, options) { return this.once(type, listener, options); }
+  onUnknown(type, listener, options = {}) {
+    if (typeof listener !== 'function') throw new TypeError('listener must be a function');
+    options = normalizeSubscriptionOptions(options);
+    if (options.signal?.aborted) return () => {};
+    if (!this.unknownListeners.has(type)) this.unknownListeners.set(type, new Set());
+    this.unknownListeners.get(type).add(listener);
+    const unsubscribe = () => {
+      this.unknownListeners.get(type)?.delete(listener);
+      if (this.unknownListeners.get(type)?.size === 0) this.unknownListeners.delete(type);
+      options.signal?.removeEventListener('abort', unsubscribe);
+    };
+    options.signal?.addEventListener('abort', unsubscribe, { once: true });
+    return unsubscribe;
+  }
+  onceUnknown(type, listener, options) {
+    if (typeof listener !== 'function') throw new TypeError('listener must be a function');
+    const unsubscribe = this.onUnknown(type, data => {
+      unsubscribe();
+      return listener(data);
+    }, options);
+    return unsubscribe;
+  }
   off(type, listener) {
     this.listeners.get(type)?.delete(listener);
     if (this.listeners.get(type)?.size === 0) this.listeners.delete(type);
+    this.unknownListeners.get(type)?.delete(listener);
+    if (this.unknownListeners.get(type)?.size === 0) this.unknownListeners.delete(type);
   }
   emit(type, data) {
-    this.callListeners(type, data);
-    this.callListeners('*', { type, data });
+    const immutableData = freezeEventPayload(data);
+    this.callListeners(type, immutableData);
+    this.callListeners('*', Object.freeze({ type, data: immutableData }));
+  }
+  emitUnknown(type, data) {
+    this.callListenerSet(this.unknownListeners.get(type), type, freezeEventPayload(data));
   }
   callListeners(type, data) {
-    [...(this.listeners.get(type) || [])].forEach(listener => {
+    this.callListenerSet(this.listeners.get(type), type, data);
+  }
+  callListenerSet(listeners, type, data) {
+    [...(listeners || [])].forEach(listener => {
       const onError = error => {
         if (type !== 'error' && type !== 'issue' && type !== '*') this.onListenerError(error);
         else reportListenerError(error);
@@ -215,4 +255,15 @@ export function handleListenerResult(result, onError) {
 function reportListenerError(error) {
   if (typeof globalThis.reportError === 'function') globalThis.reportError(error);
   else globalThis.console?.error?.('W3Booster SDK listener failed:', error);
+}
+
+/** Freeze JSON-like event envelopes without mutating Error and other host objects. */
+function freezeEventPayload(value, seen = new Set()) {
+  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
+  if (!Array.isArray(value) && !isPlainObject(value)) return value;
+  if (seen.has(value)) return value;
+  seen.add(value);
+  for (const child of Object.values(value)) freezeEventPayload(child, seen);
+  seen.delete(value);
+  return Object.freeze(value);
 }

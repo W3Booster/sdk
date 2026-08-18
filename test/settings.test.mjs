@@ -32,6 +32,12 @@ test('partial delivered settings recursively resolve over immutable defaults', (
   assert.equal(Object.isFrozen(resolved.slots), true);
 });
 
+test('settings reject non-JSON object instances instead of silently erasing them', () => {
+  assert.throws(() => resolveSettings({ value: new Date() }), /plain JSON object/);
+  assert.throws(() => resolveSettings({ value: new Map([['key', 'value']]) }), /plain JSON object/);
+  assert.throws(() => resolveSettings({}, Object.create({ inherited: true })), /plain object/);
+});
+
 test('database settings validation rejects drift and unsafe paths', () => {
   const missing = structuredClone(schema);
   missing.sections[0].fields[1].enabledWhen.key = 'display.missing';
@@ -42,19 +48,17 @@ test('database settings validation rejects drift and unsafe paths', () => {
 });
 
 test('database definitions generate deterministic typed frontend bindings', () => {
+  assert.throws(
+    () => generateSettingsBinding({ clientId: 'app_test', revision: 'revision-1', scopes: ['unknown:read'], settingsSchema: schema }),
+    /known W3Booster scopes/
+  );
   const binding = generateSettingsBinding({ clientId: 'app_test', revision: 'revision-1', scopes: ['match:read'], settingsSchema: schema });
   assert.match(binding, /export interface W3BoosterAppSettings/);
   assert.match(binding, /position: "left" \| "right"/);
   assert.match(binding, /clientId: "app_test"/);
   assert.match(binding, /revision: "revision-1"/);
-  assert.match(binding, /function connectW3BoosterApp/);
+  assert.match(binding, /defineApplication</);
   assert.match(binding, /W3BoosterAppDeliveredSettings = DeepPartial<W3BoosterAppSettings>/);
-  assert.match(binding, /connect<W3BoosterAppDeliveredSettings>/);
-  assert.match(binding, /function createW3BoosterAppClient/);
-  assert.match(binding, /createClient<W3BoosterAppDeliveredSettings>/);
-  assert.match(binding, /function startW3BoosterApp/);
-  assert.match(binding, /createW3BoosterAppClient\(\{ \.\.\.options, signal \}\)/);
-  assert.match(binding, /await client\.disconnect\(\)/);
-  assert.match(binding, /w3boosterResolvedSettings = new WeakMap/);
-  assert.match(binding, /function resolveW3BoosterAppSettings\(settings: W3BoosterAppDeliveredSettings = w3boosterEmptySettings\): DeepReadonly<W3BoosterAppSettings>/);
+  assert.match(binding, /export const w3boosterApp = defineApplication/);
+  assert.doesNotMatch(binding, /WeakMap|client\.start|client\.disconnect|connectW3BoosterApp/);
 });

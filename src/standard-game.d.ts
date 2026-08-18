@@ -1,4 +1,5 @@
-import type { Player, PlayerStats, Race, ValuePool } from './index.js';
+import type { Hero, Match, OverlayRuntimeState, Player, PlayerStats, Race, ValuePool } from './index.js';
+import type { PlayerTeam } from './selectors.js';
 
 export interface StandardGameRaceMetadata {
   readonly name: string;
@@ -54,3 +55,15 @@ export function orderHeadToHeadPlayers<TPlayer extends Pick<Player, 'startPositi
   players: readonly TPlayer[],
   options?: { readonly reverse?: boolean }
 ): TPlayer[];
+export function orderMatchTeams(
+  players: readonly Player[],
+  match: Pick<Match, 'isObserver' | 'isReplay' | 'broadcasterPlayerId'> | null | undefined,
+  options?: { readonly reverse?: boolean }
+): PlayerTeam[];
+export function presentationPlayerColor(
+  player: Player | null | undefined,
+  match: Pick<Match, 'broadcasterPlayerId' | 'isObserver'> | null | undefined,
+  players: readonly Player[],
+  runtime?: Pick<OverlayRuntimeState, 'teamColors'>
+): string;
+export function formatHeroLevelProgress(hero: Pick<Hero, 'level' | 'experience'> | null | undefined): string;

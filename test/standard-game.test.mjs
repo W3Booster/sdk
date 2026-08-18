@@ -81,6 +81,49 @@ test('standard-game derives upgrade categories and statistics without applicatio
   assert.equal(standardGame.modeInfo('custom'), undefined);
 });
 
+test('standard-game provides canonical frontend team ordering and presentation values', () => {
+  const west = { id: 'west', team: 0, colorId: 5, startPosition: { x: -100, y: 0 } };
+  const east = { id: 'east', team: 1, colorId: 4, startPosition: { x: 100, y: 0 } };
+  const observerMatch = { isObserver: true, broadcasterPlayerId: 'east' };
+
+  assert.deepEqual(
+    standardGame.orderMatchTeams([east, west], observerMatch).map(team => team.players[0]?.id),
+    ['west', 'east']
+  );
+  assert.deepEqual(
+    standardGame.orderMatchTeams([east, west], observerMatch, { reverse: true }).map(team => team.players[0]?.id),
+    ['east', 'west']
+  );
+
+  const teamPlayers = [
+    { id: 'opponent', team: 1 },
+    { id: 'me', team: 0 },
+    { id: 'ally', team: 0 },
+    { id: 'opponent-ally', team: 1 }
+  ];
+  assert.deepEqual(
+    standardGame.orderMatchTeams(teamPlayers, { isObserver: true, broadcasterPlayerId: 'me' })
+      .map(team => team.players.map(player => player.id)),
+    [['me', 'ally'], ['opponent', 'opponent-ally']]
+  );
+
+  const colorPlayers = [
+    { id: 'opponent', team: 1, colorId: 4 },
+    { id: 'me', team: 0, colorId: 5 },
+    { id: 'ally', team: 0, colorId: 6 }
+  ];
+  const playerMatch = { isObserver: false, broadcasterPlayerId: 'me' };
+  assert.equal(standardGame.presentationPlayerColor(colorPlayers[1], playerMatch, colorPlayers), '#fe8a0e');
+  assert.equal(standardGame.presentationPlayerColor(colorPlayers[1], playerMatch, colorPlayers, { teamColors: true }), '#0042ff');
+  assert.equal(standardGame.presentationPlayerColor(colorPlayers[2], playerMatch, colorPlayers, { teamColors: true }), '#1ce6b9');
+  assert.equal(standardGame.presentationPlayerColor(colorPlayers[0], playerMatch, colorPlayers, { teamColors: true }), '#ff0303');
+  assert.equal(standardGame.presentationPlayerColor(colorPlayers[1], { ...playerMatch, isObserver: true }, colorPlayers, { teamColors: true }), '#1ce6b9');
+
+  assert.equal(standardGame.formatHeroLevelProgress({ level: 2, experience: 300 }), '2.3');
+  assert.equal(standardGame.formatHeroLevelProgress({ level: 4 }), '4');
+  assert.equal(standardGame.formatHeroLevelProgress({ level: 10, experience: 9_999 }), '10');
+});
+
 test('standard-game owns cooldown timestamp and day/night clock semantics', () => {
   assert.deepEqual(standardGameObjects.abilityCooldown(
     { id: 'AHbz', name: 'AHbz', level: 1, lastActivation: 10_000 },

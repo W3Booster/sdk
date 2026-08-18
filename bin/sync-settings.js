@@ -14,6 +14,7 @@ const usage = [
   `The default output is ${defaultOutput}.`,
   'init binds the project and adds explicit sync/check scripts.',
   '--install-hooks additionally wires synchronization into install/dev/start/build.',
+  'W3BOOSTER_SETTINGS_URL can select the endpoint in connected CI.',
   'Later runs read clientId and output from package.json or the generated file.'
 ].join('\n');
 
@@ -91,7 +92,7 @@ async function initializeProject(arguments_) {
 
 async function synchronize({ requestedClientId, output: requestedOutput, check, endpoint: requestedEndpoint }) {
   const configured = await projectConfiguration();
-  const endpoint = requestedEndpoint || configured.endpoint;
+  const endpoint = requestedEndpoint || configured.endpoint || process.env.W3BOOSTER_SETTINGS_URL;
   const output = requestedOutput || configured.settingsOutput || defaultOutput;
   const outputPath = resolve(output);
   const current = await readFile(outputPath, 'utf8').catch(() => '');

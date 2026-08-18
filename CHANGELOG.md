@@ -2,6 +2,22 @@
 
 ## 0.2.0 - 2026-08-18
 
+- Added a managed generated-application runtime that atomically exposes connection state, resolved settings, and reactive host capabilities with single-flight startup and teardown.
+- Replaced the public recorder-shaped `overlay.misc` object with `overlay.runtime` and a nested `matchScore`, while retaining the legacy shape only at the private protocol boundary.
+- Added reusable player-resource, player-hero, and match-score selectors with stable empty fallbacks.
+- Rejected `Date`, `Map`, custom prototypes, and other non-JSON objects in settings instead of silently erasing their values during cloning.
+- Declared and smoke-test enforced the browser runtime floor: Chromium/Edge 92, Firefox 90, and Safari 15.4.
+- Preserved application-visible overlay identities when hidden control-plane metadata is removed, including across unrelated patches and recorder overlays.
+- Added explicit host capability discovery states and `host.can()` so frontends no longer have to interpret an empty capability list.
+- Kept missing broadcaster identity distinct even when a player uses an unusual string ID.
+- Added reusable overlay-runtime, render-identity, observer-ordering, team-color, and hero-progress helpers adopted by Match Vision.
+- Moved generated application connection, startup, and settings-resolution behavior into `@w3booster/sdk/app`; generated files now contain only schema-derived types, metadata, and one typed binding.
+- Kept application lifetime and one-shot startup cancellation signals independent in bound application startup.
+- Removed legacy overlay settings and recorder endpoint metadata from application-visible state while retaining them on the internal authenticated platform baseline.
+- Made event payloads immutable across listeners and documented concurrent async listener delivery.
+- Replaced the ambiguously named frontend adapter with `@w3booster/sdk/react`, including explicit server snapshots for `useSyncExternalStore` and framework recipes for Angular signals and RxJS.
+- Aligned compositor endpoint selection with the main client (`backend` plus `backendUrl`) and stopped exposing transport-level state messages as application events.
+- Simplified host actions to one acknowledged async method per operation instead of parallel fire-and-forget and `AndWait` variants.
 - Made runtime clients true read-only facades: direct construction is rejected and internal state, lifecycle, event-emitter, host, and transport mutation is hidden behind private fields.
 - Made startup signals cancel transport opening as well as readiness, preserved SPA history state while consuming launch credentials, and added stable discriminated frontend error classification.
 - Bound host actions to a captured application launch and embedding origin, refreshed host capabilities automatically, and stopped treating ordinary broker authentication as blanket parent-window authorization.
@@ -9,8 +25,8 @@
 - Consolidated exponential reconnect policy across broker, compositor, and recorder transports, preserved compositor permission/protocol/configuration error kinds, and stopped hiding anonymous platform failures as empty compositions.
 - Separated structured non-fatal recorder/listener issues from lifecycle connection errors, and added issue source, severity, and recoverability metadata.
 - Added configurable established-socket reconnect policies and stopped reconnecting after permanent authorization, configuration, and protocol failures.
-- Added `client.start()` and generated `startW3BoosterApp()` helpers for long-lived frontends that need synchronized state without a fragile default startup timeout.
-- Made startup reject terminal synchronization failures, clean up generated-helper clients on failure, and normalized escaped map names once at SDK ingress.
+- Added `client.start()` and bound `w3boosterApp.start()` for long-lived frontends that need synchronized state without a fragile default startup timeout.
+- Made startup reject terminal synchronization failures, clean up bound-application clients on failure, and normalized escaped map names once at SDK ingress.
 - Added acknowledged window actions and host capability discovery.
 - Added observer/replay match selection, made cooldown maps use hydrated ability identity, enforced hero/ability identity invariants, and restored overlay-runtime spelling safety.
 - Added fresh-state synchronization with `state.isSynchronized`, `whenSynchronized()`, immediate `subscribeStatus()`, and an atomic `client.lifecycle` snapshot for framework integration.
@@ -20,7 +36,7 @@
 - Classified permanent broker HTTP failures as non-retryable `CONFIGURATION` errors with the response status.
 - Made `watch()` use `Object.is()` by default and accept an explicit comparator, avoiding unconditional deep clones and comparisons in rendering paths.
 - Generated recursively partial delivered-settings types and typed immutable defaults resolvers for database-bound applications.
-- Added acknowledged host-command and match-score variants and captured the authenticated application-launch context used by the host bridge.
+- Made host commands and match-score actions acknowledged by default and captured the authenticated application-launch context used by the host bridge.
 - Added canonical game-time formatting, preferred-statistics selection, and whole-state ability-cooldown helpers adopted by Match Vision.
 - Kept internal store, event-emitter, and host implementations out of the runtime root exports and consolidated shared network primitives used by application and compositor transports.
 - Split broker/credential, host, reactive lifecycle, recorder, protocol, error, network, and immutable-value concerns into focused internal modules without exposing implementation classes.

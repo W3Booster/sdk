@@ -261,10 +261,10 @@ export function applyLocalRecorderUpdates(state, updates) {
     next = { ...next, match: { ...next.match, [field]: value } };
   };
   const updateMisc = (field, value) => {
-    if (!next.overlay?.misc || Object.is(next.overlay.misc[field], value)) return;
+    if (!next.overlay?.runtime || Object.is(next.overlay.runtime[field], value)) return;
     next = {
       ...next,
-      overlay: { ...next.overlay, misc: { ...next.overlay.misc, [field]: value } }
+      overlay: { ...next.overlay, runtime: { ...next.overlay.runtime, [field]: value } }
     };
   };
   const updatePlayer = (playerId, updater) => {
@@ -282,12 +282,12 @@ export function applyLocalRecorderUpdates(state, updates) {
     if (!isPlainObject(update) || !updateMatchesMatch(update, next.match?.id)) continue;
     if (update.class === 'W3GameTime' && hasCapability(next, 'match') && Number.isFinite(Number(update.value))) {
       updateMatch('gameTime', Number(update.value));
-    } else if (update.class === 'W3ChatbarState' && hasCapability(next, 'overlay') && next.overlay?.misc) {
+    } else if (update.class === 'W3ChatbarState' && hasCapability(next, 'overlay') && next.overlay?.runtime) {
       updateMisc('chatbarOpen', Number(update.value) === 1);
-    } else if (update.class === 'W3HudScale' && hasCapability(next, 'overlay') && next.overlay?.misc) {
+    } else if (update.class === 'W3HudScale' && hasCapability(next, 'overlay') && next.overlay?.runtime) {
       const hudScale = normalizedHudScale(update.value);
       if (hudScale !== null) updateMisc('hudScale', hudScale);
-    } else if (update.class === 'W3TeamColor' && hasCapability(next, 'overlay') && next.overlay?.misc) {
+    } else if (update.class === 'W3TeamColor' && hasCapability(next, 'overlay') && next.overlay?.runtime) {
       updateMisc('teamColors', Boolean(update.value));
     } else if (update.class === 'W3Resource' && hasCapability(next, 'resources')) {
       const resource = localResourceName(update.type);

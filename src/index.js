@@ -12,7 +12,7 @@ import {
 } from './internal/errors.js';
 import { createReconnectBackoff } from './internal/websocket.js';
 import { createBrokerTransport, createCredentialProvider } from './internal/broker.js';
-import { captureHostContext, W3BoosterHost } from './internal/host.js';
+import { canUseHostCapability, captureHostContext, W3BoosterHost } from './internal/host.js';
 import { applyPatch, normalizeStatePatch, parseProtocolMessage, validateState } from './internal/protocol.js';
 import { applyLocalRecorderUpdates, LocalRecorderTransport } from './internal/recorder.js';
 import {
@@ -33,6 +33,7 @@ import {
   validateAbortSignal
 } from './internal/network.js';
 import { deepEqual, deepFreeze } from './internal/values.js';
+import { isKnownScope } from './internal/scopes.js';
 
 export { SDK_VERSION, PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS } from './version.js';
 export {
@@ -45,7 +46,6 @@ export {
   ProtocolError
 } from './internal/errors.js';
 
-const KNOWN_SCOPES = new Set(['match:read', 'players:read', 'stats:read', 'heroes:read', 'upgrades:read', 'resources:read', 'controlgroups:read', 'overlay:read']);
 const APP_SURFACES = new Set(['application', 'streamOverlay', 'ingameOverlay']);
 const CLIENT_CONSTRUCTOR_TOKEN = Symbol('W3BoosterClient');
 
@@ -63,6 +63,9 @@ export async function connect(options) {
 
 /** Create a client synchronously so lifecycle listeners can be attached before connecting. */
 export function createClient(options) { return new W3BoosterClient(options, CLIENT_CONSTRUCTOR_TOKEN); }
+
+/** Decide whether a host action should be offered from a reactive host snapshot. */
+export { canUseHostCapability };
 
 export class W3BoosterClient {
   #events;
@@ -112,6 +115,7 @@ export class W3BoosterClient {
     });
     this.#runtime.sequence = 0;
     this.#runtime.awaitingSnapshot = false;
+    this.#runtime.platformState = null;
     this.#runtime.transport = null;
     this.#runtime.pendingTransport = null;
     this.#runtime.connectPromise = null;
@@ -319,7 +323,7 @@ export class W3BoosterClient {
     return this.#events.on(type, listener, options);
   }
 
-  onUnknown(type, listener, options) { return this.#events.on(type, listener, options); }
+  onUnknown(type, listener, options) { return this.#events.onUnknown(type, listener, options); }
 
   /** Subscribe to connection status and receive the current value immediately. */
   subscribeStatus(listener, options) {
@@ -335,7 +339,7 @@ export class W3BoosterClient {
   }
 
   once(type, listener, options) { return this.#events.once(type, listener, options); }
-  onceUnknown(type, listener, options) { return this.#events.once(type, listener, options); }
+  onceUnknown(type, listener, options) { return this.#events.onceUnknown(type, listener, options); }
   off(type, listener) { this.#events.off(type, listener); }
   whenReady(options) { return this.#state.whenReady(options); }
   whenSynchronized(options) { return this.#state.whenSynchronized(options); }
@@ -362,6 +366,7 @@ export class W3BoosterClient {
     this.#runtime.localRecorderTransport.close();
     this.#runtime.sequence = 0;
     this.#runtime.awaitingSnapshot = false;
+    this.#runtime.platformState = null;
     this.#state.reset(
       createAbortError('W3Booster disconnected before the initial state was ready.'),
       { publish: false }
@@ -424,34 +429,37 @@ export class W3BoosterClient {
     if (message.sequence) this.#runtime.sequence = message.sequence;
 
     const previousState = this.#state.get();
-    let nextState;
+    const previousPlatformState = this.#runtime.platformState;
+    let nextPlatformState;
     try {
       if (message.type === 'state.snapshot') {
-        nextState = validateState(message.data, this.#runtime.options.clientId);
+        nextPlatformState = validateState(message.data, this.#runtime.options.clientId);
       } else if (message.type === 'state.patch') {
         if (this.#runtime.awaitingSnapshot) return;
-        if (!previousState) throw new ProtocolError('PATCH_WITHOUT_STATE', 'Received a state patch before the initial snapshot.');
+        if (!previousPlatformState) throw new ProtocolError('PATCH_WITHOUT_STATE', 'Received a state patch before the initial snapshot.');
         message = { ...message, data: normalizeStatePatch(message.data) };
-        nextState = validateState(applyPatch(previousState, message.data), this.#runtime.options.clientId, false);
+        nextPlatformState = validateState(applyPatch(previousPlatformState, message.data), this.#runtime.options.clientId, false);
       }
     } catch (error) {
       this.#handleProtocolError(error);
       return;
     }
-    if (nextState) {
+    if (nextPlatformState) {
       if (message.type === 'state.snapshot') this.#runtime.awaitingSnapshot = false;
+      this.#runtime.platformState = nextPlatformState;
+      this.#runtime.localRecorderTransport.configure(nextPlatformState);
+      let nextState = publicApplicationState(nextPlatformState);
       nextState = this.#runtime.localRecorderTransport.applyTo(nextState);
-      if (nextState === previousState) {
-        this.#emit(message.type, message.data);
+      nextState = preservePublicOverlayIdentity(previousState, nextState);
+      if (nextState === previousState || (previousState && deepEqual(nextState, previousState))) {
+        this.#state.markSynchronized();
         return;
       }
       const state = this.#state.setState(nextState, { synchronized: true });
       emitDomainEvents(previousState, state, (type, data) => this.#emit(type, data));
-      this.#runtime.localRecorderTransport.configure(state);
-      this.#emit(message.type, message.type === 'state.snapshot' ? state : message.data);
       return;
     }
-    this.#emit(message.type, message.data);
+    this.#events.emitUnknown(message.type, message.data);
   }
 
   #handleProtocolError(error) {
@@ -584,21 +592,22 @@ function createEventFacade(emitter) {
 
 function createHostFacade(host) {
   return Object.freeze({
+    lifecycle: Object.freeze({
+      get: () => host.getLifecycleSnapshot(),
+      subscribe: (listener, options) => host.subscribeLifecycle(listener, options)
+    }),
     get available() { return host.available; },
     get capabilities() { return host.capabilities; },
+    get capabilityStatus() { return host.capabilityStatus; },
     supports: capability => host.supports(capability),
+    can: capability => host.can(capability),
     refreshCapabilities: () => host.refreshCapabilities(),
     subscribeCapabilities: (listener, options) => host.subscribeCapabilities(listener, options),
     openWindow: options => host.openWindow(options),
-    openWindowAndWait: options => host.openWindowAndWait(options),
     closeWindow: () => host.closeWindow(),
-    closeWindowAndWait: () => host.closeWindowAndWait(),
     changeMatchScore: (side, delta) => host.changeMatchScore(side, delta),
-    changeMatchScoreAndWait: (side, delta) => host.changeMatchScoreAndWait(side, delta),
     resetMatchScore: () => host.resetMatchScore(),
-    resetMatchScoreAndWait: () => host.resetMatchScoreAndWait(),
     command: (command, payload) => host.command(command, payload),
-    commandAndWait: (command, payload) => host.commandAndWait(command, payload),
     setSetting: (path, value) => host.setSetting(path, value),
     startAutoResize: () => host.startAutoResize(),
     stopAutoResize: () => host.stopAutoResize()
@@ -615,7 +624,7 @@ function normalizeConnectOptions(value) {
   if (options.scopes !== undefined && options.scopes !== 'configured') {
     if (!Array.isArray(options.scopes)) throw new TypeError('scopes must be configured or an array');
     scopes = Array.from(new Set(options.scopes.map(String)));
-    const unknown = scopes.find(scope => !KNOWN_SCOPES.has(scope));
+    const unknown = scopes.find(scope => !isKnownScope(scope));
     if (unknown) throw new TypeError(`Unknown W3Booster scope: ${unknown}`);
   }
   validateAbortSignal(options.signal);
@@ -735,4 +744,39 @@ function waitForDelay(delay, signal) {
 }
 function isRecoverableStreamProtocolError(error) {
   return !['UNSUPPORTED_PROTOCOL', 'APPLICATION_MISMATCH'].includes(error.code);
+}
+
+/** Remove platform control-plane and legacy fields before state reaches applications. */
+function publicApplicationState(state) {
+  const overlay = state?.overlay;
+  if (!overlay) return state;
+  const platformRuntime = overlay.misc || {};
+  const publicRuntime = { ...platformRuntime };
+  const wins = Number(publicRuntime.matchscoreWins);
+  const losses = Number(publicRuntime.matchscoreLosses);
+  delete publicRuntime.localServerUrls;
+  delete publicRuntime.matchscoreWins;
+  delete publicRuntime.matchscoreLosses;
+  if (Number.isFinite(wins) || Number.isFinite(losses)) {
+    publicRuntime.matchScore = Object.freeze({
+      wins: Number.isFinite(wins) ? wins : 0,
+      losses: Number.isFinite(losses) ? losses : 0
+    });
+  }
+  const publicOverlay = { runtime: publicRuntime };
+  return { ...state, overlay: publicOverlay };
+}
+
+/** Preserve application-visible overlay branches when only hidden platform data changed. */
+function preservePublicOverlayIdentity(previousState, nextState) {
+  const previousOverlay = previousState?.overlay;
+  const nextOverlay = nextState?.overlay;
+  if (!previousOverlay || !nextOverlay || previousOverlay === nextOverlay) return nextState;
+
+  let overlay = nextOverlay;
+  if (previousOverlay.runtime !== nextOverlay.runtime && deepEqual(previousOverlay.runtime, nextOverlay.runtime)) {
+    overlay = { ...nextOverlay, runtime: previousOverlay.runtime };
+  }
+  if (deepEqual(previousOverlay, overlay)) overlay = previousOverlay;
+  return overlay === nextOverlay ? nextState : { ...nextState, overlay };
 }

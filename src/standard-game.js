@@ -1,3 +1,6 @@
+import { finiteNonNegative } from './internal/numbers.js';
+import { broadcasterFirstTeams, groupPlayersByTeam, isObserverOrReplayMatch, playerRelationship } from './selectors.js';
+
 const RACES = Object.freeze({
   random: Object.freeze({ name: 'Random', shortName: 'RDM' }),
   human: Object.freeze({ name: 'Human', shortName: 'HU' }),
@@ -159,6 +162,39 @@ export function orderHeadToHeadPlayers(players, options = {}) {
   return ordered;
 }
 
+/** Apply W3Booster's canonical observer/replay team presentation order. */
+export function orderMatchTeams(players, match, options = {}) {
+  const teams = groupPlayersByTeam(players);
+  if (!isObserverOrReplayMatch(match) || teams.length !== 2) return teams;
+  const playerCount = teams.reduce((count, team) => count + team.players.length, 0);
+  if (playerCount === 2) {
+    const ordered = orderHeadToHeadPlayers(teams.map(team => team.players[0]), options);
+    const orderedTeams = ordered.map(player => teams.find(team => team.players[0]?.id === player?.id));
+    return orderedTeams.every(Boolean) ? orderedTeams : teams;
+  }
+  return broadcasterFirstTeams(players, match, options);
+}
+
+/** Resolve native or simplified W3Booster team colors for one player. */
+export function presentationPlayerColor(player, match, players, runtime = {}) {
+  if (runtime.teamColors !== true) return playerColor(player?.colorId);
+  const relationship = playerRelationship(player, match, players);
+  if (relationship === 'unknown') return playerColor(player?.colorId);
+  if (match?.isObserver === true && relationship === 'self') return PLAYER_COLORS[2];
+  if (relationship === 'self') return PLAYER_COLORS[1];
+  if (relationship === 'ally') return PLAYER_COLORS[2];
+  return PLAYER_COLORS[0];
+}
+
+/** Format the standard-game level plus progress within the current hero level. */
+export function formatHeroLevelProgress(hero) {
+  if (typeof hero?.experience !== 'number') return String(hero?.level ?? 1);
+  const experience = heroExperienceState(hero.experience);
+  if (experience.level >= HERO_MAX_LEVEL) return String(HERO_MAX_LEVEL);
+  const displayLevel = experience.level + experience.progress;
+  return (Math.trunc(displayLevel * 10) / 10).toFixed(1);
+}
+
 function heroExperienceForLevel(level) {
   const normalized = Math.max(1, Math.min(HERO_MAX_LEVEL, Math.trunc(level) || 1));
   return (normalized - 1) * (normalized + 2) * 50;
@@ -167,4 +203,3 @@ function heroExperienceForLevel(level) {
 function positiveModulo(value, divisor) {
   return ((value % divisor) + divisor) % divisor;
 }
-import { finiteNonNegative } from './internal/numbers.js';

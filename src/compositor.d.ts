@@ -9,9 +9,10 @@ export interface BrowserSourceCredentials {
 export interface OverlayCompositionOptions {
   /** Cancels one-shot loading and owns the returned watcher lifetime. */
   signal?: AbortSignal;
-  api?: string;
   /** Defaults to cloud. Platform-provided backend=local|cloud takes precedence. */
-  backend?: 'auto' | 'local' | 'cloud' | string;
+  backend?: 'auto' | 'local' | 'cloud';
+  /** Explicit platform API origin. Prefer `backend` for standard local/cloud selection. */
+  backendUrl?: string;
   localApi?: string;
   cloudApi?: string;
   /** Supplies the current compositor credential for each authorization attempt. */

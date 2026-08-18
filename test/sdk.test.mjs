@@ -85,6 +85,14 @@ test('invalid frontend connection options fail early with actionable errors', ()
   assert.throws(() => createClient({ clientId: 'app', demo: { surface: 'window' } }), /demo.surface/);
 });
 
+test('host actions validate JavaScript inputs before contacting the host', () => {
+  const client = createClient({ clientId: 'app', demo: true });
+  assert.throws(() => client.host.openWindow(null), /options must be an object/);
+  assert.throws(() => client.host.openWindow({ width: 0 }), /width must be a positive number/);
+  assert.throws(() => client.host.openWindow({ title: 42 }), /title must be a string/);
+  assert.throws(() => client.host.command('   '), /non-empty string/);
+});
+
 test('retry fails promptly when required browser transport APIs are unavailable', async () => {
   const original = { fetch: globalThis.fetch, WebSocket: globalThis.WebSocket };
   delete globalThis.fetch;
@@ -138,7 +146,7 @@ test('one failing state listener cannot block other consumers', async () => {
   const client = createClient({ clientId: 'safe_app', demo: true });
   client.on('error', error => reported.push(error));
   client.on('issue', issue => issues.push(issue));
-  client.state.subscribe(() => { throw new Error('consumer failed'); });
+  client.state.subscribe(state => { if (state) throw new Error('consumer failed'); });
   let delivered = false;
   client.state.subscribe(() => { delivered = true; });
   await client.connect();
@@ -154,7 +162,7 @@ test('rejected async listeners are forwarded without becoming unhandled rejectio
   const reported = [];
   const client = createClient({ clientId: 'safe_app', demo: true });
   client.on('error', error => reported.push(error));
-  client.state.subscribe(async () => { throw new Error('async state listener failed'); });
+  client.state.subscribe(async state => { if (state) throw new Error('async state listener failed'); });
   client.on('status', async status => {
     if (status === 'connected') throw new Error('async event listener failed');
   });
@@ -214,9 +222,17 @@ test('host bridge opens app-owned windows after an authenticated platform connec
   };
   try {
     const client = createClient({ clientId: 'test_app', transport: { name: 'authenticated-test', open() {} } });
+    const hostSnapshots = [];
+    client.host.lifecycle.subscribe(snapshot => hostSnapshots.push(snapshot));
     assert.equal(client.host.available, false);
+    assert.equal(client.host.lifecycle.get().available, false);
+    assert.equal(client.host.capabilityStatus, 'unavailable');
+    assert.equal(client.host.can('window:open'), false);
     await client.connect();
     assert.equal(client.host.available, true);
+    assert.equal(client.host.capabilityStatus, 'pending');
+    assert.equal(client.host.lifecycle.get().capabilityStatus, 'pending');
+    assert.equal(client.host.can('window:open'), false);
     await Promise.resolve();
     const automaticCapabilities = messages.find(entry => entry.message.command === 'host.capabilities.get');
     for (const listener of listeners) listener({
@@ -230,12 +246,29 @@ test('host bridge opens app-owned windows after an authenticated platform connec
     });
     await Promise.resolve();
     messages.length = 0;
+    assert.equal(client.host.capabilityStatus, 'known');
+    assert.equal(client.host.lifecycle.get().capabilityStatus, 'known');
+    assert.deepEqual(hostSnapshots.map(snapshot => snapshot.capabilityStatus), ['unavailable', 'pending', 'known']);
     assert.equal(client.host.supports('window:open'), true);
-    assert.equal(client.host.openWindow({ path: '?view=compact', width: 500 }), true);
-    assert.deepEqual(messages[0], {
-      message: { source: 'w3booster-sdk', clientId: 'test_app', type: 'host.open-window', options: { path: '?view=compact', width: 500 } },
-      origin: 'https://app.w3booster.com'
-    });
+    assert.equal(client.host.can('window:open'), true);
+    assert.equal(client.host.can('window:close'), false);
+    const acknowledge = async (operation, value = { accepted: true }) => {
+      const request = messages.at(-1).message;
+      for (const listener of listeners) listener({
+        source: host,
+        origin: 'https://app.w3booster.com',
+        data: {
+          source: 'w3booster-host', clientId: 'test_app', type: 'host.response',
+          requestId: request.requestId, ok: true, value
+        }
+      });
+      return await operation;
+    };
+    const opened = client.host.openWindow({ path: '?view=compact', width: 500 });
+    assert.deepEqual(messages[0].message.options, { path: '?view=compact', width: 500 });
+    assert.equal(messages[0].message.type, 'host.open-window');
+    assert.equal(messages[0].origin, 'https://app.w3booster.com');
+    await acknowledge(opened);
     const saved = client.host.setSetting('layout', 'wide');
     assert.deepEqual(messages[1].message, {
       source: 'w3booster-sdk',
@@ -262,20 +295,10 @@ test('host bridge opens app-owned windows after an authenticated platform connec
       }
     });
     assert.deepEqual(await saved, { layout: 'wide' });
-    assert.equal(client.host.changeMatchScore('wins', 1), true);
-    assert.equal(client.host.resetMatchScore(), true);
-    assert.equal(client.host.closeWindow(), true);
-    const acknowledgedScore = client.host.changeMatchScoreAndWait('losses', -1);
-    const acknowledgedMessage = messages.at(-1).message;
-    for (const listener of listeners) listener({
-      source: host,
-      origin: 'https://app.w3booster.com',
-      data: {
-        source: 'w3booster-host', clientId: 'test_app', type: 'host.response',
-        requestId: acknowledgedMessage.requestId, ok: true, value: { accepted: true }
-      }
-    });
-    assert.deepEqual(await acknowledgedScore, { accepted: true });
+    await acknowledge(client.host.changeMatchScore('wins', 1));
+    await acknowledge(client.host.resetMatchScore());
+    await acknowledge(client.host.closeWindow());
+    assert.deepEqual(await acknowledge(client.host.changeMatchScore('losses', -1)), { accepted: true });
     const capabilities = client.host.refreshCapabilities();
     const capabilityMessage = messages.at(-1).message;
     for (const listener of listeners) listener({
@@ -290,7 +313,7 @@ test('host bridge opens app-owned windows after an authenticated platform connec
     assert.deepEqual(await capabilities, ['window:open', 'settings:write']);
     assert.equal(client.host.supports('window:open'), true);
     assert.equal(client.host.supports('window:close'), false);
-    const acknowledgedWindow = client.host.openWindowAndWait({ path: '?view=compact' });
+    const acknowledgedWindow = client.host.openWindow({ path: '?view=compact' });
     const windowMessage = messages.at(-1).message;
     assert.equal(windowMessage.type, 'host.open-window');
     for (const listener of listeners) listener({
@@ -306,13 +329,49 @@ test('host bridge opens app-owned windows after an authenticated platform connec
     assert.throws(() => client.host.setSetting('layout', () => {}), /JSON-compatible/);
     await client.disconnect();
     assert.equal(client.host.available, false);
+    assert.equal(client.host.capabilityStatus, 'unavailable');
+    assert.equal(client.host.can('window:open'), false);
     assert.equal(listeners.size, 0);
 
     globalThis.location.hash = '';
     const reloaded = createClient({ clientId: 'test_app', transport: { name: 'reload-test', open() {} } });
     await reloaded.connect();
     assert.equal(reloaded.host.available, true);
+    await Promise.resolve();
+    const legacyCapabilities = messages.at(-1).message;
+    for (const listener of listeners) listener({
+      source: host,
+      origin: 'https://app.w3booster.com',
+      data: {
+        source: 'w3booster-host', clientId: 'test_app', type: 'host.response',
+        requestId: legacyCapabilities.requestId, ok: false,
+        error: { code: 'UNKNOWN_COMMAND', message: 'Unsupported command' }
+      }
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(reloaded.host.capabilityStatus, 'legacy');
+    assert.equal(reloaded.host.can('window:open'), true);
     await reloaded.disconnect();
+
+    const unavailable = createClient({ clientId: 'test_app', transport: { name: 'unavailable-host-test', open() {} } });
+    await unavailable.connect();
+    await Promise.resolve();
+    const failedCapabilities = messages.at(-1).message;
+    for (const listener of listeners) listener({
+      source: host,
+      origin: 'https://app.w3booster.com',
+      data: {
+        source: 'w3booster-host', clientId: 'test_app', type: 'host.response',
+        requestId: failedCapabilities.requestId, ok: false,
+        error: { code: 'HOST_BUSY', message: 'Try again later' }
+      }
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(unavailable.host.capabilityStatus, 'unavailable');
+    assert.equal(unavailable.host.can('window:open'), false);
+    await unavailable.disconnect();
 
     globalThis.document.referrer = 'https://attacker.test/frame';
     const moved = createClient({ clientId: 'test_app', transport: { name: 'moved-test', open() {} } });
@@ -335,7 +394,7 @@ test('unrelated parent windows are not reported as the W3Booster host', async ()
     const client = createClient({ clientId: 'test_app', transport: { name: 'test', open() {} } });
     await client.connect();
     assert.equal(client.host.available, false);
-    assert.equal(client.host.command('review'), false);
+    await assert.rejects(client.host.command('review'), error => error?.code === 'HOST_UNAVAILABLE');
     assert.deepEqual(messages, []);
     await client.disconnect();
   } finally {
@@ -439,7 +498,9 @@ test('demo transport gives developers hydrated state', async () => {
   assert.equal(client.state.get().match.status, 'running');
   assert.equal(client.state.get().application.clientId, 'test_app');
   assert.equal(client.state.get().application.settings.layout, 'wide');
-  assert.equal(client.state.get().overlay.misc.hudScale, 1);
+  assert.equal(client.state.get().overlay.runtime.hudScale, 1);
+  assert.deepEqual(client.state.get().overlay.runtime.matchScore, { wins: 0, losses: 0 });
+  assert.equal(client.state.get().overlay.runtime.matchscoreWins, undefined);
   assert.ok(client.state.get().capabilities.includes('controlgroups'));
   await new Promise(resolve => setTimeout(resolve, 15));
   assert.ok(client.state.get().match.gameTime >= 1);
@@ -518,20 +579,32 @@ test('patches are applied inside the SDK', async () => {
   client.state.subscribe(() => { publications += 1; });
   await client.connect();
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {
-    match: { gameTime: 4 }, players: [{ id: '0', name: 'Stable' }], extension: { stable: true }
+    match: { gameTime: 4 },
+    players: [{ id: '0', name: 'Stable' }],
+    overlay: { settings: { legacy: true }, misc: {
+      hudScale: 1, matchscoreWins: 2, matchscoreLosses: 1,
+      localServerUrls: ['ws://127.0.0.1:48123']
+    } },
+    extension: { stable: true }
   } });
   const previous = client.state.get();
+  assert.equal(previous.overlay.settings, undefined);
+  assert.equal(previous.overlay.runtime.localServerUrls, undefined);
+  assert.deepEqual(previous.overlay.runtime.matchScore, { wins: 2, losses: 1 });
+  assert.equal(previous.overlay.runtime.matchscoreWins, undefined);
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 2, type: 'state.patch', data: [{ op: 'replace', path: '/match/gameTime', value: 5 }] });
   const current = client.state.get();
   assert.equal(current.match.gameTime, 5);
   assert.notEqual(current.match, previous.match);
   assert.equal(current.players, previous.players);
   assert.equal(current.players[0], previous.players[0]);
+  assert.equal(current.overlay, previous.overlay);
+  assert.equal(current.overlay.runtime, previous.overlay.runtime);
   assert.equal(current.extension, previous.extension);
-  assert.equal(publications, 2);
+  assert.equal(publications, 3);
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 3, type: 'state.patch', data: [{ op: 'replace', path: '/match/gameTime', value: 5 }] });
   assert.equal(client.state.get(), current);
-  assert.equal(publications, 2);
+  assert.equal(publications, 3);
 });
 
 test('map names are decoded once at snapshot and patch ingress', async () => {
@@ -623,6 +696,70 @@ test('hydrated changes emit useful player, hero, inventory, and match events', a
   assert.equal(events.find(([type]) => type === 'ended')[1].match.id, 'one');
 });
 
+test('event payloads are immutable and cannot be changed for later listeners', async () => {
+  let context;
+  const client = createClient({ clientId: 'test_app', transport: { name: 'test', async open(value) { context = value; } } });
+  const observed = [];
+  client.on('match.changed', event => {
+    assert.equal(Object.isFrozen(event), true);
+    assert.equal(Object.isFrozen(event.changedFields), true);
+    assert.throws(() => event.changedFields.push('injected'), TypeError);
+  });
+  client.on('match.changed', event => observed.push([...event.changedFields]));
+  await client.connect();
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {
+    match: { id: 'one', status: 'running', gameTime: 1, mode: '1v1' }, players: []
+  } });
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 2, type: 'state.patch', data: [
+    { op: 'replace', path: '/match/gameTime', value: 2 }
+  ] });
+  assert.deepEqual(observed, [['gameTime']]);
+  await client.disconnect();
+});
+
+test('unknown protocol events require an explicit unknown-event subscription', async () => {
+  let context;
+  const client = createClient({
+    clientId: 'test_app',
+    transport: { name: 'test', async open(value) { context = value; } }
+  });
+  const wildcardEvents = [];
+  const extensionEvents = [];
+  const statuses = [];
+  const sharedEvents = [];
+  const knownController = new AbortController();
+  const sharedListener = data => sharedEvents.push(data);
+  client.on('*', event => wildcardEvents.push(event));
+  client.on('status', status => statuses.push(status));
+  client.on('status', sharedListener, { signal: knownController.signal });
+  client.onUnknown('status', sharedListener);
+  client.onUnknown('extension.notice', data => extensionEvents.push(data));
+  client.onUnknown('status', data => extensionEvents.push(data));
+  await client.connect();
+  wildcardEvents.length = 0;
+  statuses.length = 0;
+  sharedEvents.length = 0;
+  knownController.abort();
+  context.onMessage({
+    version: PROTOCOL_VERSION,
+    sequence: 1,
+    type: 'extension.notice',
+    data: { message: 'ready' }
+  });
+  context.onMessage({
+    version: PROTOCOL_VERSION,
+    sequence: 2,
+    type: 'status',
+    data: { extension: true }
+  });
+
+  assert.deepEqual(wildcardEvents, []);
+  assert.deepEqual(statuses, []);
+  assert.deepEqual(sharedEvents, [{ extension: true }]);
+  assert.deepEqual(extensionEvents, [{ message: 'ready' }, { extension: true }]);
+  await client.disconnect();
+});
+
 test('the initial snapshot establishes a baseline before domain transition events', async () => {
   let context;
   const client = createClient({ clientId: 'test_app', transport: { name: 'test', async open(value) { context = value; } } });
@@ -650,16 +787,17 @@ test('the initial snapshot establishes a baseline before domain transition event
   await client.disconnect();
 });
 
-test('watch only runs when its selected value changes', async () => {
+test('watch publishes unavailable state and only runs when its selected value changes', async () => {
   const storeChanges = [];
   let context;
   const client = createClient({ clientId: 'test_app', transport: { name: 'test', async open(value) { context = value; } } });
   await client.connect();
-  client.state.watch(state => state.match.map, (map, previous) => storeChanges.push([map, previous]));
+  client.state.watch(state => state?.match.map ?? null, (map, previous) => storeChanges.push([map, previous]));
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: { match: { map: 'A', gameTime: 1 }, players: [] } });
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 2, type: 'state.patch', data: [{ op: 'replace', path: '/match/gameTime', value: 2 }] });
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 3, type: 'state.patch', data: [{ op: 'replace', path: '/match/map', value: 'B' }] });
-  assert.deepEqual(storeChanges, [['A', undefined], ['B', 'A']]);
+  await client.disconnect();
+  assert.deepEqual(storeChanges, [[null, undefined], ['A', null], ['B', 'A'], [null, 'B']]);
 });
 
 test('watch supports an explicit structural comparator', async () => {
@@ -667,16 +805,16 @@ test('watch supports an explicit structural comparator', async () => {
   let context;
   const client = createClient({ clientId: 'test_app', transport: { name: 'test', async open(value) { context = value; } } });
   await client.connect();
-  client.state.watch(state => state.overlay?.settings, settings => storeChanges.push(settings), {
+  client.state.watch(state => state?.application?.settings, settings => storeChanges.push(settings), {
     equals: (left, right) => left?.first === right?.first && left?.second === right?.second
   });
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {
-    match: { gameTime: 1 }, players: [], overlay: { settings: { first: 1, second: 2 }, misc: {} }
+    match: { gameTime: 1 }, players: [], application: { clientId: 'test_app', settings: { first: 1, second: 2 } }
   } });
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 2, type: 'state.snapshot', data: {
-    match: { gameTime: 1 }, players: [], overlay: { settings: { second: 2, first: 1 }, misc: {} }
+    match: { gameTime: 1 }, players: [], application: { clientId: 'test_app', settings: { second: 2, first: 1 } }
   } });
-  assert.equal(storeChanges.length, 1);
+  assert.deepEqual(storeChanges, [undefined, { first: 1, second: 2 }]);
   await client.disconnect();
 });
 
@@ -780,6 +918,8 @@ test('observer and replay sessions use the low-latency recorder transport locall
     clientId: 'match_vision',
     transport: { name: 'cloud-test', async open(value) { context = value; } }
   });
+  const publicEvents = [];
+  client.on('*', event => publicEvents.push(event));
   let publications = 0;
   client.state.subscribe(() => { publications += 1; });
   try {
@@ -809,6 +949,17 @@ test('observer and replay sessions use the low-latency recorder transport locall
     assert.equal(sockets.length, 1);
     assert.equal(sockets[0].url, 'ws://127.0.0.1:48123/');
     const authenticatedState = client.state.get();
+    assert.equal(authenticatedState.overlay.settings, undefined);
+    assert.equal(authenticatedState.overlay.runtime.localServerUrls, undefined);
+    assert.equal(publicEvents.some(event => event.type === 'state.snapshot' || event.type === 'state.patch'), false);
+    assert.equal(JSON.stringify(publicEvents).includes('48123'), false);
+    context.onMessage({
+      version: PROTOCOL_VERSION,
+      sequence: 2,
+      type: 'state.patch',
+      data: [{ op: 'replace', path: '/overlay/settings/topBarGameDurationEnabled', value: true }]
+    });
+    assert.equal(publications, 2, 'control-plane-only patches do not republish public state');
     sockets[0].emit('open');
     sockets[0].emit('message', JSON.stringify([
       { class: 'W3GameTime', matchId: 'observer-match', value: 12 },
@@ -827,15 +978,14 @@ test('observer and replay sessions use the low-latency recorder transport locall
     await waitForRecorderFrame();
 
     let state = client.state.get();
-    assert.equal(publications, 2);
+    assert.equal(publications, 3);
     assert.equal(state.application, authenticatedState.application);
-    assert.equal(state.overlay.settings, authenticatedState.overlay.settings);
     assert.equal(state.players[1], authenticatedState.players[1]);
     assert.equal(state.players[0].heroes[0].platformMetadata, authenticatedState.players[0].heroes[0].platformMetadata);
     assert.equal(state.players[0].heroes[0].hitpoints, authenticatedState.players[0].heroes[0].hitpoints);
     assert.equal(client.diagnostics.localTransport, 'recorder-local');
     assert.equal(state.match.gameTime, 12);
-    assert.equal(state.overlay.misc.hudScale, 0.75);
+    assert.equal(state.overlay.runtime.hudScale, 0.75);
     assert.deepEqual(state.players[0].resources, { gold: 123, lumber: 67, supply: 31, supplyCap: 50, workerSupply: 0 });
     assert.equal(state.players[0].heroes[0].id, 'Edem');
     assert.equal(state.players[0].heroes[0].name, 'Demon Hunter');
@@ -853,17 +1003,17 @@ test('observer and replay sessions use the low-latency recorder transport locall
     ]));
     await waitForRecorderFrame();
     assert.equal(client.state.get(), updatedState);
-    assert.equal(publications, 2);
+    assert.equal(publications, 3);
 
     // A cloud resnapshot remains the authenticated baseline, but it must not
     // erase recorder values already received through the local recorder feed.
-    context.onMessage({ version: PROTOCOL_VERSION, sequence: 2, type: 'state.snapshot', data: baseline });
+    context.onMessage({ version: PROTOCOL_VERSION, sequence: 3, type: 'state.snapshot', data: baseline });
     state = client.state.get();
-    assert.equal(state.overlay.misc.hudScale, 0.75);
+    assert.equal(state.overlay.runtime.hudScale, 0.75);
     assert.equal(state.players[0].resources.gold, 123);
     assert.equal(state.players[0].heroes[0].id, 'Edem');
 
-    context.onMessage({ version: PROTOCOL_VERSION, sequence: 3, type: 'state.patch', data: [{ op: 'replace', path: '/match/status', value: 'finished' }] });
+    context.onMessage({ version: PROTOCOL_VERSION, sequence: 4, type: 'state.patch', data: [{ op: 'replace', path: '/match/status', value: 'finished' }] });
     assert.equal(client.diagnostics.localTransport, null);
   } finally {
     await client.disconnect();
@@ -963,7 +1113,7 @@ test('the local recorder feed cannot bypass SDK capabilities', async () => {
       { class: 'W3Resource', slotId: 0, type: 1, value: 9990 }
     ]));
     await waitForRecorderFrame();
-    assert.equal(client.state.get().overlay.misc.hudScale, 0.75);
+    assert.equal(client.state.get().overlay.runtime.hudScale, 0.75);
     assert.equal(client.state.get().players[0].resources, undefined);
   } finally {
     await client.disconnect();
@@ -1170,6 +1320,33 @@ test('a reconnect resets sequence tracking for the new snapshot', async () => {
   assert.equal(client.state.isSynchronized, true);
 });
 
+test('an identical fresh snapshot restores synchronization without republishing state', async () => {
+  let context;
+  const client = createClient({
+    clientId: 'test_app',
+    transport: { name: 'test', async open(value) { context = value; }, close() {} }
+  });
+  let publications = 0;
+  client.state.subscribe(() => { publications += 1; });
+  await client.connect();
+  const snapshot = {
+    match: { id: 'same', status: 'running', gameTime: 20, mode: '1v1' },
+    players: []
+  };
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 20, type: 'state.snapshot', data: snapshot });
+  const preservedState = client.state.get();
+  context.onStatus('reconnecting');
+  const synchronized = client.whenSynchronized({ timeout: 100 });
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: snapshot });
+
+  assert.equal(await synchronized, preservedState);
+  assert.equal(client.state.get(), preservedState);
+  assert.equal(client.state.isSynchronized, true);
+  assert.equal(client.lifecycle.get().isSynchronized, true);
+  assert.equal(publications, 2);
+  await client.disconnect();
+});
+
 test('explicit disconnect clears state and the same client can connect cleanly again', async () => {
   let context;
   let opens = 0;
@@ -1179,6 +1356,8 @@ test('explicit disconnect clears state and the same client can connect cleanly a
     close() {}
   };
   const client = createClient({ clientId: 'test_app', transport });
+  const snapshots = [];
+  client.state.subscribe(state => snapshots.push(state?.match.id ?? null));
 
   await client.connect();
   context.onMessage({
@@ -1205,6 +1384,7 @@ test('explicit disconnect clears state and the same client can connect cleanly a
   assert.equal((await ready).match.id, 'second');
   assert.equal(opens, 2);
   await client.disconnect();
+  assert.deepEqual(snapshots, [null, 'first', null, 'second', null]);
 });
 
 test('a fatal transport error is closed before an explicit reconnect', async () => {
@@ -1520,7 +1700,7 @@ test('the default cloud backend receives the launch credential without probing l
         requestId: automaticCapabilities.requestId, ok: true, value: { capabilities: ['match-score:write'] }
       }
     });
-    const scoreChange = client.host.changeMatchScoreAndWait('wins', 1);
+    const scoreChange = client.host.changeMatchScore('wins', 1);
     const scoreMessage = hostMessages.at(-1);
     assert.equal(scoreMessage.command, 'overlay.match-score.change');
     for (const listener of hostListeners) listener({
@@ -1968,6 +2148,9 @@ test('explicit compositor credentials fail clearly when missing and support canc
 test('compositor options and successful responses are validated at runtime', async () => {
   await assert.rejects(getOverlayComposition(null), /options/);
   await assert.rejects(getOverlayComposition({ surface: 'application' }), /surface/);
+  await assert.rejects(getOverlayComposition({ backend: 'locla' }), /auto, local, or cloud/);
+  await assert.rejects(getOverlayComposition({ backendUrl: '' }), /backendUrl/);
+  await assert.rejects(getOverlayComposition({ backend: 'cloud', backendUrl: 'https://example.com' }), /either backend or backendUrl/);
   await assert.rejects(getOverlayComposition({ browserSource: { channel: '', secret: '' } }), /channel and secret/);
   await assert.rejects(watchOverlayComposition({}, null), /listener/);
 

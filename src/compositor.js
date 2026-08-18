@@ -5,7 +5,6 @@ import {
   createAbortError,
   fetchJsonWithTimeout as fetchJson,
   isPlainObject,
-  normalizeApiBase,
   throwIfAborted,
   validateAbortSignal
 } from './internal/network.js';
@@ -18,7 +17,7 @@ export async function getOverlayComposition(options = {}) {
   const browserSource = readBrowserSource(options);
   const surface = options.surface || browserSource?.surface || 'streamOverlay';
   let credential = browserSource || options.tokenProvider ? null : readCompositorCredential(surface);
-  const bases = options.api ? [normalizeApiBase(options.api, 'api')] : backendUrls(options);
+  const bases = backendUrls(options);
   if (!globalThis.fetch) throw new ConnectionError('Fetch is unavailable.');
   const errors = [];
   for (let index = 0; index < bases.length; index++) {
@@ -63,7 +62,7 @@ export async function watchOverlayComposition(options = {}, listener) {
   const browserSource = readBrowserSource(options);
   const surface = options.surface || browserSource?.surface || 'streamOverlay';
   let credential = options.tokenProvider ? null : readCompositorCredential(surface);
-  const bases = options.api ? [normalizeApiBase(options.api, 'api')] : backendUrls(options);
+  const bases = backendUrls(options);
   if (!globalThis.fetch) throw new ConnectionError('Fetch is unavailable.');
   if (!globalThis.WebSocket) throw new ConnectionError('WebSocket is unavailable.');
 
@@ -146,8 +145,14 @@ function normalizeCompositionOptions(value) {
   if (value.surface !== undefined && value.surface !== 'streamOverlay' && value.surface !== 'ingameOverlay') {
     throw new TypeError('surface must be streamOverlay or ingameOverlay');
   }
-  if (value.backend !== undefined && (typeof value.backend !== 'string' || !value.backend.trim())) {
-    throw new TypeError('backend must be a non-empty string');
+  if (value.backend !== undefined && !['auto', 'local', 'cloud'].includes(value.backend)) {
+    throw new TypeError('backend must be auto, local, or cloud');
+  }
+  if (value.backendUrl !== undefined && (typeof value.backendUrl !== 'string' || !value.backendUrl.trim())) {
+    throw new TypeError('backendUrl must be a non-empty string');
+  }
+  if (value.backendUrl !== undefined && value.backend !== undefined) {
+    throw new TypeError('Use either backend or backendUrl, not both');
   }
   if (value.browserSource !== undefined) validateBrowserSource(value.browserSource);
   return value;

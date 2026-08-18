@@ -1,3 +1,6 @@
+import { isKnownScope } from './internal/scopes.js';
+import { isPlainObject } from './internal/network.js';
+
 const SETTING_TYPES = new Set(['boolean', 'text', 'number', 'select', 'country']);
 const UNSAFE_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const SETTING_PATH = /^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*$/;
@@ -77,63 +80,37 @@ export function generateSettingsBinding(definition) {
   assertObject(definition, 'application definition');
   assertString(definition.clientId, 'clientId');
   assertString(definition.revision, 'revision');
-  if (!Array.isArray(definition.scopes) || definition.scopes.some(scope => typeof scope !== 'string')) fail('scopes must be an array of strings');
+  if (!Array.isArray(definition.scopes) || definition.scopes.some(scope => !isKnownScope(scope))) {
+    fail('scopes must contain only known W3Booster scopes');
+  }
+  if (new Set(definition.scopes).size !== definition.scopes.length) fail('scopes must not contain duplicates');
   const schema = validateSettingsSchema(definition.settingsSchema || { version: 1, sections: [] });
   return [
     '/* Generated from the W3Booster application database. Do not edit directly. */',
     `// @w3booster-client-id ${definition.clientId}`,
     `// @w3booster-revision ${definition.revision}`,
     '',
-    "import { connect, createClient, type ConnectOptions, type DeepReadonly, type StartupOptions } from '@w3booster/sdk';",
-    "import { resolveSettings, type DeepPartial } from '@w3booster/sdk/settings';",
+    "import { defineApplication, type ApplicationConnectOptions } from '@w3booster/sdk/app';",
+    "import type { DeepPartial } from '@w3booster/sdk/settings';",
     '',
     `export interface W3BoosterAppSettings ${renderType(typeTree(schema))}`,
     'export type W3BoosterAppDeliveredSettings = DeepPartial<W3BoosterAppSettings>;',
-    'const w3boosterEmptySettings: W3BoosterAppDeliveredSettings = {};',
-    'const w3boosterResolvedSettings = new WeakMap<object, DeepReadonly<W3BoosterAppSettings>>();',
-    '',
-    'export const w3boosterApp = {',
+    'const w3boosterAppDefinition = {',
     `  clientId: ${JSON.stringify(definition.clientId)},`,
     `  revision: ${JSON.stringify(definition.revision)},`,
     `  scopes: ${JSON.stringify(definition.scopes)},`,
     `  settingsDefaults: ${indentJson(settingsDefaults(schema), 2)}`,
     '} as const;',
     '',
-    "export type W3BoosterAppConnectOptions = Omit<ConnectOptions<W3BoosterAppDeliveredSettings>, 'clientId' | 'scopes'> & {",
-    "  readonly scopes?: readonly (typeof w3boosterApp.scopes)[number][] | 'configured';",
-    '};',
+    'export const w3boosterApp = defineApplication<',
+    '  W3BoosterAppSettings,',
+    '  typeof w3boosterAppDefinition.scopes',
+    '>(w3boosterAppDefinition);',
     '',
-    '/** Connect with this application\'s identity and generated settings type. */',
-    'export function connectW3BoosterApp(options: W3BoosterAppConnectOptions = {}) {',
-    '  return connect<W3BoosterAppDeliveredSettings>({ ...options, clientId: w3boosterApp.clientId });',
-    '}',
-    '',
-    '/** Create a typed client before connecting so lifecycle listeners can be attached first. */',
-    'export function createW3BoosterAppClient(options: W3BoosterAppConnectOptions = {}) {',
-    '  return createClient<W3BoosterAppDeliveredSettings>({ ...options, clientId: w3boosterApp.clientId });',
-    '}',
-    '',
-    '/** Connect and wait for the lifecycle milestone needed by a long-lived frontend. */',
-    'export async function startW3BoosterApp(options: W3BoosterAppConnectOptions = {}, startup: StartupOptions = {}) {',
-    '  const signal = startup.signal ?? options.signal;',
-    '  const client = createW3BoosterAppClient({ ...options, signal });',
-    '  try {',
-    '    await client.start({ ...startup, signal });',
-    '    return client;',
-    '  } catch (error) {',
-    '    await client.disconnect();',
-    '    throw error;',
-    '  }',
-    '}',
-    '',
-    '/** Apply partial delivered values over the generated application defaults. */',
-    'export function resolveW3BoosterAppSettings(settings: W3BoosterAppDeliveredSettings = w3boosterEmptySettings): DeepReadonly<W3BoosterAppSettings> {',
-    '  const cached = w3boosterResolvedSettings.get(settings);',
-    '  if (cached) return cached;',
-    '  const resolved = resolveSettings<W3BoosterAppSettings>(w3boosterApp.settingsDefaults, settings);',
-    '  w3boosterResolvedSettings.set(settings, resolved);',
-    '  return resolved;',
-    '}',
+    'export type W3BoosterAppConnectOptions = ApplicationConnectOptions<',
+    '  W3BoosterAppSettings,',
+    '  typeof w3boosterAppDefinition.scopes',
+    '>;',
     ''
   ].join('\n');
 }
@@ -192,12 +169,13 @@ function fieldType(field) {
   if (field.options.every(option => typeof option.value === 'boolean')) return 'boolean';
   return field.options.map(option => JSON.stringify(option.value)).join(' | ') || 'never';
 }
-function assertObject(value, label) { if (!value || typeof value !== 'object' || Array.isArray(value)) fail(`${label} must be an object`); }
+function assertObject(value, label) { if (!isPlainObject(value)) fail(`${label} must be a plain object`); }
 function assertString(value, label) { if (typeof value !== 'string' || !value.trim()) fail(`${label} must be a non-empty string`); }
 function assertJson(value, label, seen = new Set()) {
   if (value === null || ['string', 'boolean'].includes(typeof value)) return;
   if (typeof value === 'number' && Number.isFinite(value)) return;
   if (!value || typeof value !== 'object' || seen.has(value)) fail(`${label} must be finite, acyclic JSON`);
+  if (!Array.isArray(value) && !isPlainObject(value)) fail(`${label} must be a plain JSON object`);
   seen.add(value);
   if (Array.isArray(value)) value.forEach((item, index) => assertJson(item, `${label}[${index}]`, seen));
   else for (const [key, item] of Object.entries(value)) {
@@ -219,7 +197,7 @@ function mergeObjects(defaults, settings) {
   }
   return result;
 }
-function isMergeableObject(value) { return !!value && typeof value === 'object' && !Array.isArray(value); }
+function isMergeableObject(value) { return isPlainObject(value); }
 function indentJson(value, spaces) { return JSON.stringify(value, null, 2).replace(/\n/g, `\n${' '.repeat(spaces)}`); }
 function clone(value) { return globalThis.structuredClone ? structuredClone(value) : JSON.parse(JSON.stringify(value)); }
 function freeze(value) { if (value && typeof value === 'object' && !Object.isFrozen(value)) { Object.values(value).forEach(freeze); Object.freeze(value); } return value; }

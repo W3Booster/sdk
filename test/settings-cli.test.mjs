@@ -39,6 +39,23 @@ test('settings CLI fetches a public definition and later infers identity from it
   }
 });
 
+test('settings CLI accepts the documented CI endpoint environment variable', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'w3booster-settings-env-'));
+  const outputPath = join(directory, 'generated.ts');
+  const server = definitionServer();
+  try {
+    const endpoint = await listen(server);
+    await run(process.execPath, [cli, 'app_cli', '--output', outputPath], {
+      cwd: directory,
+      env: { ...process.env, W3BOOSTER_SETTINGS_URL: endpoint }
+    });
+    assert.match(await readFile(outputPath, 'utf8'), /@w3booster-client-id app_cli/);
+  } finally {
+    await close(server);
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('settings CLI init persists its endpoint without mutating project lifecycle scripts by default', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'w3booster-settings-init-'));
   const server = definitionServer();

@@ -71,8 +71,9 @@ import { countryFlagUrl } from '@w3booster/sdk/assets';
 import { getOverlayComposition } from '@w3booster/sdk/compositor';
 import { createDemoTransport, type TestingConnectOptions } from '@w3booster/sdk/testing';
 import { validateSettingsSchema } from '@w3booster/sdk/settings';
-import { createExternalStore } from '@w3booster/sdk/frontend';
-import { connectW3BoosterApp, createW3BoosterAppClient, type W3BoosterAppSettings } from './w3booster.generated';
+import { defineApplication } from '@w3booster/sdk/app';
+import { createReactStore } from '@w3booster/sdk/react';
+import { w3boosterApp, type W3BoosterAppSettings } from './w3booster.generated';
 
 interface Settings { layout: 'compact' | 'wide' }
 const options: TestingConnectOptions<Settings> = {
@@ -80,7 +81,7 @@ const options: TestingConnectOptions<Settings> = {
   transport: createDemoTransport<Settings>()
 };
 const clientPromise = connect(options);
-const externalStore = createExternalStore({ get: () => 1, subscribe: listener => { listener(1); return () => undefined; } });
+const externalStore = createReactStore({ get: () => 1, subscribe: listener => { listener(1); return () => undefined; } });
 declare const state: MatchState<Settings>;
 const player = broadcasterPlayer(state.match, state.players);
 const experience = heroExperienceState(500);
@@ -88,10 +89,13 @@ const icon = iconUrl('Hamg');
 const flag = countryFlagUrl('DE');
 const composition = getOverlayComposition({ surface: 'streamOverlay' });
 const schema = validateSettingsSchema<Settings>({ version: 1, sections: [] });
+const app = defineApplication<Settings, readonly ['match:read']>({
+  clientId: 'package_consumer', revision: 'package-test', scopes: ['match:read'], settingsDefaults: { layout: 'wide' }
+});
 const generatedSettings: W3BoosterAppSettings = { display: { layout: 'compact' } };
-const generatedClient = connectW3BoosterApp({ demo: { settings: generatedSettings } });
-const generatedLifecycleClient = createW3BoosterAppClient({ demo: { settings: generatedSettings } });
-void [clientPromise, generatedClient, generatedLifecycleClient, player, experience, icon, flag, composition, schema];
+const generatedClient = w3boosterApp.connect({ demo: { settings: generatedSettings } });
+const generatedLifecycleClient = w3boosterApp.createClient({ demo: { settings: generatedSettings } });
+void [clientPromise, generatedClient, generatedLifecycleClient, player, experience, icon, flag, composition, schema, app];
 `);
 
     const runtimeResult = await run(process.execPath, ['--input-type=module', '--eval', `
@@ -103,6 +107,8 @@ await Promise.all([
   '@w3booster/sdk/assets',
   '@w3booster/sdk/compositor',
   '@w3booster/sdk/settings',
+  '@w3booster/sdk/app',
+  '@w3booster/sdk/react',
   '@w3booster/sdk/testing'
 ].map(entryPoint => import(entryPoint)));
 `], { cwd: consumerDirectory });
