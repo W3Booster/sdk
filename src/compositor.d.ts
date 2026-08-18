@@ -7,16 +7,19 @@ export interface BrowserSourceCredentials {
 }
 
 export interface OverlayCompositionOptions {
+  /** Cancels one-shot loading and owns the returned watcher lifetime. */
+  signal?: AbortSignal;
   api?: string;
   /** Defaults to cloud. Platform-provided backend=local|cloud takes precedence. */
   backend?: 'auto' | 'local' | 'cloud' | string;
   localApi?: string;
   cloudApi?: string;
+  /** Supplies the current compositor credential for each authorization attempt. */
   tokenProvider?: () => string | null | Promise<string | null>;
   /** Stable credentials from the user's W3Booster browser-source URL. */
   browserSource?: BrowserSourceCredentials;
   surface?: OverlaySurface;
-  onError?: (error: unknown) => void;
+  onError?: (error: unknown) => void | Promise<void>;
 }
 
 export interface OverlayCompositionApp {
@@ -24,6 +27,7 @@ export interface OverlayCompositionApp {
   clientId: string;
   name: string;
   url: string;
+  development?: boolean;
 }
 
 export interface OverlayCompositionWatcher { close(): void }
@@ -31,5 +35,5 @@ export interface OverlayCompositionWatcher { close(): void }
 export function getOverlayComposition(options?: OverlayCompositionOptions): Promise<OverlayCompositionApp[]>;
 export function watchOverlayComposition(
   options: OverlayCompositionOptions,
-  listener: (event: { type: 'composition.ready' | 'composition.changed'; surface?: OverlaySurface }) => void
+  listener: (event: { type: 'composition.ready' | 'composition.changed'; surface?: OverlaySurface }) => void | Promise<void>
 ): Promise<OverlayCompositionWatcher>;

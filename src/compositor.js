@@ -1,125 +1,126 @@
-import { ConnectionError, PermissionRequiredError, ProtocolError } from './index.js';
-
-const DEFAULT_LOCAL_API = 'https://localhost:25080';
-const DEFAULT_CLOUD_API = 'https://app.w3booster.com:14969';
-const CONNECTION_TIMEOUT = 5000;
+import { ConnectionError, PermissionRequiredError, ProtocolError } from './internal/errors.js';
+import {
+  backendUrls,
+  CONNECTION_TIMEOUT,
+  createAbortError,
+  fetchJsonWithTimeout as fetchJson,
+  isPlainObject,
+  normalizeApiBase,
+  throwIfAborted,
+  validateAbortSignal
+} from './internal/network.js';
+import { createReconnectBackoff, validateWebSocketUrl } from './internal/websocket.js';
 
 /** Return authenticated child overlays for W3Booster's platform compositor. */
 export async function getOverlayComposition(options = {}) {
-  if (!globalThis.fetch) return [];
+  options = normalizeCompositionOptions(options);
+  throwIfAborted(options.signal);
   const browserSource = readBrowserSource(options);
   const surface = options.surface || browserSource?.surface || 'streamOverlay';
-  let credential = options.tokenProvider
-    ? await options.tokenProvider()
-    : (browserSource ? null : readCompositorCredential(surface));
+  let credential = browserSource || options.tokenProvider ? null : readCompositorCredential(surface);
   const bases = options.api ? [normalizeApiBase(options.api, 'api')] : backendUrls(options);
+  if (!globalThis.fetch) throw new ConnectionError('Fetch is unavailable.');
   const errors = [];
   for (let index = 0; index < bases.length; index++) {
+    const base = bases[index];
     try {
-      if (!credential && browserSource) {
-        credential = await bootstrapBrowserSourceSession(bases[index], { ...browserSource, surface }, 5000);
+      const refreshCredential = async () => {
+        if (options.tokenProvider) return await options.tokenProvider();
+        if (browserSource) return await bootstrapBrowserSourceSession(base, { ...browserSource, surface }, CONNECTION_TIMEOUT, options.signal);
+        return null;
+      };
+      let candidateCredential = options.tokenProvider ? null : credential;
+      if (!candidateCredential) candidateCredential = await refreshCredential();
+      if (!candidateCredential && (browserSource || options.tokenProvider)) throw new PermissionRequiredError('Overlay session is missing.');
+      let result = await requestCompositeLaunches(base, surface, candidateCredential, options.signal);
+      if ((result.response.status === 401 || result.response.status === 403) && (browserSource || options.tokenProvider)) {
+        candidateCredential = await refreshCredential();
+        if (!candidateCredential) throw new PermissionRequiredError('Overlay session is missing.');
+        result = await requestCompositeLaunches(base, surface, candidateCredential, options.signal);
       }
-      const response = await fetchWithTimeout(`${bases[index]}/stream/v1/composite-launches`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(credential ? { Authorization: `Bearer ${credential}` } : {})
-        },
-        body: JSON.stringify({ surface })
-      }, 5000);
-      if (!response.ok) throw new Error(`overlay compositor returned ${response.status}`);
-      const result = await response.json();
-      return Array.isArray(result?.apps) ? result.apps : [];
+      if (result.response.status === 401 || result.response.status === 403) {
+        throw new PermissionRequiredError('Overlay composition is not authorized.', result.body?.authorizeUrl);
+      }
+      if (!result.response.ok) throw compositorResponseError('Overlay compositor', result.response);
+      credential = candidateCredential;
+      return validateCompositionApps(result.body);
     } catch (error) {
+      if (options.signal?.aborted || error?.name === 'AbortError') throw createAbortError();
       errors.push(error);
+      if (browserSource) credential = null;
     }
   }
-  if (!credential && !browserSource) return [];
-  throw new ConnectionError('Could not load enabled app overlays.', errors);
+  if (!credential && !browserSource && !options.tokenProvider &&
+      errors.length > 0 && errors.every(error => error instanceof PermissionRequiredError)) return [];
+  throw compositorFailure('Could not load enabled app overlays.', errors);
 }
 
 /** Watch changes to the authenticated user's platform overlay composition. */
 export async function watchOverlayComposition(options = {}, listener) {
+  options = normalizeCompositionOptions(options);
   if (typeof listener !== 'function') throw new TypeError('listener must be a function');
-  if (!globalThis.WebSocket) throw new ConnectionError('WebSocket is unavailable.');
+  throwIfAborted(options.signal);
   const browserSource = readBrowserSource(options);
   const surface = options.surface || browserSource?.surface || 'streamOverlay';
-  let credential = options.tokenProvider
-    ? await options.tokenProvider()
-    : readCompositorCredential(surface);
+  let credential = options.tokenProvider ? null : readCompositorCredential(surface);
   const bases = options.api ? [normalizeApiBase(options.api, 'api')] : backendUrls(options);
+  if (!globalThis.fetch) throw new ConnectionError('Fetch is unavailable.');
+  if (!globalThis.WebSocket) throw new ConnectionError('WebSocket is unavailable.');
 
   const authorizeWatch = async signal => {
+    throwIfAborted(signal);
     const errors = [];
     for (let index = 0; index < bases.length; index++) {
       const base = bases[index];
-      let candidateCredential = credential;
       const refreshCredential = async () => {
         if (options.tokenProvider) return await options.tokenProvider();
         if (browserSource) return await bootstrapBrowserSourceSession(base, { ...browserSource, surface }, CONNECTION_TIMEOUT, signal);
         return null;
       };
       try {
+        let candidateCredential = options.tokenProvider ? null : credential;
         if (!candidateCredential) candidateCredential = await refreshCredential();
         if (!candidateCredential) throw new PermissionRequiredError('Overlay session is missing.');
-        let response = await requestCompositionWatch(base, surface, candidateCredential, signal);
-        if ((response.status === 401 || response.status === 403) && (browserSource || options.tokenProvider)) {
+        let result = await requestCompositionWatch(base, surface, candidateCredential, signal);
+        if ((result.response.status === 401 || result.response.status === 403) && (browserSource || options.tokenProvider)) {
           candidateCredential = await refreshCredential();
           if (!candidateCredential) throw new PermissionRequiredError('Overlay session is missing.');
-          response = await requestCompositionWatch(base, surface, candidateCredential, signal);
+          result = await requestCompositionWatch(base, surface, candidateCredential, signal);
         }
-        if (!response.ok) throw new Error(`overlay composition watch returned ${response.status}`);
-        const result = await response.json();
+        if (result.response.status === 401 || result.response.status === 403) {
+          throw new PermissionRequiredError('Overlay composition watch is not authorized.', result.body?.authorizeUrl);
+        }
+        if (!result.response.ok) throw compositorResponseError('Overlay composition watch', result.response);
         credential = candidateCredential;
-        return { websocketUrl: validateWebSocketUrl(result?.websocketUrl), credential: candidateCredential };
+        return { websocketUrl: validateWebSocketUrl(result.body?.websocketUrl), credential: candidateCredential };
       } catch (error) {
         errors.push(error);
         if (browserSource) credential = null;
       }
     }
-    throw new ConnectionError('Could not watch enabled app overlays.', errors);
+    throw compositorFailure('Could not watch enabled app overlays.', errors);
   };
 
-  return await createCompositionWatcher(authorizeWatch, listener, options.onError);
+  return await createCompositionWatcher(authorizeWatch, listener, options.onError, options.signal);
 }
 
 function requestCompositionWatch(base, surface, credential, signal) {
-  return fetchWithTimeout(`${base}/stream/v1/composition-watch`, {
+  return fetchJsonWithTimeout(`${base}/stream/v1/composition-watch`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${credential}` },
     body: JSON.stringify({ surface })
   }, CONNECTION_TIMEOUT, signal);
 }
 
-function backendUrls(options = {}) {
-  const backend = launchBackendHint() || options.backend || 'cloud';
-  const local = normalizeApiBase(options.localApi || DEFAULT_LOCAL_API, 'localApi');
-  const cloud = normalizeApiBase(options.cloudApi || DEFAULT_CLOUD_API, 'cloudApi');
-  if (backend === 'local') return [local];
-  if (backend === 'cloud') return [cloud];
-  if (backend !== 'auto') return [normalizeApiBase(backend, 'backend')];
-  return [local, cloud];
-}
-
-function launchBackendHint() {
-  try {
-    const backend = new URLSearchParams(globalThis.location?.search || '').get('backend');
-    return backend === 'local' || backend === 'cloud' ? backend : null;
-  } catch (_) {
-    return null;
-  }
-}
-
-function normalizeApiBase(value, optionName) {
-  let url;
-  try { url = new URL(String(value || '')); }
-  catch (_) { throw new TypeError(`${optionName} must be a valid HTTP(S) URL`); }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new TypeError(`${optionName} must be an HTTP(S) URL`);
-  if (url.username || url.password) throw new TypeError(`${optionName} may not contain user information`);
-  if (url.search || url.hash) throw new TypeError(`${optionName} may not contain a query or fragment`);
-  const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
-  if (url.protocol === 'http:' && !local) throw new TypeError(`${optionName} must use HTTPS unless it targets localhost`);
-  return url.toString().replace(/\/$/, '');
+function requestCompositeLaunches(base, surface, credential, signal) {
+  return fetchJsonWithTimeout(`${base}/stream/v1/composite-launches`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(credential ? { Authorization: `Bearer ${credential}` } : {})
+    },
+    body: JSON.stringify({ surface })
+  }, CONNECTION_TIMEOUT, signal);
 }
 
 function readBrowserSource(options) {
@@ -133,8 +134,58 @@ function readBrowserSource(options) {
   return { channel, secret, surface };
 }
 
+function normalizeCompositionOptions(value) {
+  if (!isPlainObject(value)) throw new TypeError('composition options must be an object');
+  validateAbortSignal(value.signal);
+  if (value.tokenProvider !== undefined && typeof value.tokenProvider !== 'function') {
+    throw new TypeError('tokenProvider must be a function');
+  }
+  if (value.onError !== undefined && typeof value.onError !== 'function') {
+    throw new TypeError('onError must be a function');
+  }
+  if (value.surface !== undefined && value.surface !== 'streamOverlay' && value.surface !== 'ingameOverlay') {
+    throw new TypeError('surface must be streamOverlay or ingameOverlay');
+  }
+  if (value.backend !== undefined && (typeof value.backend !== 'string' || !value.backend.trim())) {
+    throw new TypeError('backend must be a non-empty string');
+  }
+  if (value.browserSource !== undefined) validateBrowserSource(value.browserSource);
+  return value;
+}
+
+function validateBrowserSource(value) {
+  if (!isPlainObject(value) || typeof value.channel !== 'string' || !value.channel.trim() ||
+      typeof value.secret !== 'string' || !value.secret.trim()) {
+    throw new TypeError('browserSource must contain a channel and secret');
+  }
+  if (value.surface !== undefined && value.surface !== 'streamOverlay' && value.surface !== 'ingameOverlay') {
+    throw new TypeError('browserSource.surface must be streamOverlay or ingameOverlay');
+  }
+}
+
+function validateCompositionApps(body) {
+  if (!isPlainObject(body) || !Array.isArray(body.apps)) {
+    throw new ProtocolError('INVALID_RESPONSE', 'The overlay composition response must contain an apps array.');
+  }
+  return body.apps.map((app, index) => {
+    if (!isPlainObject(app) || typeof app.appId !== 'string' || !app.appId ||
+        typeof app.clientId !== 'string' || !app.clientId || typeof app.name !== 'string' ||
+        typeof app.url !== 'string' || !app.url ||
+        (app.development !== undefined && typeof app.development !== 'boolean')) {
+      throw new ProtocolError('INVALID_RESPONSE', `Overlay composition app ${index} is invalid.`);
+    }
+    let url;
+    try { url = new URL(app.url); }
+    catch (_) { throw new ProtocolError('INVALID_RESPONSE', `Overlay composition app ${index} has an invalid URL.`); }
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+      throw new ProtocolError('INVALID_RESPONSE', `Overlay composition app ${index} must use an HTTP(S) URL.`);
+    }
+    return { ...app, url: url.toString() };
+  });
+}
+
 async function bootstrapBrowserSourceSession(baseUrl, connection, timeout = CONNECTION_TIMEOUT, signal) {
-  const response = await fetchWithTimeout(`${baseUrl}/stream/v1/compositor-sessions`, {
+  const { response, body: result } = await fetchJsonWithTimeout(`${baseUrl}/stream/v1/compositor-sessions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -144,13 +195,11 @@ async function bootstrapBrowserSourceSession(baseUrl, connection, timeout = CONN
     })
   }, timeout, signal);
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
     if (response.status === 401 || response.status === 403) {
-      throw new PermissionRequiredError(body.error || 'This browser source is not authorized.');
+      throw new PermissionRequiredError(result?.error || 'This browser source is not authorized.', result?.authorizeUrl);
     }
-    throw new Error(`overlay session broker returned ${response.status}`);
+    throw compositorResponseError('Overlay session broker', response);
   }
-  const result = await response.json();
   if (!result?.sessionToken) throw new Error('Overlay session broker returned no credential.');
   storeCompositorCredential(connection.surface || 'streamOverlay', result.sessionToken);
   return result.sessionToken;
@@ -164,44 +213,47 @@ function storeCompositorCredential(surface, credential) {
   try { globalThis.sessionStorage?.setItem(`w3booster.compositor.${surface}`, credential); } catch (_) { }
 }
 
-async function fetchWithTimeout(url, options, timeout, signal) {
-  const controller = new AbortController();
-  const abort = () => controller.abort(signal?.reason);
-  const timer = setTimeout(() => controller.abort(), timeout);
-  if (signal?.aborted) abort();
-  else signal?.addEventListener('abort', abort, { once: true });
-  try { return await fetch(url, { ...options, signal: controller.signal }); }
-  finally {
-    clearTimeout(timer);
-    signal?.removeEventListener('abort', abort);
-  }
+async function fetchJsonWithTimeout(url, options, timeout, signal) {
+  return fetchJson(url, options, timeout, signal, {
+    invalidJson: error => new ProtocolError('INVALID_RESPONSE', 'The W3Booster API returned invalid JSON.', error),
+    timeout: error => new ConnectionError('The W3Booster compositor request timed out.', [error])
+  });
 }
 
-function validateWebSocketUrl(value) {
-  let url;
-  try { url = new URL(String(value || '')); }
-  catch (_) { throw new ProtocolError('INVALID_TICKET', 'The stream broker returned an invalid WebSocket URL.'); }
-  if (url.protocol !== 'wss:' && url.protocol !== 'ws:') {
-    throw new ProtocolError('INVALID_TICKET', 'The stream broker returned an unsupported WebSocket URL.');
-  }
-  if (url.username || url.password) throw new ProtocolError('INVALID_TICKET', 'WebSocket URLs may not contain user information.');
-  const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
-  if (url.protocol === 'ws:' && !local) throw new ProtocolError('INSECURE_TICKET', 'Remote W3Booster streams must use WSS.');
-  return url.toString();
-}
-
-function createCompositionWatcher(authorizeWatch, listener, onError) {
+function createCompositionWatcher(authorizeWatch, listener, onError, externalSignal) {
   let socket;
   let pendingSocket;
   let reconnectTimer;
   let heartbeatTimer;
-  let reconnectAttempt = 0;
+  const reconnectBackoff = createReconnectBackoff({ initialDelay: 250, maxDelay: 5000 });
   let stopped = false;
   const controller = new AbortController();
+  const reportError = error => {
+    if (!onError) {
+      reportUnhandledError(error);
+      return;
+    }
+    try {
+      const result = onError(error);
+      if (result && typeof result.then === 'function') Promise.resolve(result).catch(reportUnhandledError);
+    } catch (handlerError) {
+      reportUnhandledError(handlerError);
+    }
+  };
+  const notify = message => {
+    try {
+      const result = listener(message);
+      if (result && typeof result.then === 'function') Promise.resolve(result).catch(reportError);
+    } catch (error) {
+      reportError(error);
+    }
+  };
 
   const watcher = {
     close() {
+      if (stopped && controller.signal.aborted) return;
       stopped = true;
+      externalSignal?.removeEventListener('abort', watcher.close);
       controller.abort();
       clearTimeout(reconnectTimer);
       clearInterval(heartbeatTimer);
@@ -211,10 +263,12 @@ function createCompositionWatcher(authorizeWatch, listener, onError) {
       socket = null;
     }
   };
+  if (externalSignal?.aborted) watcher.close();
+  else externalSignal?.addEventListener('abort', watcher.close, { once: true });
 
   function scheduleReconnect() {
     if (stopped || reconnectTimer) return;
-    const delay = Math.min(5000, 250 * (2 ** reconnectAttempt++));
+    const delay = reconnectBackoff.nextDelay();
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
       void connect(false);
@@ -233,11 +287,12 @@ function createCompositionWatcher(authorizeWatch, listener, onError) {
       }
       if (initial) {
         stopped = true;
+        externalSignal?.removeEventListener('abort', watcher.close);
         controller.abort();
         pendingSocket?.close();
         throw error;
       }
-      onError?.(error);
+      reportError(error);
       scheduleReconnect();
       return watcher;
     }
@@ -275,7 +330,7 @@ function createCompositionWatcher(authorizeWatch, listener, onError) {
         if (stopped) return abort();
         opened = true;
         socket = candidate;
-        reconnectAttempt = 0;
+        reconnectBackoff.reset();
         clearInterval(heartbeatTimer);
         heartbeatTimer = setInterval(() => {
           if (candidate.readyState !== WebSocket.OPEN) return;
@@ -294,9 +349,14 @@ function createCompositionWatcher(authorizeWatch, listener, onError) {
             lastHeartbeat = Date.now();
             return;
           }
-          if (message?.type === 'composition.ready' || message?.type === 'composition.changed') listener(message);
+          if (message?.type === 'composition.ready' || message?.type === 'composition.changed') {
+            if (message.surface !== undefined && message.surface !== 'streamOverlay' && message.surface !== 'ingameOverlay') {
+              throw new ProtocolError('INVALID_MESSAGE', 'Overlay composition events contain an invalid surface.');
+            }
+            notify({ type: message.type, ...(message.surface ? { surface: message.surface } : {}) });
+          }
         } catch (error) {
-          onError?.(error);
+          reportError(error);
         }
       });
       candidate.addEventListener('error', () => {
@@ -305,7 +365,7 @@ function createCompositionWatcher(authorizeWatch, listener, onError) {
           settle(reject, error);
           candidate.close();
         }
-        else onError?.(error);
+        else reportError(error);
       });
       candidate.addEventListener('close', () => {
         clearInterval(heartbeatTimer);
@@ -320,9 +380,25 @@ function createCompositionWatcher(authorizeWatch, listener, onError) {
   return connect(true);
 }
 
-function createAbortError() {
-  if (typeof globalThis.DOMException === 'function') return new DOMException('Overlay composition watch was closed.', 'AbortError');
-  const error = new Error('Overlay composition watch was closed.');
-  error.name = 'AbortError';
-  return error;
+function compositorResponseError(action, response) {
+  const status = Number(response?.status);
+  const retryable = status === 408 || status === 429 || status >= 500;
+  return new ConnectionError(
+    `${action} returned ${status}`,
+    [],
+    retryable ? 'UNAVAILABLE' : 'CONFIGURATION',
+    status
+  );
+}
+
+function compositorFailure(message, errors) {
+  const last = errors.at(-1);
+  if (last instanceof PermissionRequiredError || last instanceof ProtocolError ||
+      (last instanceof ConnectionError && last.code === 'CONFIGURATION')) return last;
+  return new ConnectionError(message, errors);
+}
+
+function reportUnhandledError(error) {
+  if (typeof globalThis.reportError === 'function') globalThis.reportError(error);
+  else globalThis.console?.error?.('W3Booster compositor listener failed:', error);
 }

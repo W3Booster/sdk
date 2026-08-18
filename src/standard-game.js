@@ -1,5 +1,3 @@
-import { objects } from './standard-game-data.js';
-
 const RACES = Object.freeze({
   random: Object.freeze({ name: 'Random', shortName: 'RDM' }),
   human: Object.freeze({ name: 'Human', shortName: 'HU' }),
@@ -24,63 +22,19 @@ const WEAPON_OR_ARMOR_UPGRADE_RAWCODES = Object.freeze([
 const WEAPON_OR_ARMOR_UPGRADES = new Set(WEAPON_OR_ARMOR_UPGRADE_RAWCODES);
 const DAY_NIGHT_CYCLE_SECONDS = 480;
 const HERO_MAX_LEVEL = 10;
-const DEFAULT_ASSET_BASE_URL = 'https://assets.w3booster.com';
-const ASSET_CATALOG_VERSION = 'v1';
+const MELEE_MODES = Object.freeze({
+  '1v1': Object.freeze({ id: '1v1', kind: 'head-to-head', playerCount: 2, teamSize: 1, stats: 'solo' }),
+  '2v2': Object.freeze({ id: '2v2', kind: 'team', playerCount: 4, teamSize: 2, stats: 'team' }),
+  '3v3': Object.freeze({ id: '3v3', kind: 'team', playerCount: 6, teamSize: 3, stats: 'team' }),
+  '4v4': Object.freeze({ id: '4v4', kind: 'team', playerCount: 8, teamSize: 4, stats: 'team4' }),
+  '3ffa': Object.freeze({ id: '3ffa', kind: 'ffa', playerCount: 3, teamSize: 1, stats: 'ffa' }),
+  '4ffa': Object.freeze({ id: '4ffa', kind: 'ffa', playerCount: 4, teamSize: 1, stats: 'ffa' })
+});
 
-for (const metadata of Object.values(objects)) Object.freeze(metadata);
-Object.freeze(objects);
-
-/** Shipped Warcraft III object metadata keyed by four-character rawcode. */
-export { objects };
 export const races = RACES;
 export const playerColors = PLAYER_COLORS;
 export const weaponOrArmorUpgradeRawcodes = WEAPON_OR_ARMOR_UPGRADE_RAWCODES;
-export const assetBaseUrl = DEFAULT_ASSET_BASE_URL;
-export const assetCatalogVersion = ASSET_CATALOG_VERSION;
-
-export function getObject(rawcode) {
-  return Object.prototype.hasOwnProperty.call(objects, rawcode)
-    ? objects[rawcode]
-    : undefined;
-}
-
-export function getIcon(rawcode) {
-  return (getObject(rawcode) ?? getObject(normalizeUpgradeRawcode(rawcode)))?.icon;
-}
-
-/** Resolve a rawcode or icon filename to one safe catalog filename. */
-export function iconFileName(identifier) {
-  if (typeof identifier !== 'string') return undefined;
-  const mapped = getIcon(identifier);
-  const candidate = (mapped ?? identifier).trim().toLowerCase();
-  const filename = candidate.endsWith('.png') ? candidate : `${candidate}.png`;
-  return filename && !filename.includes('/') && !filename.includes('\\') && filename !== '.png'
-    ? filename
-    : undefined;
-}
-
-/** Stable URL for a standard-game icon. The base URL can be replaced for local/offline hosting. */
-export function iconUrl(identifier, options = {}) {
-  const filename = iconFileName(identifier);
-  if (!filename) return undefined;
-  const graphics = options.graphics === 'classic' ? 'classic' : 'reforged';
-  const baseUrl = String(options.baseUrl ?? DEFAULT_ASSET_BASE_URL).replace(/\/+$/, '');
-  return `${baseUrl}/wc3/standard-game/${ASSET_CATALOG_VERSION}/${graphics}/icons/${encodeURIComponent(filename)}`;
-}
-
-export function assetManifestUrl(options = {}) {
-  const baseUrl = String(options.baseUrl ?? DEFAULT_ASSET_BASE_URL).replace(/\/+$/, '');
-  return `${baseUrl}/wc3/standard-game/${ASSET_CATALOG_VERSION}/manifest.json`;
-}
-
-export function getAbilityCooldown(rawcode, level = 1) {
-  return numberField(rawcode, `Cool${Math.max(1, Math.trunc(level) || 1)}`);
-}
-
-export function numberField(rawcode, field) {
-  const value = Number(getObject(rawcode)?.[field]);
-  return Number.isFinite(value) ? value : undefined;
-}
+export const meleeModes = MELEE_MODES;
 
 export function normalizeMode(mode) {
   if (!mode || mode === 'undefined') return 'undefined';
@@ -89,6 +43,12 @@ export function normalizeMode(mode) {
 
 export function isMode(mode, expected) {
   return normalizeMode(mode) === normalizeMode(expected);
+}
+
+/** Semantic information for supported standard melee modes. */
+export function modeInfo(mode) {
+  const id = normalizeMode(mode).replace(/^gm-/, '');
+  return MELEE_MODES[id];
 }
 
 export function raceName(race = 'random') {
@@ -116,32 +76,33 @@ export function isWeaponOrArmorUpgrade(rawcode) {
 
 /** Select the standard ladder statistics represented by a match mode. */
 export function statsForMode(player, mode) {
-  const normalized = normalizeMode(mode);
-  if (normalized === 'gm-3ffa' || normalized === 'gm-4ffa') return player?.stats?.ffa;
-  if (normalized === 'gm-4v4') return player?.stats?.team4;
-  if (normalized === 'gm-2v2' || normalized === 'gm-3v3') return player?.stats?.team;
-  return player?.stats?.solo;
+  const stats = modeInfo(mode)?.stats;
+  return stats ? player?.stats?.[stats] : player?.stats?.solo;
 }
 
-/** Derive a standard-game cooldown without exposing transport timestamp units. */
-export function abilityCooldown(ability, gameTime) {
-  const total = getAbilityCooldown(ability?.name, ability?.level);
-  const activation = Number(ability?.lastActivation);
-  if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(activation) || activation <= 0) return undefined;
-  const elapsed = Math.max(0, finiteSeconds(gameTime) - Math.ceil(activation / 1000));
-  const remaining = Math.max(0, total - elapsed);
-  return {
-    total,
-    elapsed,
-    remaining,
-    progress: Math.min(1, elapsed / total),
-    active: remaining > 0
-  };
+/** Select mode-specific statistics, then the first available standard ladder record. */
+export function preferredStats(player, mode) {
+  return statsForMode(player, mode)
+    ?? player?.stats?.solo
+    ?? player?.stats?.team
+    ?? player?.stats?.team4
+    ?? player?.stats?.ffa;
+}
+
+/** Format elapsed in-game seconds as m:ss or h:mm:ss. */
+export function formatGameTime(gameTime, options = {}) {
+  const total = Math.floor(finiteNonNegative(gameTime));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor(total / 60) % 60;
+  const compactHours = options.compactHours === true;
+  const minuteText = String(minutes).padStart(hours || !compactHours ? 2 : 1, '0');
+  const tail = `${minuteText}:${String(total % 60).padStart(2, '0')}`;
+  return hours ? `${hours}:${tail}` : tail;
 }
 
 /** Warcraft III's standard 8-minute day/night clock. */
 export function dayNightState(gameTime) {
-  const seconds = finiteSeconds(gameTime);
+  const seconds = finiteNonNegative(gameTime);
   const secondsIntoCycle = positiveModulo(seconds, DAY_NIGHT_CYCLE_SECONDS);
   return {
     hour: positiveModulo(6 + secondsIntoCycle / 20, 24),
@@ -173,16 +134,37 @@ export function heroExperienceState(experience = 0) {
   };
 }
 
+/** Normalize a current/max pool to a frontend-safe ratio. */
+export function valuePoolRatio(pool, options = {}) {
+  const current = Number(pool?.current);
+  const maximum = Number(pool?.max);
+  if (!Number.isFinite(current) || !Number.isFinite(maximum) || maximum <= 0) return 0;
+  const ratio = current / maximum;
+  return options.clamp === false ? ratio : Math.max(0, Math.min(1, ratio));
+}
+
+export function isValuePoolDepleted(pool) {
+  return Number.isFinite(Number(pool?.current)) && Number(pool.current) <= 0;
+}
+
+/** Order a two-player standard-game presentation by known map start positions. */
+export function orderHeadToHeadPlayers(players, options = {}) {
+  const ordered = [...players];
+  if (ordered.length === 2) {
+    const left = Number(ordered[0]?.startPosition?.x);
+    const right = Number(ordered[1]?.startPosition?.x);
+    if (Number.isFinite(left) && Number.isFinite(right) && left > right) ordered.reverse();
+  }
+  if (options.reverse === true) ordered.reverse();
+  return ordered;
+}
+
 function heroExperienceForLevel(level) {
   const normalized = Math.max(1, Math.min(HERO_MAX_LEVEL, Math.trunc(level) || 1));
   return (normalized - 1) * (normalized + 2) * 50;
 }
 
-function finiteSeconds(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? Math.max(0, number) : 0;
-}
-
 function positiveModulo(value, divisor) {
   return ((value % divisor) + divisor) % divisor;
 }
+import { finiteNonNegative } from './internal/numbers.js';

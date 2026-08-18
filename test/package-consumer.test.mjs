@@ -1,0 +1,118 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
+import { generateSettingsBinding } from '../src/settings.js';
+
+const run = promisify(execFile);
+const repository = dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
+const typescript = join(repository, 'node_modules', 'typescript', 'bin', 'tsc');
+
+test('the packed package resolves every public entry point for TypeScript consumers', async () => {
+  const temporaryDirectory = await mkdtemp(join(tmpdir(), 'w3booster-sdk-package-'));
+  const consumerDirectory = join(temporaryDirectory, 'consumer');
+  try {
+    await mkdir(consumerDirectory);
+    const { stdout } = await run('npm', ['pack', '--json', '--pack-destination', temporaryDirectory], {
+      cwd: repository,
+      env: { ...process.env, npm_config_ignore_scripts: 'true' }
+    });
+    const [{ filename }] = JSON.parse(stdout);
+    const tarball = join(temporaryDirectory, filename);
+
+    await writeFile(join(consumerDirectory, 'package.json'), JSON.stringify({
+      private: true,
+      type: 'module'
+    }, null, 2));
+    await run('npm', ['install', '--ignore-scripts', '--no-package-lock', '--no-audit', '--no-fund', tarball], {
+      cwd: consumerDirectory
+    });
+    const definitionPath = join(consumerDirectory, 'settings.json');
+    const generatedPath = join(consumerDirectory, 'w3booster.generated.ts');
+    await writeFile(definitionPath, JSON.stringify({
+      clientId: 'package_consumer',
+      revision: 'package-test',
+      scopes: ['match:read'],
+      settingsSchema: {
+        version: 1,
+        sections: [{
+          id: 'display', title: 'Display', groups: [{ id: 'layout', title: 'Layout' }],
+          fields: [{
+            key: 'display.layout', label: 'Layout', type: 'select', default: 'wide', group: 'layout',
+            options: [{ label: 'Wide', value: 'wide' }, { label: 'Compact', value: 'compact' }]
+          }]
+        }]
+      }
+    }));
+    const definition = JSON.parse(await readFile(definitionPath, 'utf8'));
+    await writeFile(generatedPath, generateSettingsBinding(definition));
+    await writeFile(join(consumerDirectory, 'tsconfig.json'), JSON.stringify({
+      compilerOptions: {
+        strict: true,
+        noEmit: true,
+        target: 'ES2022',
+        module: 'ESNext',
+        moduleResolution: 'Bundler',
+        lib: ['ES2022', 'DOM'],
+        skipLibCheck: false
+      },
+      include: ['consumer.ts']
+    }, null, 2));
+    await writeFile(join(consumerDirectory, 'consumer.ts'), `
+import { connect, type MatchState } from '@w3booster/sdk';
+import { broadcasterPlayer } from '@w3booster/sdk/selectors';
+import { heroExperienceState } from '@w3booster/sdk/standard-game';
+import { iconUrl } from '@w3booster/sdk/standard-game/objects';
+import { countryFlagUrl } from '@w3booster/sdk/assets';
+import { getOverlayComposition } from '@w3booster/sdk/compositor';
+import { createDemoTransport, type TestingConnectOptions } from '@w3booster/sdk/testing';
+import { validateSettingsSchema } from '@w3booster/sdk/settings';
+import { createExternalStore } from '@w3booster/sdk/frontend';
+import { connectW3BoosterApp, createW3BoosterAppClient, type W3BoosterAppSettings } from './w3booster.generated';
+
+interface Settings { layout: 'compact' | 'wide' }
+const options: TestingConnectOptions<Settings> = {
+  clientId: 'package_consumer',
+  transport: createDemoTransport<Settings>()
+};
+const clientPromise = connect(options);
+const externalStore = createExternalStore({ get: () => 1, subscribe: listener => { listener(1); return () => undefined; } });
+declare const state: MatchState<Settings>;
+const player = broadcasterPlayer(state.match, state.players);
+const experience = heroExperienceState(500);
+const icon = iconUrl('Hamg');
+const flag = countryFlagUrl('DE');
+const composition = getOverlayComposition({ surface: 'streamOverlay' });
+const schema = validateSettingsSchema<Settings>({ version: 1, sections: [] });
+const generatedSettings: W3BoosterAppSettings = { display: { layout: 'compact' } };
+const generatedClient = connectW3BoosterApp({ demo: { settings: generatedSettings } });
+const generatedLifecycleClient = createW3BoosterAppClient({ demo: { settings: generatedSettings } });
+void [clientPromise, generatedClient, generatedLifecycleClient, player, experience, icon, flag, composition, schema];
+`);
+
+    const runtimeResult = await run(process.execPath, ['--input-type=module', '--eval', `
+await Promise.all([
+  '@w3booster/sdk',
+  '@w3booster/sdk/selectors',
+  '@w3booster/sdk/standard-game',
+  '@w3booster/sdk/standard-game/objects',
+  '@w3booster/sdk/assets',
+  '@w3booster/sdk/compositor',
+  '@w3booster/sdk/settings',
+  '@w3booster/sdk/testing'
+].map(entryPoint => import(entryPoint)));
+`], { cwd: consumerDirectory });
+    assert.equal(runtimeResult.stderr, '');
+
+    const result = await run(process.execPath, [typescript, '-p', join(consumerDirectory, 'tsconfig.json')], {
+      cwd: consumerDirectory
+    });
+    assert.equal(result.stderr, '');
+  } finally {
+    await rm(temporaryDirectory, { recursive: true, force: true });
+  }
+});

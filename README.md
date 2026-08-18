@@ -11,11 +11,18 @@ npm install @w3booster/sdk
 ```js
 import { connect } from '@w3booster/sdk';
 
-const client = await connect('your_app_id');
-
-const unsubscribe = client.state.subscribe(state => {
-  render(state.match, state.players);
+const lifetime = new AbortController();
+const client = await connect({
+  clientId: 'your_app_id',
+  signal: lifetime.signal
 });
+
+client.state.subscribe(state => {
+  render(state.match, state.players);
+}, { signal: lifetime.signal });
+
+// When the page or component is disposed:
+lifetime.abort();
 ```
 
 The client ID is the public, immutable identifier generated when an app is created in W3Booster. It is not a secret. Scopes come from the application record by default, so normal applications do not pass connection URLs, credentials, or scopes.
@@ -26,7 +33,20 @@ Use `demo: true` when W3Booster is not running:
 const client = await connect({ clientId: 'your_app_id', demo: true });
 ```
 
+The built-in demo includes representative players, resources, heroes, upgrades, statistics, control groups, overlay runtime, and application metadata. Supply typed settings without constructing a complete state:
+
+```ts
+const client = await connect<Settings>({
+  clientId: 'your_app_id',
+  demo: { settings: { layout: 'wide' } }
+});
+```
+
+Set `interval: 0` for a static deterministic fixture, or pass `state` to replace the complete demo state.
+
 For real data during development, run the app on localhost and use **Apps → Developer → My apps → Test locally**. The temporary session supplies real credentials and replaces only your app surfaces. Application code remains unchanged.
+
+W3Booster reserves the URL fragment for its short-lived launch credential; `connect()` consumes it and cleans the visible address. Use normal History API paths or query parameters for application routing instead of hash routing.
 
 W3Booster Cloud is the default backend. A platform-provided `?backend=local` or `?backend=cloud` launch parameter is handled by the SDK automatically; application code must not parse or forward it. Platform developers can force the local API explicitly:
 
@@ -37,23 +57,50 @@ const client = await connect({
 });
 ```
 
-`backend: 'auto'` tries local and then cloud. A complete HTTPS URL selects another platform environment. Remote HTTP and WebSocket endpoints must use HTTPS/WSS; unencrypted HTTP/WS is accepted only for localhost.
+`backend: 'auto'` tries local and then cloud. A complete HTTPS URL in `backendUrl` selects another platform environment. Keeping URL selection separate from `backend: 'local' | 'cloud' | 'auto'` lets TypeScript catch misspelled standard backends. Remote HTTP and WebSocket endpoints must use HTTPS/WSS; unencrypted HTTP/WS is accepted only for localhost.
+
+Platform integrations that explicitly provide a `tokenProvider` should return the current credential. The SDK calls it for every broker ticket request, including reconnects, so refreshed credentials are used automatically. Normally launched applications do not need this option.
 
 ## State lifecycle
 
-`connect()` resolves when a transport is connected. Use `whenReady()` when work must wait for the first hydrated snapshot:
+`connect()` resolves when a transport is connected. Use `whenReady()` when work only needs any hydrated snapshot, including preserved state during reconnect. Use `whenSynchronized()` when rendering or an action must wait for a fresh snapshot from the current connection:
 
 ```js
 const initialState = await client.whenReady(); // 10-second default timeout
+const freshState = await client.whenSynchronized();
 ```
+
+Use `createClient()` when the UI needs to observe the complete lifecycle, including the initial `connecting` and retry states. Attach listeners first, then connect:
+
+```js
+import { createClient } from '@w3booster/sdk';
+
+const lifetime = new AbortController();
+const { signal } = lifetime;
+const client = createClient({ clientId: 'your_app_id', retry: true, signal });
+client.lifecycle.subscribe(snapshot => {
+  renderConnectionStatus(snapshot.status);
+  render(snapshot.state, { fresh: snapshot.isSynchronized });
+  if (snapshot.error) report(snapshot.error);
+}, { signal });
+
+await client.start({ signal });
+```
+
+`start()` defaults to synchronized state with no timeout and rejects if synchronization becomes permanently impossible. Its optional signal cancels transport opening and readiness together and closes an incomplete startup. Pass `{ until: 'connected' }` for a transport-only startup or an explicit `timeout` when the UI wants a bounded wait. Runtime construction is intentionally rejected; use `connect()` or `createClient()` so internal mutable stores and transports remain encapsulated behind frozen read-only facades.
+
+`client.lifecycle` publishes connection status, current state, freshness, and the current connection/synchronization error as one snapshot. Non-fatal recorder and consumer-listener problems are published as structured `issue` events without turning healthy match data into a connection failure. It is the preferred UI integration point when those values feed one view model. The narrower `state.subscribe()`, `subscribeStatus()`, and event APIs remain useful when a feature needs only one stream.
 
 `client.state` is the authoritative source of current data:
 
 - `get()` returns the current state or `null` before the first snapshot.
+- `isSynchronized` reports whether that state has a complete baseline from the current connection.
 - `player(id)` returns one current player or `null`.
 - `subscribe(listener)` runs immediately when state already exists and after every update.
-- `watch(selector, listener)` runs for the first selected value and then when its structural value changes.
+- `watch(selector, listener)` runs for the first selected value and then when `Object.is()` detects a new selection. Pass `{ equals }` for value-based comparison.
 - Every subscription method returns an unsubscribe function.
+
+Hydrated state is recursively immutable. Patches and recorder updates use structural sharing, so untouched matches, players, heroes, settings, and extension branches keep their object identity. Consumers may use referential equality to avoid unnecessary work while continuing to identify rendered entities by their domain IDs.
 
 The initial snapshot emits `state.ready` and `state.changed`. Match, player, and hero domain events describe changes after that snapshot; they are not a replacement for rendering initial state. In particular, an already-running match does not synthesize `match.started` when the app opens.
 
@@ -66,17 +113,39 @@ const stopClock = client.state.watch(
 client.on('match.started', ({ match }) => showNewMatch(match));
 client.on('player.resources.changed', ({ player, resources }) => updateEconomy(player.id, resources));
 client.on('hero.changed', ({ player, hero }) => updateHero(player.id, hero));
+client.on('issue', issue => console.warn(issue.source, issue.recoverable, issue.error));
 ```
 
-`client.status` is the current connection state. The `status` event reports later transitions such as `reconnecting`, `connected`, and `error`. Automatic network reconnects preserve hydrated state. An explicit `disconnect()` closes transports and clears state and diagnostics; existing subscriptions remain registered if the same client is connected again.
+`client.status` is the current connection state. `subscribeStatus()` immediately reports it and then reports transitions such as `reconnecting`, `connected`, and `error`; the lower-level `status` event reports transitions only. Automatic network reconnects preserve hydrated state for continuity, set `state.isSynchronized` to `false`, and hold patches until a fresh snapshot re-establishes a complete baseline. A complete forward snapshot can establish that baseline directly across a sequence gap; the SDK emits `stream.gap` but does not request a redundant resync. An explicit `disconnect()` closes transports, rejects pending readiness waits, and clears state and diagnostics; existing subscriptions remain registered if the same client is connected again.
 
-Concurrent `connect()` calls share one connection attempt. To cancel an initial connection while a view is being destroyed, pass an `AbortSignal`; cancellation rejects with the standard `AbortError` name:
+### Resilient frontend lifecycle
+
+One `AbortController` can own the connection, readiness wait, and subscriptions for a component or application. Aborting it cancels connection/retry work, disconnects an established client, settles pending readiness waits, and removes subscriptions:
 
 ```js
 const controller = new AbortController();
-const connection = connect({ clientId: 'your_app_id', signal: controller.signal });
+const { signal } = controller;
+
+const client = createClient({
+  clientId: 'your_app_id',
+  retry: true,
+  signal
+});
+
+client.state.subscribe(state => render(state), { signal });
+client.on('error', error => report(error), { signal });
+await client.connect();
+await client.whenSynchronized({ signal });
+
+// React effect cleanup, Angular destroy, Vue unmount, or page teardown:
 controller.abort();
 ```
+
+`retry: true` retries transient initial connection failures with capped exponential backoff until the lifetime signal is aborted, so an unlimited policy requires `signal`. Authorization, configuration, and protocol failures fail immediately. Use `retry: { maxAttempts: 5, initialDelay: 250, maxDelay: 5000 }` for a bounded policy that does not require a signal. The default remains one initial attempt so command-line tools and explicit error screens fail promptly.
+
+After an established broker socket closes, transient reconnects use their own policy and permanent configuration, authorization, and protocol failures transition to `error`. The default is unlimited capped reconnects. Pass `reconnect: false` to fail immediately or `reconnect: { maxAttempts: 5, initialDelay: 500, maxDelay: 10000 }` for a bounded policy.
+
+Concurrent `connect()` calls on the same client share one attempt. All cancellation rejects with the standard `AbortError` name. `subscribe()`, `subscribeStatus()`, `watch()`, `on()`, and `once()` still return explicit unsubscribe functions when a signal is not convenient.
 
 ## Scopes and capabilities
 
@@ -136,7 +205,21 @@ client.state.subscribe(state => {
 });
 ```
 
-`client.host.setSetting(path, value)` returns `true` when a command was delivered to the W3Booster host, not when persistence has completed. Treat the later `application.settings.changed` event as confirmation of the current saved value.
+`client.host.setSetting(path, value)` resolves with the complete saved settings only after W3Booster confirms persistence. It rejects with `HostActionError` when the platform rejects the write, or `ConnectionError` when the host is unavailable or does not answer. The normal `application.settings.changed` event still updates every open surface.
+
+With typed settings, setting paths—including nested dot paths—and their values are checked by TypeScript:
+
+```ts
+interface Settings {
+  observer?: { layout: 'compact' | 'wide'; showHeroes?: boolean };
+}
+
+const client = await connect<Settings>('your_app_id');
+const saved = await client.host.setSetting('observer.layout', 'wide');
+// client.host.setSetting('observer.layout', 'large'); // TypeScript error
+```
+
+The event's `settings` and `previousSettings` values can be `undefined` when application state is added or removed. Hydrated state and settings are recursively read-only in TypeScript because the SDK freezes delivered state at runtime.
 
 ## Errors and troubleshooting
 
@@ -146,6 +229,8 @@ Handle initial connection failures around `connect()` and later stream or listen
 import {
   connect,
   ConnectionError,
+  HostActionError,
+  isAbortError,
   PermissionRequiredError,
   ProtocolError
 } from '@w3booster/sdk';
@@ -160,7 +245,11 @@ try {
   if (error instanceof PermissionRequiredError) {
     showMessage('Enable and open this app from W3Booster.');
   } else if (error instanceof ConnectionError) {
-    console.error(error.message, error.causes);
+    console.error(error.code, error.message, error.causes);
+  } else if (error instanceof HostActionError) {
+    showMessage(error.message);
+  } else if (isAbortError(error)) {
+    // Normal component or page teardown.
   } else {
     throw error;
   }
@@ -172,14 +261,31 @@ Common causes:
 - **Permission required:** the URL was opened directly, the app is disabled, or its temporary development session expired.
 - **No initial state:** `whenReady()` timed out before the platform supplied a snapshot.
 - **Local connection failure:** trust the W3Booster localhost certificate and verify the local backend is running.
-- **Protocol error:** inspect `ProtocolError.code`; the SDK requests a resync automatically after invalid state or a sequence gap.
+- **Protocol error:** inspect `ProtocolError.code`; recoverable invalid state or patch data requests a resync. Unsupported protocol versions and application mismatches are permanent and close the active transport. A complete forward snapshot is accepted as the new baseline across an ordinary sequence gap.
 - **Missing fields:** verify the application scope, the matching capability, and whether that data exists for the current match.
+
+`ConnectionError.code` is stable for programmatic handling (`UNAVAILABLE`, `CONFIGURATION`, `MISSING_BROWSER_API`, `BROKER_TIMEOUT`, `STATE_TIMEOUT`, `HOST_UNAVAILABLE`, or `HOST_TIMEOUT`). `CONFIGURATION` includes permanent broker HTTP failures such as a missing application and is never retried; its optional `status` carries the HTTP status. `isAbortError()` recognizes lifecycle cancellation, and `isW3BoosterError()` recognizes every SDK error class. `HostActionError` represents an acknowledged platform rejection rather than a transport failure.
+
+Frontends that prefer one discriminated branch can use `classifyW3BoosterError(error)`. It returns a stable `kind`, `code`, and original `error`, plus `status` or `authorizeUrl` when available, without imposing application-specific user-facing copy.
 
 The package targets modern ESM browsers with `fetch`, `WebSocket`, and `AbortController`. Node.js is supported for tooling and tests; realtime Node usage must provide an appropriate WebSocket environment or a testing transport.
 
 ## Low-latency recorder data
 
-During active observer and replay matches, the SDK automatically consumes the local recorder socket advertised by authenticated platform state. The platform remains authoritative for identity, permissions, settings, capabilities, and the initial snapshot; the local socket overlays volatile match values such as game time, HUD scale, resources, heroes, and upgrades. If that socket disconnects, cached recorder values stop overriding authenticated platform snapshots until the recorder reconnects and sends fresh data.
+During active observer and replay matches, the SDK automatically consumes the local recorder socket advertised by authenticated platform state. The platform remains authoritative for identity, permissions, settings, capabilities, and the initial snapshot; the local socket overlays volatile match values such as game time, HUD scale, resources, heroes, and upgrades without discarding platform-owned or additive metadata. If a socket does not open promptly, the SDK rotates through the advertised URLs and keeps retrying. If an active socket disconnects, cached recorder values stop overriding authenticated platform snapshots until the recorder reconnects and sends fresh data.
+
+Recorder bursts are deduplicated and published at most once per display frame. Repeated values do not publish a new state, and unchanged state branches retain their references.
+
+### Numeric and coordinate conventions
+
+- `match.gameTime` is elapsed in-game time in whole seconds and excludes paused time.
+- `match.map` is a human-readable, display-ready name; the SDK decodes producer transport escaping once at snapshot/patch ingress.
+- `overlay.misc.hudScale` is a CSS scale multiplier normalized by W3Booster from `0.5` through `1.0`. Apply it as a scale/zoom value; it is not a percentage.
+- `player.startPosition` uses Warcraft III map coordinates, not pixels. It is suitable for relative map placement and player ordering; transforming it onto an image depends on that map's bounds.
+- Gold, lumber, supply, and worker supply are already normalized player-facing values; applications do not divide recorder values themselves.
+- `stats.*.winRate` is a percentage from `0` through `100`, ready to display with a percent sign.
+- `hero.abilities[].lastActivation` is milliseconds on the match game-time clock. Prefer `standardGameObjects.abilityCooldown()` instead of interpreting it directly.
+- Upgrade `gametime` is the Unix timestamp in milliseconds when W3Booster observed the upgrade. Research start/finish values are ISO-8601 timestamps.
 
 Only loopback and private-network socket addresses are accepted. Capabilities still control all exposed fields. Set `localRecorder: false` only when an application deliberately needs to disable this behavior. `client.diagnostics.localTransport` is `recorder-local` while it is active.
 
@@ -205,21 +311,45 @@ Also available: `isActiveMatch()` and `battleTagName()`. Selectors preserve prot
 
 ## Warcraft III standard-game data
 
-Optional static Warcraft III knowledge lives in `@w3booster/sdk/standard-game` so applications that only need live state do not bundle the object table:
+Lightweight Warcraft III rules live in `@w3booster/sdk/standard-game`. The much larger shipped object table and functions that depend on it use the opt-in `@w3booster/sdk/standard-game/objects` entry point:
 
 ```js
 import * as standardGame from '@w3booster/sdk/standard-game';
+import * as standardGameObjects from '@w3booster/sdk/standard-game/objects';
+import { resolveAssetBaseUrl } from '@w3booster/sdk/assets';
 
-const hero = standardGame.getObject('Hamg');
-const icon = standardGame.iconUrl('Hamg', { graphics: 'reforged' });
-const cooldown = standardGame.abilityCooldown(ability, state.match.gameTime);
+const hero = standardGameObjects.getObject('Hamg');
+const icon = standardGameObjects.iconUrl('Hamg', { graphics: 'reforged' });
+const cooldown = standardGameObjects.abilityCooldown(ability, state.match.gameTime);
+const cooldowns = standardGameObjects.abilityCooldownsForState(state);
+const selectedCooldown = cooldowns.get(ability); // keyed by the hydrated ability object
 const progress = standardGame.heroExperienceState(heroState.experience);
 const clock = standardGame.dayNightState(state.match.gameTime);
+const gameTime = standardGame.formatGameTime(state.match.gameTime, { compactHours: true });
+const stats = standardGame.preferredStats(player, state.match.mode);
+const health = standardGame.valuePoolRatio(heroState.hitpoints);
+const defeated = standardGame.isValuePoolDepleted(heroState.hitpoints);
+const leftToRight = standardGame.orderHeadToHeadPlayers(players);
+const assets = standardGameObjects.createAssetResolver({ baseUrl: resolveAssetBaseUrl() });
+const heroIcon = assets.hero(state.match, heroState);
 ```
 
-The namespace includes immutable shipped-object metadata, Classic/Reforged icon URLs, cooldowns, upgrade classification, race labels, player colors, melee modes, statistics selection, the day/night clock, and hero progression. Custom maps can replace these objects and rules; live recorder values remain authoritative.
+The lightweight namespace includes upgrade classification, race labels, player colors, melee modes, preferred statistics selection, game-time formatting, the day/night clock, hero progression, safe current/max ratios, and map-position ordering. The object namespace adds immutable shipped-object metadata, Classic/Reforged icon URLs, a reusable match-aware asset resolver, individual cooldown lookup, and whole-state cooldown derivation. Custom maps can replace these objects and rules; live recorder values remain authoritative.
 
-Icons default to the immutable `https://assets.w3booster.com/wc3/standard-game/v1/` catalog. Pass `baseUrl` for a local asset mirror. The npm package contains metadata and URL helpers, not Blizzard artwork.
+Icons default to the immutable `https://static.w3booster.com/assets/wc3/standard-game/v1/` catalog. Pass `baseUrl` for a local asset mirror. The npm package contains metadata and URL helpers, not Blizzard artwork.
+
+## Shared asset URLs
+
+Reusable, non-game asset URL helpers live in `@w3booster/sdk/assets`. Country identifiers from `MainAccount.country` can be resolved without bundling a flag set in every application:
+
+```js
+import { countryFlagUrl, resolveAssetBaseUrl } from '@w3booster/sdk/assets';
+
+const assetBaseUrl = resolveAssetBaseUrl();
+const flag = countryFlagUrl(player.mainAccount?.country, { baseUrl: assetBaseUrl });
+```
+
+Country identifiers are trimmed and normalized to lowercase. Flags default to the immutable `https://static.w3booster.com/assets/country-flags/v1/` catalog. `resolveAssetBaseUrl()` safely consumes the host-owned `assetBaseUrl` launch parameter only when W3Booster selects the local backend and advertises a loopback mirror; an explicit validated `baseUrl` still takes precedence. The artwork remains outside the npm package.
 
 ## Host actions
 
@@ -227,14 +357,82 @@ Embedded surfaces can ask W3Booster to perform supported host actions:
 
 ```js
 client.host.openWindow({ path: '?view=compact', width: 520, height: 620 });
-client.host.command('my.command', { value: 1 });
+await client.host.openWindowAndWait({ path: '?view=compact', width: 520, height: 620 });
+client.host.closeWindow();
+client.host.changeMatchScore('wins', 1);
+client.host.resetMatchScore();
+const settings = await client.host.setSetting('observer.layout', 'wide');
 ```
 
-Host methods return `false` outside the W3Booster host.
+`client.host.available` becomes `true` after an authenticated connection inside a captured W3Booster application launch. Browser responses must come from the launch's embedding origin; Electron windows use the injected host bridge. Fire-and-forget window and score methods return whether the message was delivered. A capability refresh starts automatically after authentication; inspect `host.capabilities`, `supports()`, or `subscribeCapabilities()`, and call `refreshCapabilities()` only when an explicit refresh is needed. Acknowledged methods wait for a host response, and `setSetting()` resolves to the complete persisted settings. Embedded application surfaces automatically report their document height. Pass `autoResize: false` when an application deliberately manages its host height itself.
+
+## Settings definitions
+
+Applications and their settings are configured in W3Booster. Their client IDs, settings schemas, defaults, and requested scopes are public app metadata. The SDK generates a TypeScript module containing an exact resolved-settings interface, a recursively partial delivered-settings type, connection helpers bound to the application, and a typed defaults resolver.
+
+Install the SDK once:
+
+```sh
+npm install @w3booster/sdk
+```
+
+Bind the project once with the client ID shown in the Application tab:
+
+```sh
+npx w3booster-settings init app_your_id
+```
+
+This creates `src/w3booster.generated.ts`, stores the public app binding in `package.json`, and adds explicit `w3booster:sync` and `w3booster:check` scripts. This keeps ordinary installs, starts, and builds deterministic and offline-friendly. Pass `--install-hooks` only when a project deliberately wants synchronization after dependency installation and before its existing `dev`, `start`, and `build` scripts. Existing lifecycle commands are preserved and run after synchronization.
+
+Use `--output` only when the generated file should live somewhere else. `--endpoint` is persisted in the project binding for non-default platform environments. Synchronization does not rewrite an unchanged file. During ordinary development, a checked-in binding remains usable when the public endpoint is temporarily unavailable; `npm run w3booster:check` remains deliberately strict for CI.
+
+Use the generated helper in the frontend:
+
+```ts
+import {
+  createW3BoosterAppClient,
+  resolveW3BoosterAppSettings
+} from './w3booster.generated';
+
+const lifetime = new AbortController();
+const client = createW3BoosterAppClient({ signal: lifetime.signal, retry: true });
+
+client.state.subscribe(state => {
+  // Delivery may be partial; resolving supplies every database default.
+  const settings = resolveW3BoosterAppSettings(state.application?.settings);
+  renderLayout(settings);
+}, { signal: lifetime.signal });
+
+await client.start({ signal: lifetime.signal });
+
+// Call lifetime.abort() when this view is disposed.
+```
+
+Commit `w3booster.generated.ts` so editors and offline builds retain full types and schema changes remain visible in reviews. Current user values are not part of the public definition; they arrive only through the authenticated `state.application.settings` stream.
+
+The lower-level `validateSettingsSchema()`, `settingsDefaults()`, `resolveSettings()`, and `generateSettingsBinding()` utilities remain available from `@w3booster/sdk/settings` for tooling that needs to inspect definitions directly. Runtime validation alone cannot derive new compile-time field names; use the generated binding when frontend type safety matters.
 
 ## Advanced subpaths
 
+- `@w3booster/sdk/assets` contains versioned URL helpers for shared hosted assets such as country flags.
+- `@w3booster/sdk/standard-game/objects` contains the optional shipped object table, icon URLs, and ability-cooldown lookup.
 - `@w3booster/sdk/compositor` contains browser-source composition APIs used by W3Booster's platform compositor. Its watcher renews expired browser-source sessions and reauthorizes reconnects automatically. Ordinary applications do not import it.
+- `@w3booster/sdk/settings` contains settings-schema types, validation, default derivation, and database-definition code generation.
 - `@w3booster/sdk/testing` contains `createDemoTransport` and custom transport types for SDK and integration tests. Application demo mode normally uses `connect({ demo: true })` instead.
+- `@w3booster/sdk/frontend` adapts immediately-publishing SDK stores to React's `useSyncExternalStore` contract without adding a framework dependency. Angular signals and RxJS can continue consuming `client.lifecycle.subscribe()` directly with the same lifetime signal.
+
+Custom transports are intentionally isolated to the testing namespace:
+
+```ts
+import { connect } from '@w3booster/sdk';
+import { createDemoTransport, type TestingConnectOptions } from '@w3booster/sdk/testing';
+
+const options: TestingConnectOptions = {
+  clientId: 'your_app_id',
+  transport: createDemoTransport()
+};
+
+const client = await connect(options);
+```
 
 The complete public data model is exported from `@w3booster/sdk`. See `COMPATIBILITY.md` for the Semantic Versioning and protocol policy and `CHANGELOG.md` for release changes.

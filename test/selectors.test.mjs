@@ -3,7 +3,9 @@ import test from 'node:test';
 import {
   battleTagName,
   broadcasterPlayer,
+  currentUpgrades,
   groupPlayersByTeam,
+  hasCapability,
   heroInventory,
   isActiveMatch,
   playerRelationship
@@ -18,6 +20,8 @@ test('selectors expose common match and player derivations', () => {
 
   assert.equal(isActiveMatch({ status: 'starting' }), true);
   assert.equal(isActiveMatch({ status: 'finished' }), false);
+  assert.equal(hasCapability({ capabilities: ['players'] }, 'players'), true);
+  assert.equal(hasCapability({ capabilities: ['players'] }, 'resources'), false);
   assert.equal(broadcasterPlayer({ broadcasterPlayerId: 'broadcaster' }, players)?.id, 'broadcaster');
   assert.equal(broadcasterPlayer({}, players), null);
   assert.equal(broadcasterPlayer({}, players, { fallbackToFirst: true })?.id, 'ally');
@@ -34,6 +38,14 @@ test('selectors expose common match and player derivations', () => {
   assert.equal(playerRelationship(players[0], {}, players), 'unknown');
   assert.equal(playerRelationship({ id: 'unknown' }, { broadcasterPlayerId: 'broadcaster' }, [...players, { id: 'unknown' }]), 'unknown');
   assert.equal(groupPlayersByTeam([{ id: 'unknown' }])[0].teamId, null);
+});
+
+test('current upgrades merge overlapping active and researching records', () => {
+  const active = { name: 'Rhme', level: 2, gametime: 1 };
+  const researching = { name: 'Rhar', level: 1, gametime: 2, researchStart: '2026-01-01T00:00:00.000Z' };
+  const player = { upgrades: { upgrades: [], active: [active], researching: [active, researching] } };
+  assert.deepEqual(currentUpgrades(player), [active, researching]);
+  assert.deepEqual(currentUpgrades(player, { includeResearching: false }), [active]);
 });
 
 test('selectors expose canonical inventory and preserve non-BattleTag hashes', () => {

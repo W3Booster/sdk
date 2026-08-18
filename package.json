@@ -8,6 +8,9 @@
   "browser": "./src/index.js",
   "types": "./src/index.d.ts",
   "sideEffects": false,
+  "bin": {
+    "w3booster-settings": "./bin/sync-settings.js"
+  },
   "exports": {
     ".": {
       "types": "./src/index.d.ts",
@@ -21,6 +24,18 @@
       "types": "./src/standard-game.d.ts",
       "import": "./src/standard-game.js"
     },
+    "./standard-game/objects": {
+      "types": "./src/standard-game-objects.d.ts",
+      "import": "./src/standard-game-objects.js"
+    },
+    "./assets": {
+      "types": "./src/assets.d.ts",
+      "import": "./src/assets.js"
+    },
+    "./settings": {
+      "types": "./src/settings.d.ts",
+      "import": "./src/settings.js"
+    },
     "./compositor": {
       "types": "./src/compositor.d.ts",
       "import": "./src/compositor.js"
@@ -28,10 +43,15 @@
     "./testing": {
       "types": "./src/testing.d.ts",
       "import": "./src/testing.js"
+    },
+    "./frontend": {
+      "types": "./src/frontend.d.ts",
+      "import": "./src/frontend.js"
     }
   },
   "files": [
     "src",
+    "bin",
     "README.md",
     "COMPATIBILITY.md",
     "CHANGELOG.md",
@@ -39,6 +59,7 @@
   ],
   "scripts": {
     "test": "node --test",
+    "test:browser": "node scripts/browser-smoke.mjs",
     "test:types": "tsc -p type-tests/tsconfig.json",
     "check": "npm test && npm run test:types && npm pack --dry-run",
     "prepublishOnly": "npm run check"

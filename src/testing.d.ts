@@ -1,4 +1,4 @@
-import type { ConnectOptions, ConnectionStatus, JsonObject, MatchState, Scope } from './index.js';
+import type { AppSurface, ConnectOptions, ConnectionStatus, JsonObject, MatchState, Scope } from './index.js';
 
 export interface TransportContext {
   clientId: string;
@@ -14,16 +14,26 @@ export interface TransportContext {
 
 export interface Transport {
   name: string;
-  open(context: TransportContext): Promise<void>;
+  open(context: TransportContext): void | Promise<void>;
   resync?(): void;
   close?(): void | Promise<void>;
 }
 
-export interface TestingConnectOptions<TSettings = JsonObject> extends ConnectOptions<TSettings> {
+export interface TestingConnectOptions<TSettings extends object = JsonObject> extends ConnectOptions<TSettings> {
   transport: Transport;
 }
 
-export function createDemoTransport<TSettings = JsonObject>(options?: {
+export function createDemoTransport<TSettings extends object = JsonObject>(options?: {
+  /** Update interval in milliseconds. Zero keeps the demo state static. Defaults to 1000. */
   interval?: number;
   state?: MatchState<TSettings>;
+  settings?: TSettings;
+  surface?: AppSurface;
 }): Transport;
+
+/** Create a complete deterministic state for application unit tests and demos. */
+export function createDemoState<TSettings extends object = JsonObject>(options?: {
+  clientId?: string;
+  settings?: TSettings;
+  surface?: AppSurface;
+}): MatchState<TSettings>;

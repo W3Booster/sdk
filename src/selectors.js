@@ -1,7 +1,4 @@
-/** True while a match is starting or running. */
-export function isActiveMatch(match) {
-  return match?.status === 'starting' || match?.status === 'running';
-}
+export { hasCapability, isActiveMatch, isObserverOrReplayMatch } from './internal/domain.js';
 
 /** The configured broadcaster. A missing identity stays explicit unless fallbackToFirst is requested. */
 export function broadcasterPlayer(match, players, options = {}) {
@@ -32,6 +29,23 @@ export function playerRelationship(player, match, players) {
 /** Read a hero's item-slot inventory. */
 export function heroInventory(hero) {
   return hero?.inventory ?? [];
+}
+
+/**
+ * Merge active and researching upgrades without returning the same rawcode and
+ * level twice. Some producers include a researching upgrade in both lists.
+ */
+export function currentUpgrades(player, options = {}) {
+  const upgrades = [...(player?.upgrades?.active ?? [])];
+  if (options.includeResearching === false) return upgrades;
+  const identities = new Set(upgrades.map(upgrade => `${upgrade.name}:${upgrade.level}`));
+  for (const upgrade of player?.upgrades?.researching ?? []) {
+    const identity = `${upgrade.name}:${upgrade.level}`;
+    if (identities.has(identity)) continue;
+    identities.add(identity);
+    upgrades.push(upgrade);
+  }
+  return upgrades;
 }
 
 /** Remove a numeric BattleTag discriminator while preserving ordinary hash characters. */

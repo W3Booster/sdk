@@ -1,29 +1,18 @@
-import type { HeroAbility, Player, PlayerStats, Race } from './index.js';
-
-export interface StandardGameObjectMetadata {
-  readonly icon?: string;
-  readonly [field: string]: string | undefined;
-}
+import type { Player, PlayerStats, Race, ValuePool } from './index.js';
 
 export interface StandardGameRaceMetadata {
   readonly name: string;
   readonly shortName: string;
 }
 
-export type WarcraftGraphics = 'classic' | 'reforged';
-export interface AssetUrlOptions {
-  readonly graphics?: WarcraftGraphics;
-  readonly baseUrl?: string;
+export type StandardGameMode = '1v1' | '2v2' | '3v3' | '4v4' | '3ffa' | '4ffa';
+export interface StandardGameModeMetadata {
+  readonly id: StandardGameMode;
+  readonly kind: 'head-to-head' | 'team' | 'ffa';
+  readonly playerCount: number;
+  readonly teamSize: number;
+  readonly stats: 'solo' | 'team' | 'team4' | 'ffa';
 }
-
-export interface AbilityCooldownState {
-  readonly total: number;
-  readonly elapsed: number;
-  readonly remaining: number;
-  readonly progress: number;
-  readonly active: boolean;
-}
-
 export interface DayNightState {
   readonly hour: number;
   readonly isDay: boolean;
@@ -41,29 +30,27 @@ export interface HeroExperienceState {
   readonly progress: number;
 }
 
-/** Shipped Warcraft III object metadata keyed by four-character rawcode. */
-export const objects: Readonly<Record<string, StandardGameObjectMetadata>>;
 export const races: Readonly<Record<Race, StandardGameRaceMetadata>>;
 export const playerColors: readonly string[];
 export const weaponOrArmorUpgradeRawcodes: readonly string[];
-export const assetBaseUrl: 'https://assets.w3booster.com';
-export const assetCatalogVersion: 'v1';
+export const meleeModes: Readonly<Record<StandardGameMode, StandardGameModeMetadata>>;
 
-export function getObject(rawcode: string): StandardGameObjectMetadata | undefined;
-export function getIcon(rawcode: string): string | undefined;
-export function iconFileName(identifier: string): string | undefined;
-export function iconUrl(identifier: string, options?: AssetUrlOptions): string | undefined;
-export function assetManifestUrl(options?: Pick<AssetUrlOptions, 'baseUrl'>): string;
-export function getAbilityCooldown(rawcode: string, level?: number): number | undefined;
-export function numberField(rawcode: string, field: string): number | undefined;
 export function normalizeMode(mode: string | undefined): string;
 export function isMode(mode: string | undefined, expected: string): boolean;
+export function modeInfo(mode: string | undefined): StandardGameModeMetadata | undefined;
 export function raceName(race?: Race): string;
 export function raceShortName(race?: Race): string;
 export function playerColor(colorId?: number): string;
 export function normalizeUpgradeRawcode(rawcode: string): string;
 export function isWeaponOrArmorUpgrade(rawcode: string): boolean;
 export function statsForMode(player: Player, mode?: string): PlayerStats | undefined;
-export function abilityCooldown(ability: HeroAbility, gameTime: number): AbilityCooldownState | undefined;
+export function preferredStats(player: Player, mode?: string): PlayerStats | undefined;
+export function formatGameTime(gameTime: number, options?: { readonly compactHours?: boolean }): string;
 export function dayNightState(gameTime: number): DayNightState;
 export function heroExperienceState(experience?: number): HeroExperienceState;
+export function valuePoolRatio(pool: Pick<ValuePool, 'current' | 'max'> | null | undefined, options?: { readonly clamp?: boolean }): number;
+export function isValuePoolDepleted(pool: Pick<ValuePool, 'current'> | null | undefined): boolean;
+export function orderHeadToHeadPlayers<TPlayer extends Pick<Player, 'startPosition'>>(
+  players: readonly TPlayer[],
+  options?: { readonly reverse?: boolean }
+): TPlayer[];

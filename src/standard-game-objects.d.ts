@@ -1,0 +1,43 @@
+import type { CompletedUpgrade, Hero, HeroAbility, Match, MatchState } from './index.js';
+
+export interface StandardGameObjectMetadata {
+  readonly icon?: string;
+  readonly [field: string]: string | undefined;
+}
+export type WarcraftGraphics = 'classic' | 'reforged';
+export interface AssetUrlOptions {
+  readonly graphics?: WarcraftGraphics;
+  readonly baseUrl?: string;
+}
+export interface AbilityCooldownState {
+  readonly total: number;
+  readonly elapsed: number;
+  readonly remaining: number;
+  readonly progress: number;
+  readonly active: boolean;
+}
+
+export const objects: Readonly<Record<string, StandardGameObjectMetadata>>;
+export const assetBaseUrl: 'https://static.w3booster.com/assets';
+export const assetCatalogVersion: 'v1';
+export function getObject(rawcode: string): StandardGameObjectMetadata | undefined;
+export function getIcon(rawcode: string): string | undefined;
+export function iconFileName(identifier: string): string | undefined;
+export function iconUrl(identifier: string, options?: AssetUrlOptions): string | undefined;
+export function heroIconUrl(hero: Pick<Hero, 'id'> | null | undefined, options?: AssetUrlOptions): string | undefined;
+export function abilityIconUrl(ability: Pick<HeroAbility, 'name'> | null | undefined, options?: AssetUrlOptions): string | undefined;
+export function upgradeIconUrl(upgrade: Pick<CompletedUpgrade, 'name'> | null | undefined, options?: AssetUrlOptions): string | undefined;
+export function itemIconUrl(rawcode: string | null | undefined, options?: AssetUrlOptions): string | undefined;
+export function assetManifestUrl(options?: Pick<AssetUrlOptions, 'baseUrl'>): string;
+export interface StandardGameAssetResolver {
+  icon(match: Pick<Match, 'isReforged'>, identifier: string): string | undefined;
+  hero(match: Pick<Match, 'isReforged'>, hero: Pick<Hero, 'id'> | null | undefined): string | undefined;
+  ability(match: Pick<Match, 'isReforged'>, ability: Pick<HeroAbility, 'name'> | null | undefined): string | undefined;
+  upgrade(match: Pick<Match, 'isReforged'>, upgrade: Pick<CompletedUpgrade, 'name'> | null | undefined): string | undefined;
+  item(match: Pick<Match, 'isReforged'>, rawcode: string | null | undefined): string | undefined;
+}
+export function createAssetResolver(options?: Pick<AssetUrlOptions, 'baseUrl'>): StandardGameAssetResolver;
+export function getAbilityCooldown(rawcode: string, level?: number): number | undefined;
+export function numberField(rawcode: string, field: string): number | undefined;
+export function abilityCooldown(ability: HeroAbility, gameTime: number): AbilityCooldownState | undefined;
+export function abilityCooldownsForState<TSettings extends object>(state: MatchState<TSettings>): ReadonlyMap<HeroAbility, AbilityCooldownState>;

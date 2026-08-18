@@ -22,6 +22,7 @@ jobs:
         with:
           node-version-file: .nvmrc
           package-manager-cache: false
+      - uses: browser-actions/setup-chrome@v2
       - name: Install an OIDC-capable npm CLI
         run: npm install --global npm@11
       - name: Verify OIDC release environment
@@ -29,6 +30,7 @@ jobs:
           test -n "$ACTIONS_ID_TOKEN_REQUEST_URL"
           npm --version
       - run: npm ci
+      - run: npm run test:browser
       - name: Verify tag matches package version
         run: |
           node -e 'const version = require("./package.json").version; if (process.env.GITHUB_REF_NAME !== "v" + version) { console.error("Tag does not match package version " + version); process.exit(1); }'

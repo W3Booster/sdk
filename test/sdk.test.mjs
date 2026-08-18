@@ -1,8 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { connect, PROTOCOL_VERSION, ProtocolError, SDK_VERSION, W3BoosterClient } from '../src/index.js';
+import {
+  classifyW3BoosterError,
+  connect,
+  ConnectionError,
+  createClient,
+  PermissionRequiredError,
+  PROTOCOL_VERSION,
+  ProtocolError,
+  SDK_VERSION,
+  W3BoosterClient
+} from '../src/index.js';
 import { getOverlayComposition, watchOverlayComposition } from '../src/compositor.js';
+
+const waitForRecorderFrame = () => new Promise(resolve => setTimeout(resolve, 25));
 
 test('runtime version matches the npm package version', async () => {
   const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
@@ -14,28 +26,149 @@ test('platform compositor and testing utilities stay off the application root AP
   assert.equal('getOverlayComposition' in sdk, false);
   assert.equal('watchOverlayComposition' in sdk, false);
   assert.equal('createDemoTransport' in sdk, false);
+  assert.equal('StateStore' in sdk, false);
+  assert.equal('W3BoosterEventEmitter' in sdk, false);
+  assert.equal('W3BoosterHost' in sdk, false);
+});
+
+test('runtime clients expose frozen read-only facades and reject direct construction', () => {
+  assert.throws(() => new W3BoosterClient({ clientId: 'test_app' }), /createClient/);
+  const client = createClient({ clientId: 'test_app', demo: true });
+  assert.equal(Object.isFrozen(client), true);
+  assert.equal(Object.isFrozen(client.state), true);
+  assert.equal(Object.isFrozen(client.events), true);
+  assert.equal(Object.isFrozen(client.lifecycle), true);
+  assert.equal(Object.isFrozen(client.host), true);
+  assert.equal('setState' in client.state, false);
+  assert.equal('reset' in client.state, false);
+  assert.equal('emit' in client.events, false);
+  assert.equal('update' in client.lifecycle, false);
+  assert.equal('authenticate' in client.host, false);
+  assert.equal('disconnect' in client.host, false);
+});
+
+test('frontend errors have one stable discriminated classification', () => {
+  const permission = new PermissionRequiredError('Open from W3Booster.', '/authorize');
+  assert.deepEqual(classifyW3BoosterError(permission), {
+    kind: 'permission', code: 'PERMISSION_REQUIRED', authorizeUrl: '/authorize',
+    error: permission
+  });
+  const configuration = new ConnectionError('Missing app.', [], 'CONFIGURATION', 404);
+  assert.deepEqual(classifyW3BoosterError(configuration), {
+    kind: 'connection', code: 'CONFIGURATION', status: 404, error: configuration
+  });
+  assert.equal(classifyW3BoosterError(new DOMException('cancelled', 'AbortError')).kind, 'abort');
+  assert.equal(classifyW3BoosterError(new Error('other')).kind, 'unknown');
+  assert.equal(new PermissionRequiredError('unsafe', 'javascript:alert(1)').authorizeUrl, undefined);
+  assert.equal(Object.isFrozen(configuration.causes), true);
 });
 
 test('credentials cannot be sent to an insecure remote backend', async () => {
-  const client = new W3BoosterClient({ clientId: 'safe_app', backend: 'http://example.com' });
+  const client = createClient({ clientId: 'safe_app', backendUrl: 'http://example.com' });
   await assert.rejects(client.connect(), /must use HTTPS unless it targets localhost/);
+  assert.equal(client.status, 'error');
+});
+
+test('invalid frontend connection options fail early with actionable errors', () => {
+  assert.throws(() => createClient({ clientId: 'app', signal: {} }), /AbortSignal/);
+  assert.throws(() => createClient({ clientId: 'app', demo: 'yes' }), /demo/);
+  assert.throws(() => createClient({ clientId: 'app', tokenProvider: 'token' }), /tokenProvider/);
+  assert.throws(() => createClient({ clientId: 'app', autoResize: 'yes' }), /autoResize/);
+  assert.throws(() => createClient({ clientId: 'app', retry: { maxAttempts: 0 } }), /maxAttempts/);
+  assert.throws(() => createClient({ clientId: 'app', retry: true }), /AbortSignal/);
+  assert.throws(() => createClient({ clientId: 'app', reconnect: { maxAttempts: 0 } }), /reconnect.maxAttempts/);
+  assert.throws(() => createClient({ clientId: 'app', backend: '' }), /auto, local, or cloud/);
+  assert.throws(() => createClient({ clientId: 'app', backend: 'locla' }), /auto, local, or cloud/);
+  assert.throws(() => createClient({ clientId: 'app', backendUrl: '' }), /backendUrl/);
+  assert.throws(() => createClient({ clientId: 'app', backend: 'cloud', backendUrl: 'https://example.com' }), /either backend or backendUrl/);
+  assert.throws(() => createClient({ clientId: 'app', demo: { settings: [] } }), /demo.settings/);
+  assert.throws(() => createClient({ clientId: 'app', demo: { surface: 'window' } }), /demo.surface/);
+});
+
+test('retry fails promptly when required browser transport APIs are unavailable', async () => {
+  const original = { fetch: globalThis.fetch, WebSocket: globalThis.WebSocket };
+  delete globalThis.fetch;
+  delete globalThis.WebSocket;
+  try {
+    const client = createClient({ clientId: 'safe_app', retry: true, signal: new AbortController().signal });
+    await assert.rejects(client.connect(), /must provide fetch and WebSocket/);
+    assert.equal(client.status, 'error');
+    await client.disconnect();
+  } finally {
+    for (const [key, value] of Object.entries(original)) {
+      if (value === undefined) delete globalThis[key]; else globalThis[key] = value;
+    }
+  }
+});
+
+test('permanent broker responses expose configuration errors without retrying', async () => {
+  const original = { fetch: globalThis.fetch, WebSocket: globalThis.WebSocket };
+  let requests = 0;
+  globalThis.fetch = async () => {
+    requests += 1;
+    return { ok: false, status: 404, async json() { return {}; } };
+  };
+  globalThis.WebSocket = class {};
+  try {
+    const client = createClient({
+      clientId: 'missing_app',
+      retry: { maxAttempts: 5, initialDelay: 0, maxDelay: 0 }
+    });
+    const issues = [];
+    const lifecycle = [];
+    client.on('issue', issue => issues.push(issue));
+    client.lifecycle.subscribe(snapshot => lifecycle.push(snapshot));
+    await assert.rejects(client.connect(), error => error?.code === 'CONFIGURATION' && error?.status === 404);
+    assert.equal(requests, 1);
+    assert.equal(client.lifecycle.get().error?.code, 'CONFIGURATION');
+    assert.equal(issues.at(-1)?.source, 'connection');
+    assert.equal(issues.at(-1)?.recoverable, false);
+    assert.deepEqual(lifecycle.filter(snapshot => snapshot.status === 'error').map(snapshot => snapshot.error?.code), ['CONFIGURATION']);
+    await client.disconnect();
+  } finally {
+    for (const [key, value] of Object.entries(original)) {
+      if (value === undefined) delete globalThis[key]; else globalThis[key] = value;
+    }
+  }
 });
 
 test('one failing state listener cannot block other consumers', async () => {
   const reported = [];
-  const client = new W3BoosterClient({ clientId: 'safe_app', demo: true });
+  const issues = [];
+  const client = createClient({ clientId: 'safe_app', demo: true });
   client.on('error', error => reported.push(error));
+  client.on('issue', issue => issues.push(issue));
   client.state.subscribe(() => { throw new Error('consumer failed'); });
   let delivered = false;
   client.state.subscribe(() => { delivered = true; });
   await client.connect();
   assert.equal(delivered, true);
   assert.equal(reported[0]?.message, 'consumer failed');
+  assert.equal(issues[0]?.source, 'listener');
+  assert.equal(issues[0]?.recoverable, true);
+  assert.equal(client.lifecycle.get().error, null);
+  await client.disconnect();
+});
+
+test('rejected async listeners are forwarded without becoming unhandled rejections', async () => {
+  const reported = [];
+  const client = createClient({ clientId: 'safe_app', demo: true });
+  client.on('error', error => reported.push(error));
+  client.state.subscribe(async () => { throw new Error('async state listener failed'); });
+  client.on('status', async status => {
+    if (status === 'connected') throw new Error('async event listener failed');
+  });
+  await client.connect();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.deepEqual(reported.map(error => error.message), [
+    'async state listener failed',
+    'async event listener failed'
+  ]);
   await client.disconnect();
 });
 
 test('custom transports cannot inject non-JSON state values', async () => {
-  const client = new W3BoosterClient({
+  const client = createClient({
     clientId: 'safe_app',
     transport: {
       name: 'unsafe-test',
@@ -56,45 +189,178 @@ test('custom transports cannot inject non-JSON state values', async () => {
   assert.equal(errors[0]?.code, 'INVALID_MESSAGE');
 });
 
-test('host bridge opens app-owned windows without app-specific integration code', () => {
-  const originalWindow = globalThis.window;
+test('host bridge opens app-owned windows after an authenticated platform connection', async () => {
+  const original = {
+    window: globalThis.window,
+    location: globalThis.location,
+    document: globalThis.document,
+    sessionStorage: globalThis.sessionStorage
+  };
   const messages = [];
+  const listeners = new Set();
+  const storage = new Map();
   const host = { postMessage(message, origin) { messages.push({ message, origin }); } };
-  globalThis.window = { parent: host, opener: null };
+  globalThis.window = {
+    parent: host,
+    opener: null,
+    addEventListener(type, listener) { if (type === 'message') listeners.add(listener); },
+    removeEventListener(type, listener) { if (type === 'message') listeners.delete(listener); }
+  };
+  globalThis.location = { search: '?w3surface=application', hash: '#w3session=launch-session', origin: 'http://localhost:8082' };
+  globalThis.document = { referrer: 'https://app.w3booster.com/apps' };
+  globalThis.sessionStorage = {
+    getItem(key) { return storage.get(key) ?? null; },
+    setItem(key, value) { storage.set(key, String(value)); }
+  };
   try {
-    const client = new W3BoosterClient({ clientId: 'test_app' });
+    const client = createClient({ clientId: 'test_app', transport: { name: 'authenticated-test', open() {} } });
+    assert.equal(client.host.available, false);
+    await client.connect();
     assert.equal(client.host.available, true);
+    await Promise.resolve();
+    const automaticCapabilities = messages.find(entry => entry.message.command === 'host.capabilities.get');
+    for (const listener of listeners) listener({
+      source: host,
+      origin: 'https://app.w3booster.com',
+      data: {
+        source: 'w3booster-host', clientId: 'test_app', type: 'host.response',
+        requestId: automaticCapabilities.message.requestId, ok: true,
+        value: { capabilities: ['window:open', 'settings:write'] }
+      }
+    });
+    await Promise.resolve();
+    messages.length = 0;
+    assert.equal(client.host.supports('window:open'), true);
     assert.equal(client.host.openWindow({ path: '?view=compact', width: 500 }), true);
     assert.deepEqual(messages[0], {
       message: { source: 'w3booster-sdk', clientId: 'test_app', type: 'host.open-window', options: { path: '?view=compact', width: 500 } },
-      origin: '*'
+      origin: 'https://app.w3booster.com'
     });
-    assert.equal(client.host.setSetting('layout', 'wide'), true);
+    const saved = client.host.setSetting('layout', 'wide');
     assert.deepEqual(messages[1].message, {
       source: 'w3booster-sdk',
       clientId: 'test_app',
       type: 'host.command',
       command: 'application.settings.set',
-      payload: { path: 'layout', value: 'wide' }
+      payload: { path: 'layout', value: 'wide' },
+      requestId: messages[1].message.requestId
     });
+    for (const listener of listeners) listener({
+      source: host,
+      origin: 'https://attacker.test',
+      data: {
+        source: 'w3booster-host', clientId: 'test_app', type: 'host.response',
+        requestId: messages[1].message.requestId, ok: true, value: { settings: { layout: 'spoofed' } }
+      }
+    });
+    for (const listener of listeners) listener({
+      source: host,
+      origin: 'https://app.w3booster.com',
+      data: {
+        source: 'w3booster-host', clientId: 'test_app', type: 'host.response',
+        requestId: messages[1].message.requestId, ok: true, value: { settings: { layout: 'wide' } }
+      }
+    });
+    assert.deepEqual(await saved, { layout: 'wide' });
+    assert.equal(client.host.changeMatchScore('wins', 1), true);
+    assert.equal(client.host.resetMatchScore(), true);
+    assert.equal(client.host.closeWindow(), true);
+    const acknowledgedScore = client.host.changeMatchScoreAndWait('losses', -1);
+    const acknowledgedMessage = messages.at(-1).message;
+    for (const listener of listeners) listener({
+      source: host,
+      origin: 'https://app.w3booster.com',
+      data: {
+        source: 'w3booster-host', clientId: 'test_app', type: 'host.response',
+        requestId: acknowledgedMessage.requestId, ok: true, value: { accepted: true }
+      }
+    });
+    assert.deepEqual(await acknowledgedScore, { accepted: true });
+    const capabilities = client.host.refreshCapabilities();
+    const capabilityMessage = messages.at(-1).message;
+    for (const listener of listeners) listener({
+      source: host,
+      origin: 'https://app.w3booster.com',
+      data: {
+        source: 'w3booster-host', clientId: 'test_app', type: 'host.response',
+        requestId: capabilityMessage.requestId, ok: true,
+        value: { capabilities: ['window:open', 'settings:write', 'unsupported'] }
+      }
+    });
+    assert.deepEqual(await capabilities, ['window:open', 'settings:write']);
+    assert.equal(client.host.supports('window:open'), true);
+    assert.equal(client.host.supports('window:close'), false);
+    const acknowledgedWindow = client.host.openWindowAndWait({ path: '?view=compact' });
+    const windowMessage = messages.at(-1).message;
+    assert.equal(windowMessage.type, 'host.open-window');
+    for (const listener of listeners) listener({
+      source: host,
+      origin: 'https://app.w3booster.com',
+      data: {
+        source: 'w3booster-host', clientId: 'test_app', type: 'host.response',
+        requestId: windowMessage.requestId, ok: true, value: { opened: true }
+      }
+    });
+    assert.deepEqual(await acknowledgedWindow, { opened: true });
+    assert.throws(() => client.host.setSetting('invalid..path', true), TypeError);
+    assert.throws(() => client.host.setSetting('layout', () => {}), /JSON-compatible/);
+    await client.disconnect();
+    assert.equal(client.host.available, false);
+    assert.equal(listeners.size, 0);
+
+    globalThis.location.hash = '';
+    const reloaded = createClient({ clientId: 'test_app', transport: { name: 'reload-test', open() {} } });
+    await reloaded.connect();
+    assert.equal(reloaded.host.available, true);
+    await reloaded.disconnect();
+
+    globalThis.document.referrer = 'https://attacker.test/frame';
+    const moved = createClient({ clientId: 'test_app', transport: { name: 'moved-test', open() {} } });
+    await moved.connect();
+    assert.equal(moved.host.available, false);
+    await moved.disconnect();
   } finally {
-    if (originalWindow === undefined) delete globalThis.window; else globalThis.window = originalWindow;
+    for (const [key, value] of Object.entries(original)) {
+      if (value === undefined) delete globalThis[key]; else globalThis[key] = value;
+    }
   }
 });
 
-test('embedded apps report their document height to the W3Booster host', () => {
+test('unrelated parent windows are not reported as the W3Booster host', async () => {
+  const original = { window: globalThis.window, location: globalThis.location };
+  const messages = [];
+  globalThis.window = { parent: { postMessage(message) { messages.push(message); } }, opener: null };
+  globalThis.location = { search: '', hash: '' };
+  try {
+    const client = createClient({ clientId: 'test_app', transport: { name: 'test', open() {} } });
+    await client.connect();
+    assert.equal(client.host.available, false);
+    assert.equal(client.host.command('review'), false);
+    assert.deepEqual(messages, []);
+    await client.disconnect();
+  } finally {
+    for (const [key, value] of Object.entries(original)) {
+      if (value === undefined) delete globalThis[key]; else globalThis[key] = value;
+    }
+  }
+});
+
+test('embedded apps report their document height to the W3Booster host', async () => {
   const original = {
     window: globalThis.window,
+    location: globalThis.location,
     document: globalThis.document,
     ResizeObserver: globalThis.ResizeObserver,
     requestAnimationFrame: globalThis.requestAnimationFrame,
     cancelAnimationFrame: globalThis.cancelAnimationFrame
   };
   const messages = [];
-  const host = { postMessage(message) { messages.push(message); } };
+  const host = { postMessage(message, origin) { messages.push({ message, origin }); } };
   globalThis.window = { parent: host, opener: null };
+  globalThis.location = { search: '?w3surface=application', hash: '#w3session=launch-session' };
   globalThis.document = {
     readyState: 'complete',
+    referrer: 'https://app.w3booster.com/apps',
     documentElement: { scrollHeight: 720, offsetHeight: 700 },
     body: { scrollHeight: 680, offsetHeight: 680 }
   };
@@ -106,10 +372,59 @@ test('embedded apps report their document height to the W3Booster host', () => {
     disconnect() {}
   };
   try {
-    const client = new W3BoosterClient({ clientId: 'test_app' });
-    const resize = messages.find(message => message.type === 'host.resize');
-    assert.equal(resize.height, 720);
+    const client = createClient({ clientId: 'test_app', transport: { name: 'authenticated-test', open() {} } });
+    await client.connect();
+    const resize = messages.find(entry => entry.message.type === 'host.resize');
+    assert.equal(resize.message.height, 720);
+    assert.equal(resize.origin, 'https://app.w3booster.com');
+    await client.disconnect();
+    messages.length = 0;
+    const fixedHeightClient = createClient({
+      clientId: 'test_app',
+      autoResize: false,
+      transport: { name: 'authenticated-test', open() {} }
+    });
+    await fixedHeightClient.connect();
+    assert.equal(messages.some(entry => entry.message.type === 'host.resize'), false);
+    await fixedHeightClient.disconnect();
+  } finally {
+    for (const [key, value] of Object.entries(original)) {
+      if (value === undefined) delete globalThis[key]; else globalThis[key] = value;
+    }
+  }
+});
+
+test('stopping auto resize cancels deferred DOM setup', async () => {
+  const original = {
+    window: globalThis.window,
+    location: globalThis.location,
+    document: globalThis.document,
+    ResizeObserver: globalThis.ResizeObserver
+  };
+  const listeners = new Set();
+  let observerCreations = 0;
+  globalThis.window = { parent: { postMessage() {} }, opener: null };
+  globalThis.location = { search: '?w3surface=application', hash: '#w3session=launch-session' };
+  globalThis.document = {
+    readyState: 'loading',
+    addEventListener(type, listener) { if (type === 'DOMContentLoaded') listeners.add(listener); },
+    removeEventListener(type, listener) { if (type === 'DOMContentLoaded') listeners.delete(listener); }
+  };
+  globalThis.ResizeObserver = class {
+    constructor() { observerCreations += 1; }
+    observe() {}
+    disconnect() {}
+  };
+  try {
+    const client = createClient({ clientId: 'test_app', transport: { name: 'authenticated-test', open() {} } });
+    await client.connect();
+    assert.equal(listeners.size, 1);
+    const deferredSetup = [...listeners][0];
     client.host.stopAutoResize();
+    assert.equal(listeners.size, 0);
+    deferredSetup();
+    assert.equal(observerCreations, 0);
+    await client.disconnect();
   } finally {
     for (const [key, value] of Object.entries(original)) {
       if (value === undefined) delete globalThis[key]; else globalThis[key] = value;
@@ -118,13 +433,54 @@ test('embedded apps report their document height to the W3Booster host', () => {
 });
 
 test('demo transport gives developers hydrated state', async () => {
-  const client = await connect({ clientId: 'test_app', demo: { interval: 10 } });
+  const client = await connect({ clientId: 'test_app', demo: { interval: 10, settings: { layout: 'wide' } } });
   assert.equal(client.status, 'connected');
   assert.equal(client.diagnostics.transport, 'demo');
   assert.equal(client.state.get().match.status, 'running');
+  assert.equal(client.state.get().application.clientId, 'test_app');
+  assert.equal(client.state.get().application.settings.layout, 'wide');
+  assert.equal(client.state.get().overlay.misc.hudScale, 1);
+  assert.ok(client.state.get().capabilities.includes('controlgroups'));
   await new Promise(resolve => setTimeout(resolve, 15));
   assert.ok(client.state.get().match.gameTime >= 1);
   await client.disconnect();
+});
+
+test('demo transport safely animates valid custom states without player resources', async () => {
+  const client = await connect({
+    clientId: 'demo_custom',
+    demo: {
+      interval: 1,
+      state: {
+        capabilities: ['match'],
+        match: { id: 'custom', status: 'running', gameTime: 0, mode: 'custom' },
+        players: []
+      }
+    }
+  });
+  try {
+    const state = await new Promise(resolve => {
+      const unsubscribe = client.state.subscribe(current => {
+        if (current.match.gameTime < 1) return;
+        unsubscribe();
+        resolve(current);
+      });
+    });
+    assert.equal(state.match.gameTime, 1);
+    assert.deepEqual(state.players, []);
+  } finally {
+    await client.disconnect();
+  }
+});
+
+test('a zero demo interval provides a static deterministic frontend fixture', async () => {
+  const client = await connect({ clientId: 'demo_static', demo: { interval: 0 } });
+  const initial = client.state.get();
+  await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(client.state.get(), initial);
+  assert.equal(client.state.get().match.gameTime, 0);
+  await client.disconnect();
+  await assert.rejects(connect({ clientId: 'demo_invalid', demo: { interval: -1 } }), /non-negative/);
 });
 
 test('the simplest client uses configured scopes and exposes the canonical state API', async () => {
@@ -142,7 +498,7 @@ test('the simplest client uses configured scopes and exposes the canonical state
     },
     close() {}
   };
-  const client = new W3BoosterClient({ clientId: 'test_app', transport });
+  const client = createClient({ clientId: 'test_app', transport });
   await client.connect();
   const state = await client.whenReady();
   assert.equal(state.match.status, 'none');
@@ -157,17 +513,90 @@ test('the simplest client uses configured scopes and exposes the canonical state
 test('patches are applied inside the SDK', async () => {
   let context;
   const transport = { name: 'test', async open(value) { context = value; }, close() {} };
-  const client = new W3BoosterClient({ clientId: 'test_app', transport });
+  const client = createClient({ clientId: 'test_app', transport });
+  let publications = 0;
+  client.state.subscribe(() => { publications += 1; });
   await client.connect();
-  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: { match: { gameTime: 4 }, players: [] } });
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {
+    match: { gameTime: 4 }, players: [{ id: '0', name: 'Stable' }], extension: { stable: true }
+  } });
+  const previous = client.state.get();
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 2, type: 'state.patch', data: [{ op: 'replace', path: '/match/gameTime', value: 5 }] });
-  assert.equal(client.state.get().match.gameTime, 5);
+  const current = client.state.get();
+  assert.equal(current.match.gameTime, 5);
+  assert.notEqual(current.match, previous.match);
+  assert.equal(current.players, previous.players);
+  assert.equal(current.players[0], previous.players[0]);
+  assert.equal(current.extension, previous.extension);
+  assert.equal(publications, 2);
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 3, type: 'state.patch', data: [{ op: 'replace', path: '/match/gameTime', value: 5 }] });
+  assert.equal(client.state.get(), current);
+  assert.equal(publications, 2);
+});
+
+test('map names are decoded once at snapshot and patch ingress', async () => {
+  let context;
+  const client = createClient({
+    clientId: 'test_app',
+    transport: { name: 'test', open(value) { context = value; }, close() {} }
+  });
+  await client.connect();
+  context.onMessage({
+    version: PROTOCOL_VERSION,
+    sequence: 1,
+    type: 'state.snapshot',
+    data: { match: { map: 'Echo%2520Isles', gameTime: 1 }, players: [] }
+  });
+  assert.equal(client.state.get().match.map, 'Echo%20Isles');
+
+  context.onMessage({
+    version: PROTOCOL_VERSION,
+    sequence: 2,
+    type: 'state.patch',
+    data: [{ op: 'replace', path: '/match/gameTime', value: 2 }]
+  });
+  assert.equal(client.state.get().match.map, 'Echo%20Isles');
+
+  context.onMessage({
+    version: PROTOCOL_VERSION,
+    sequence: 3,
+    type: 'state.patch',
+    data: [{ op: 'replace', path: '/match/map', value: 'Turtle%20Rock' }]
+  });
+  assert.equal(client.state.get().match.map, 'Turtle Rock');
+  await client.disconnect();
+});
+
+test('replace patches require an existing object property', async () => {
+  let context;
+  const errors = [];
+  const client = createClient({
+    clientId: 'test_app',
+    transport: { name: 'test', async open(value) { context = value; }, resync() {} }
+  });
+  client.on('error', error => errors.push(error));
+  await client.connect();
+  context.onMessage({
+    version: PROTOCOL_VERSION,
+    sequence: 1,
+    type: 'state.snapshot',
+    data: { match: { gameTime: 4 }, players: [] }
+  });
+  context.onMessage({
+    version: PROTOCOL_VERSION,
+    sequence: 2,
+    type: 'state.patch',
+    data: [{ op: 'replace', path: '/match/map', value: 'Echo Isles' }]
+  });
+  assert.equal(client.state.get().match.map, undefined);
+  assert.equal(errors[0]?.code, 'INVALID_PATCH');
+  await client.disconnect();
 });
 
 test('hydrated changes emit useful player, hero, inventory, and match events', async () => {
   let context;
   const transport = { name: 'test', async open(value) { context = value; } };
-  const client = new W3BoosterClient({ clientId: 'test_app', transport });
+  const client = createClient({ clientId: 'test_app', transport });
   await client.connect();
   const events = [];
   client.on('player.resources.changed', event => events.push(['resources', event]));
@@ -196,7 +625,7 @@ test('hydrated changes emit useful player, hero, inventory, and match events', a
 
 test('the initial snapshot establishes a baseline before domain transition events', async () => {
   let context;
-  const client = new W3BoosterClient({ clientId: 'test_app', transport: { name: 'test', async open(value) { context = value; } } });
+  const client = createClient({ clientId: 'test_app', transport: { name: 'test', async open(value) { context = value; } } });
   const events = [];
   client.on('state.ready', () => events.push('ready'));
   client.on('match.started', event => events.push(`started:${event.match.id}`));
@@ -224,7 +653,7 @@ test('the initial snapshot establishes a baseline before domain transition event
 test('watch only runs when its selected value changes', async () => {
   const storeChanges = [];
   let context;
-  const client = new W3BoosterClient({ clientId: 'test_app', transport: { name: 'test', async open(value) { context = value; } } });
+  const client = createClient({ clientId: 'test_app', transport: { name: 'test', async open(value) { context = value; } } });
   await client.connect();
   client.state.watch(state => state.match.map, (map, previous) => storeChanges.push([map, previous]));
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: { match: { map: 'A', gameTime: 1 }, players: [] } });
@@ -233,9 +662,40 @@ test('watch only runs when its selected value changes', async () => {
   assert.deepEqual(storeChanges, [['A', undefined], ['B', 'A']]);
 });
 
+test('watch supports an explicit structural comparator', async () => {
+  const storeChanges = [];
+  let context;
+  const client = createClient({ clientId: 'test_app', transport: { name: 'test', async open(value) { context = value; } } });
+  await client.connect();
+  client.state.watch(state => state.overlay?.settings, settings => storeChanges.push(settings), {
+    equals: (left, right) => left?.first === right?.first && left?.second === right?.second
+  });
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {
+    match: { gameTime: 1 }, players: [], overlay: { settings: { first: 1, second: 2 }, misc: {} }
+  } });
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 2, type: 'state.snapshot', data: {
+    match: { gameTime: 1 }, players: [], overlay: { settings: { second: 2, first: 1 }, misc: {} }
+  } });
+  assert.equal(storeChanges.length, 1);
+  await client.disconnect();
+});
+
+test('watch defaults to immutable identity and accepts non-cloneable selections', async () => {
+  const selections = [];
+  const selected = () => 'selection';
+  let context;
+  const client = createClient({ clientId: 'test_app', transport: { name: 'test', open(value) { context = value; } } });
+  client.state.watch(() => selected, value => selections.push(value));
+  await client.connect();
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: { match: { gameTime: 1 }, players: [] } });
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 2, type: 'state.snapshot', data: { match: { gameTime: 2 }, players: [] } });
+  assert.deepEqual(selections, [selected]);
+  await client.disconnect();
+});
+
 test('application settings stay in state and emit a domain event', async () => {
   let context;
-  const client = new W3BoosterClient({ clientId: 'test_app', transport: { name: 'test', async open(value) { context = value; } } });
+  const client = createClient({ clientId: 'test_app', transport: { name: 'test', async open(value) { context = value; } } });
   await client.connect();
   let change;
   client.on('application.settings.changed', event => { change = event; });
@@ -249,11 +709,17 @@ test('application settings stay in state and emit a domain event', async () => {
   assert.equal(client.state.get().application.settings.layout, 'wide');
   assert.equal(change.previousSettings.layout, 'compact');
   assert.equal(change.settings.layout, 'wide');
+
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 3, type: 'state.patch', data: [
+    { op: 'remove', path: '/application' }
+  ] });
+  assert.equal(change.previousSettings.layout, 'wide');
+  assert.equal(change.settings, undefined);
 });
 
 test('canonical upgrade rawcodes and explicit levels are preserved at state ingress', async () => {
   let context;
-  const client = new W3BoosterClient({ clientId: 'test_app', transport: { name: 'test', async open(value) { context = value; } } });
+  const client = createClient({ clientId: 'test_app', transport: { name: 'test', async open(value) { context = value; } } });
   await client.connect();
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {
     match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' },
@@ -274,7 +740,7 @@ test('canonical upgrade rawcodes and explicit levels are preserved at state ingr
 test('non-canonical hero inventory and upgrade suffixes are rejected', async () => {
   let context;
   const errors = [];
-  const client = new W3BoosterClient({
+  const client = createClient({
     clientId: 'test_app',
     transport: { name: 'test', async open(value) { context = value; } }
   });
@@ -310,10 +776,12 @@ test('observer and replay sessions use the low-latency recorder transport locall
   };
 
   let context;
-  const client = new W3BoosterClient({
+  const client = createClient({
     clientId: 'match_vision',
     transport: { name: 'cloud-test', async open(value) { context = value; } }
   });
+  let publications = 0;
+  client.state.subscribe(() => { publications += 1; });
   try {
     await client.connect();
     const baseline = {
@@ -324,7 +792,13 @@ test('observer and replay sessions use the low-latency recorder transport locall
       },
       players: [{
         id: '0',
-        heroes: [],
+        heroes: [{
+          id: 'Edem', name: 'Demon Hunter', level: 1, experience: 0,
+          platformMetadata: { portrait: 'demon-hunter' }, hitpoints: { current: 400, max: 500 }
+        }],
+        upgrades: { upgrades: [], active: [], researching: [] }
+      }, {
+        id: '1', name: 'Unchanged player', heroes: [],
         upgrades: { upgrades: [], active: [], researching: [] }
       }],
       overlay: { settings: { topBarGameDurationEnabled: false }, misc: { hudScale: 1, localServerUrls: ['ws://127.0.0.1:48123'] } },
@@ -334,6 +808,7 @@ test('observer and replay sessions use the low-latency recorder transport locall
 
     assert.equal(sockets.length, 1);
     assert.equal(sockets[0].url, 'ws://127.0.0.1:48123/');
+    const authenticatedState = client.state.get();
     sockets[0].emit('open');
     sockets[0].emit('message', JSON.stringify([
       { class: 'W3GameTime', matchId: 'observer-match', value: 12 },
@@ -341,22 +816,44 @@ test('observer and replay sessions use the low-latency recorder transport locall
       { class: 'W3Resource', matchId: 'observer-match', slotId: 0, type: 1, value: 1230 },
       { class: 'W3Resource', matchId: 'observer-match', slotId: 0, type: 2, value: 670 },
       { class: 'W3Resource', matchId: 'observer-match', slotId: 0, type: 5, value: 31 },
-      { class: 'W3Resource', matchId: 'observer-match', slotId: 0, type: 4, value: 50 },
+      { class: 'W3Resource', matchId: 'observer-match', slotId: 0, type: 4, value: 50 }
+    ]));
+    sockets[0].emit('message', JSON.stringify([
       { class: 'W3Unit', matchId: 'observer-match', slotId: 0, type: 'Edmm', isHero: true, experience: 500,
         abilities: [{ type: 'AUfa', level: 2, order: 1, lastActivation: 9000 }], inventory: ['ratf'] },
       { class: 'W3Research', matchId: 'observer-match', slotId: 0, type: 'Rema', level: 2 }
     ]));
+    assert.equal(client.state.get(), authenticatedState);
+    await waitForRecorderFrame();
 
     let state = client.state.get();
+    assert.equal(publications, 2);
+    assert.equal(state.application, authenticatedState.application);
+    assert.equal(state.overlay.settings, authenticatedState.overlay.settings);
+    assert.equal(state.players[1], authenticatedState.players[1]);
+    assert.equal(state.players[0].heroes[0].platformMetadata, authenticatedState.players[0].heroes[0].platformMetadata);
+    assert.equal(state.players[0].heroes[0].hitpoints, authenticatedState.players[0].heroes[0].hitpoints);
     assert.equal(client.diagnostics.localTransport, 'recorder-local');
     assert.equal(state.match.gameTime, 12);
     assert.equal(state.overlay.misc.hudScale, 0.75);
     assert.deepEqual(state.players[0].resources, { gold: 123, lumber: 67, supply: 31, supplyCap: 50, workerSupply: 0 });
     assert.equal(state.players[0].heroes[0].id, 'Edem');
+    assert.equal(state.players[0].heroes[0].name, 'Demon Hunter');
     assert.equal(state.players[0].heroes[0].level, 3);
     assert.equal(state.players[0].heroes[0].abilities[0].name, 'AUfu');
     assert.deepEqual(state.players[0].heroes[0].inventory, ['ratf']);
+    assert.deepEqual(state.players[0].heroes[0].platformMetadata, { portrait: 'demon-hunter' });
+    assert.deepEqual(state.players[0].heroes[0].hitpoints, { current: 400, max: 500 });
     assert.equal(state.players[0].upgrades.active[0].level, 2);
+
+    const updatedState = state;
+    sockets[0].emit('message', JSON.stringify([
+      { class: 'W3GameTime', matchId: 'observer-match', value: 12 },
+      { class: 'W3Resource', matchId: 'observer-match', slotId: 0, type: 1, value: 1230 }
+    ]));
+    await waitForRecorderFrame();
+    assert.equal(client.state.get(), updatedState);
+    assert.equal(publications, 2);
 
     // A cloud resnapshot remains the authenticated baseline, but it must not
     // erase recorder values already received through the local recorder feed.
@@ -375,6 +872,68 @@ test('observer and replay sessions use the low-latency recorder transport locall
   }
 });
 
+test('the local recorder rotates URLs when a socket never opens', async () => {
+  const originalWebSocket = globalThis.WebSocket;
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const sockets = [];
+  const timers = new Map();
+  let nextTimer = 1;
+  globalThis.setTimeout = (callback, delay) => {
+    const id = nextTimer++;
+    timers.set(id, { callback, delay });
+    return id;
+  };
+  globalThis.clearTimeout = id => timers.delete(id);
+  const runTimer = delay => {
+    const entry = [...timers.entries()].find(([, timer]) => timer.delay === delay);
+    assert.ok(entry, `Expected a ${delay}ms timer.`);
+    timers.delete(entry[0]);
+    entry[1].callback();
+  };
+  globalThis.WebSocket = class FakeWebSocket {
+    constructor(url) {
+      this.url = url;
+      this.listeners = new Map();
+      this.closed = false;
+      sockets.push(this);
+    }
+    addEventListener(type, listener) { this.listeners.set(type, listener); }
+    close() { this.closed = true; this.listeners.get('close')?.({}); }
+  };
+  let stream;
+  const client = createClient({
+    clientId: 'test_app',
+    transport: { name: 'cloud-test', async open(value) { stream = value; } }
+  });
+  try {
+    await client.connect();
+    stream.onMessage({
+      version: PROTOCOL_VERSION,
+      sequence: 1,
+      type: 'state.snapshot',
+      data: {
+        capabilities: ['match', 'players', 'overlay'],
+        match: { id: 'observer-match', status: 'running', gameTime: 1, mode: '1v1', isObserver: true },
+        players: [],
+        overlay: { settings: {}, misc: { localServerUrls: ['ws://127.0.0.1:48123', 'ws://127.0.0.1:48124'] } },
+        application: { clientId: 'test_app', settings: {} }
+      }
+    });
+    assert.equal(sockets[0].url, 'ws://127.0.0.1:48123/');
+    runTimer(5000);
+    assert.equal(sockets[0].closed, true);
+    runTimer(250);
+    assert.equal(sockets[1].url, 'ws://127.0.0.1:48124/');
+  } finally {
+    await client.disconnect();
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+    if (originalWebSocket === undefined) delete globalThis.WebSocket;
+    else globalThis.WebSocket = originalWebSocket;
+  }
+});
+
 test('the local recorder feed cannot bypass SDK capabilities', async () => {
   const originalWebSocket = globalThis.WebSocket;
   let socket;
@@ -385,7 +944,7 @@ test('the local recorder feed cannot bypass SDK capabilities', async () => {
     close() { this.listeners.get('close')?.({}); }
   };
   let context;
-  const client = new W3BoosterClient({
+  const client = createClient({
     clientId: 'overlay_only',
     transport: { name: 'cloud-test', async open(value) { context = value; } }
   });
@@ -403,6 +962,7 @@ test('the local recorder feed cannot bypass SDK capabilities', async () => {
       { class: 'W3HudScale', value: 70 },
       { class: 'W3Resource', slotId: 0, type: 1, value: 9990 }
     ]));
+    await waitForRecorderFrame();
     assert.equal(client.state.get().overlay.misc.hudScale, 0.75);
     assert.equal(client.state.get().players[0].resources, undefined);
   } finally {
@@ -422,7 +982,7 @@ test('a disconnected local recorder cannot mask newer authenticated snapshots', 
     close() { this.emit('close'); }
   };
   let context;
-  const client = new W3BoosterClient({
+  const client = createClient({
     clientId: 'test_app',
     transport: { name: 'cloud-test', async open(value) { context = value; }, close() {} }
   });
@@ -440,6 +1000,7 @@ test('a disconnected local recorder cannot mask newer authenticated snapshots', 
     socket.emit('message', JSON.stringify([
       { class: 'W3Resource', matchId: 'observer-match', slotId: 0, type: 1, value: 1230 }
     ]));
+    await waitForRecorderFrame();
     assert.equal(client.state.get().players[0].resources.gold, 123);
     socket.emit('close');
     context.onMessage({ version: PROTOCOL_VERSION, sequence: 2, type: 'state.snapshot', data: snapshot(200) });
@@ -451,28 +1012,162 @@ test('a disconnected local recorder cannot mask newer authenticated snapshots', 
   }
 });
 
+test('invalid local recorder updates are not cached into later platform snapshots', async () => {
+  const originalWebSocket = globalThis.WebSocket;
+  let socket;
+  globalThis.WebSocket = class FakeWebSocket {
+    constructor() { this.listeners = new Map(); socket = this; }
+    addEventListener(type, listener) { this.listeners.set(type, listener); }
+    emit(type, data) { this.listeners.get(type)?.(data === undefined ? {} : { data }); }
+    close() {}
+  };
+  let stream;
+  const errors = [];
+  const client = createClient({
+    clientId: 'test_app',
+    transport: { name: 'cloud-test', async open(value) { stream = value; } }
+  });
+  client.on('error', error => errors.push(error));
+  const snapshot = gameTime => ({
+    capabilities: ['match', 'players', 'heroes', 'overlay'],
+    match: { id: 'observer-match', status: 'running', gameTime, mode: '1v1', isObserver: true },
+    players: [{ id: '0', heroes: [{ id: 'Hamg', name: 'Archmage', level: 1 }] }],
+    overlay: { settings: {}, misc: { localServerUrls: ['ws://127.0.0.1:48123'] } },
+    application: { clientId: 'test_app', settings: {} }
+  });
+  try {
+    await client.connect();
+    stream.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: snapshot(1) });
+    socket.emit('open');
+    socket.emit('message', JSON.stringify([{
+      class: 'W3Unit', matchId: 'observer-match', slotId: 0, type: 'Hamg', isHero: true, hitpoints: 'invalid'
+    }]));
+    await waitForRecorderFrame();
+    assert.equal(client.state.get().players[0].heroes[0].hitpoints, undefined);
+    assert.equal(errors[0]?.code, 'INVALID_STATE');
+
+    stream.onMessage({ version: PROTOCOL_VERSION, sequence: 2, type: 'state.snapshot', data: snapshot(2) });
+    assert.equal(client.state.get().match.gameTime, 2);
+    assert.equal(client.state.get().players[0].heroes[0].hitpoints, undefined);
+  } finally {
+    await client.disconnect();
+    if (originalWebSocket === undefined) delete globalThis.WebSocket;
+    else globalThis.WebSocket = originalWebSocket;
+  }
+});
+
 test('sequence gaps request a resync instead of applying stale data', async () => {
   let context; let resyncs = 0;
   const transport = { name: 'test', async open(value) { context = value; }, resync() { resyncs++; } };
-  const client = new W3BoosterClient({ clientId: 'test_app', transport });
+  const client = createClient({ clientId: 'test_app', transport });
   await client.connect();
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: { match: { gameTime: 1 }, players: [] } });
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 3, type: 'state.patch', data: [{ op: 'replace', path: '/match/gameTime', value: 3 }] });
   assert.equal(resyncs, 1);
   assert.equal(client.state.get().match.gameTime, 1);
-  context.onMessage({ version: PROTOCOL_VERSION, sequence: 4, type: 'state.snapshot', data: { match: { gameTime: 4 }, players: [] } });
-  assert.equal(client.state.get().match.gameTime, 4);
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 4, type: 'state.patch', data: [{ op: 'replace', path: '/match/gameTime', value: 4 }] });
+  assert.equal(client.state.get().match.gameTime, 1);
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 5, type: 'state.snapshot', data: { match: { gameTime: 5 }, players: [] } });
+  assert.equal(client.state.get().match.gameTime, 5);
+  await client.disconnect();
+});
+
+test('the lifecycle store publishes synchronization-only transitions atomically', async () => {
+  let context;
+  const snapshots = [];
+  const client = createClient({
+    clientId: 'test_app',
+    transport: { name: 'test', open(value) { context = value; }, resync() {} }
+  });
+  client.lifecycle.subscribe(snapshot => snapshots.push(snapshot));
+  await client.connect();
+  context.onMessage({
+    version: PROTOCOL_VERSION,
+    sequence: 1,
+    type: 'state.snapshot',
+    data: { match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' }, players: [] }
+  });
+  context.onMessage({
+    version: PROTOCOL_VERSION,
+    sequence: 3,
+    type: 'state.patch',
+    data: [{ op: 'replace', path: '/match/gameTime', value: 3 }]
+  });
+
+  assert.deepEqual(snapshots.map(snapshot => [snapshot.status, snapshot.state?.match.gameTime ?? null, snapshot.isSynchronized]), [
+    ['idle', null, false],
+    ['connecting', null, false],
+    ['connected', null, false],
+    ['connected', 1, true],
+    ['connected', 1, false]
+  ]);
+  await client.disconnect();
+});
+
+test('status transitions batch freshness and state changes into one lifecycle snapshot', async () => {
+  let context;
+  const snapshots = [];
+  const client = createClient({
+    clientId: 'test_app',
+    transport: { name: 'test', open(value) { context = value; }, close() {} }
+  });
+  client.lifecycle.subscribe(snapshot => snapshots.push(snapshot));
+  await client.connect();
+  context.onMessage({
+    version: PROTOCOL_VERSION,
+    sequence: 1,
+    type: 'state.snapshot',
+    data: { match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' }, players: [] }
+  });
+
+  const beforeReconnect = snapshots.length;
+  context.onStatus('reconnecting');
+  assert.deepEqual(snapshots.slice(beforeReconnect).map(snapshot => [snapshot.status, snapshot.isSynchronized]), [
+    ['reconnecting', false]
+  ]);
+
+  const beforeDisconnect = snapshots.length;
+  await client.disconnect();
+  assert.deepEqual(snapshots.slice(beforeDisconnect).map(snapshot => [snapshot.status, snapshot.state, snapshot.isSynchronized]), [
+    ['closed', null, false]
+  ]);
+});
+
+test('a complete forward snapshot recovers a sequence gap without another resync', async () => {
+  let context;
+  let resyncs = 0;
+  const gaps = [];
+  const client = createClient({
+    clientId: 'test_app',
+    transport: { name: 'test', async open(value) { context = value; }, resync() { resyncs += 1; } }
+  });
+  client.on('stream.gap', gap => gaps.push(gap));
+  await client.connect();
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: { match: { gameTime: 1 }, players: [] } });
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 3, type: 'state.snapshot', data: { match: { gameTime: 3 }, players: [] } });
+  assert.equal(client.state.get().match.gameTime, 3);
+  assert.equal(resyncs, 0);
+  assert.deepEqual(gaps, [{ expected: 2, received: 3 }]);
+  await client.disconnect();
 });
 
 test('a reconnect resets sequence tracking for the new snapshot', async () => {
   let context;
   const transport = { name: 'test', async open(value) { context = value; } };
-  const client = new W3BoosterClient({ clientId: 'test_app', transport });
+  const client = createClient({ clientId: 'test_app', transport });
   await client.connect();
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 20, type: 'state.snapshot', data: { match: { gameTime: 20 }, players: [] } });
+  assert.equal(client.state.isSynchronized, true);
   context.onStatus('reconnecting');
-  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: { match: { gameTime: 21 }, players: [] } });
+  assert.equal(client.state.isSynchronized, false);
+  const synchronized = client.whenSynchronized({ timeout: 0 });
+  assert.equal((await client.whenReady()).match.gameTime, 20);
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.patch', data: [{ op: 'replace', path: '/match/gameTime', value: 999 }] });
+  assert.equal(client.state.get().match.gameTime, 20);
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 2, type: 'state.snapshot', data: { match: { gameTime: 21 }, players: [] } });
   assert.equal(client.state.get().match.gameTime, 21);
+  assert.equal((await synchronized).match.gameTime, 21);
+  assert.equal(client.state.isSynchronized, true);
 });
 
 test('explicit disconnect clears state and the same client can connect cleanly again', async () => {
@@ -483,7 +1178,7 @@ test('explicit disconnect clears state and the same client can connect cleanly a
     async open(value) { context = value; opens += 1; },
     close() {}
   };
-  const client = new W3BoosterClient({ clientId: 'test_app', transport });
+  const client = createClient({ clientId: 'test_app', transport });
 
   await client.connect();
   context.onMessage({
@@ -512,6 +1207,187 @@ test('explicit disconnect clears state and the same client can connect cleanly a
   await client.disconnect();
 });
 
+test('a fatal transport error is closed before an explicit reconnect', async () => {
+  let context;
+  let opens = 0;
+  let closes = 0;
+  const transport = {
+    name: 'test',
+    open(value) { context = value; opens += 1; },
+    close() { closes += 1; }
+  };
+  const client = createClient({ clientId: 'test_app', transport });
+  await client.connect();
+  context.onStatus('error');
+  assert.equal(client.status, 'error');
+  await client.connect();
+  assert.equal(opens, 2);
+  assert.equal(closes, 1);
+  await client.disconnect();
+  assert.equal(closes, 2);
+});
+
+test('disconnect and per-wait signals settle pending whenReady calls immediately', async () => {
+  const client = createClient({
+    clientId: 'test_app',
+    transport: { name: 'no-state', open() {}, close() {} }
+  });
+  await client.connect();
+  const disconnected = client.whenReady({ timeout: 0 });
+  await client.disconnect();
+  await assert.rejects(disconnected, error => error?.name === 'AbortError');
+
+  await client.connect();
+  const controller = new AbortController();
+  const cancelled = client.whenReady({ timeout: 0, signal: controller.signal });
+  controller.abort();
+  await assert.rejects(cancelled, error => error?.name === 'AbortError');
+  await client.disconnect();
+});
+
+test('a startup signal cancels an in-flight transport and closes the client', async () => {
+  const controller = new AbortController();
+  let closed = false;
+  const client = createClient({
+    clientId: 'test_app',
+    transport: {
+      name: 'pending',
+      open: () => new Promise(() => {}),
+      close: () => { closed = true; }
+    }
+  });
+  const startup = client.start({ signal: controller.signal });
+  controller.abort();
+  await assert.rejects(startup, error => error?.name === 'AbortError');
+  assert.equal(closed, true);
+  assert.equal(client.status, 'closed');
+});
+
+test('start keeps frontend startup pending until synchronized state arrives', async () => {
+  let context;
+  const client = createClient({
+    clientId: 'test_app',
+    transport: { name: 'delayed-state', open(value) { context = value; }, close() {} }
+  });
+  let settled = false;
+  const starting = client.start().then(value => { settled = true; return value; });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(settled, false);
+  context.onMessage({
+    version: PROTOCOL_VERSION,
+    sequence: 1,
+    type: 'state.snapshot',
+    data: { match: { id: 'ready', status: 'running', gameTime: 1, mode: '1v1' }, players: [] }
+  });
+  assert.equal(await starting, client);
+  assert.equal(client.state.isSynchronized, true);
+  await client.disconnect();
+});
+
+test('start rejects when synchronization becomes permanently unavailable', async () => {
+  let context;
+  const client = createClient({
+    clientId: 'test_app',
+    transport: { name: 'fatal-before-state', open(value) { context = value; }, close() {} }
+  });
+  const starting = client.start();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const failure = new ConnectionError('The configured application does not exist.', [], 'CONFIGURATION', 404);
+  context.onError(failure);
+  context.onStatus('error');
+  await assert.rejects(starting, error => error === failure);
+  assert.equal(client.lifecycle.get().error, failure);
+  await client.disconnect();
+});
+
+test('subscription signals remove state and event listeners together', async () => {
+  const controller = new AbortController();
+  const client = await connect({ clientId: 'test_app', demo: { interval: 5 } });
+  let states = 0;
+  let statuses = 0;
+  client.state.subscribe(() => { states += 1; }, { signal: controller.signal });
+  client.on('status', () => { statuses += 1; }, { signal: controller.signal });
+  controller.abort();
+  const stateCount = states;
+  await new Promise(resolve => setTimeout(resolve, 12));
+  await client.disconnect();
+  assert.equal(states, stateCount);
+  assert.equal(statuses, 0);
+});
+
+test('status subscriptions immediately expose the current lifecycle state', async () => {
+  const client = createClient({ clientId: 'test_app', demo: { interval: 0 } });
+  const statuses = [];
+  const unsubscribe = client.subscribeStatus(status => statuses.push(status));
+  await client.connect();
+  unsubscribe();
+  await client.disconnect();
+  assert.deepEqual(statuses, ['idle', 'connecting', 'connected']);
+});
+
+test('lifecycle methods validate options and listeners before registering', async () => {
+  const client = await connect({ clientId: 'test_app', demo: { interval: 0 } });
+  assert.throws(() => client.state.subscribe(() => {}, null), /options/);
+  assert.throws(() => client.state.watch(() => 1, () => {}, { signal: {} }), /AbortSignal/);
+  assert.throws(() => client.on('status', () => {}, { signal: {} }), /AbortSignal/);
+  assert.throws(() => client.once('status', null), /listener/);
+  assert.throws(() => client.whenReady({ timeout: -1 }), /timeout/);
+  assert.throws(() => client.whenReady({ signal: {} }), /AbortSignal/);
+  await assert.rejects(client.start({ until: 'eventually' }), /start.until/);
+  await assert.rejects(client.start({ timeout: -1 }), /start.timeout/);
+  const cancelledStartup = new AbortController();
+  cancelledStartup.abort();
+  await assert.rejects(client.start({ signal: cancelledStartup.signal }), error => error?.name === 'AbortError');
+  await client.disconnect();
+});
+
+test('initial retry uses SDK backoff and stops retrying protocol failures', async () => {
+  let transientOpens = 0;
+  const transient = createClient({
+    clientId: 'test_app',
+    retry: { maxAttempts: 3, initialDelay: 0, maxDelay: 0 },
+    transport: {
+      name: 'transient',
+      open() {
+        transientOpens += 1;
+        if (transientOpens < 3) throw new ConnectionError('not ready');
+      },
+      close() {}
+    }
+  });
+  await transient.connect();
+  assert.equal(transientOpens, 3);
+  await transient.disconnect();
+
+  let protocolOpens = 0;
+  const incompatible = createClient({
+    clientId: 'test_app',
+    retry: { maxAttempts: 5 },
+    transport: {
+      name: 'incompatible',
+      open() { protocolOpens += 1; throw new ProtocolError('UNSUPPORTED_PROTOCOL', 'unsupported'); },
+      close() {}
+    }
+  });
+  await assert.rejects(incompatible.connect(), ProtocolError);
+  assert.equal(protocolOpens, 1);
+  await incompatible.disconnect();
+
+  let configurationOpens = 0;
+  const misconfigured = createClient({
+    clientId: 'test_app',
+    retry: { maxAttempts: 5 },
+    transport: {
+      name: 'misconfigured',
+      open() { configurationOpens += 1; throw new ConnectionError('unknown app', [], 'CONFIGURATION', 404); },
+      close() {}
+    }
+  });
+  await assert.rejects(misconfigured.connect(), error => error?.code === 'CONFIGURATION');
+  assert.equal(configurationOpens, 1);
+  await misconfigured.disconnect();
+});
+
 test('connect is single-flight while a transport is opening', async () => {
   let release;
   let opens = 0;
@@ -523,7 +1399,7 @@ test('connect is single-flight while a transport is opening', async () => {
     },
     close() {}
   };
-  const client = new W3BoosterClient({ clientId: 'test_app', transport });
+  const client = createClient({ clientId: 'test_app', transport });
   const first = client.connect();
   const second = client.connect();
   await Promise.resolve();
@@ -545,7 +1421,7 @@ test('disconnect cancels an in-flight connection without allowing a late connect
     },
     close() { closes += 1; }
   };
-  const client = new W3BoosterClient({ clientId: 'test_app', transport });
+  const client = createClient({ clientId: 'test_app', transport });
   const connecting = client.connect();
   await Promise.resolve();
   await client.disconnect();
@@ -561,7 +1437,7 @@ test('disconnect cancels an in-flight connection without allowing a late connect
 
 test('an AbortSignal cancels the initial connection attempt', async () => {
   const controller = new AbortController();
-  const client = new W3BoosterClient({
+  const client = createClient({
     clientId: 'test_app',
     signal: controller.signal,
     transport: { name: 'never-opens', open() { return new Promise(() => {}); }, close() {} }
@@ -572,16 +1448,40 @@ test('an AbortSignal cancels the initial connection attempt', async () => {
   await client.disconnect();
 });
 
+test('the connection AbortSignal owns the established client lifetime', async () => {
+  const controller = new AbortController();
+  const client = await connect({ clientId: 'test_app', demo: true, signal: controller.signal });
+  assert.equal(client.status, 'connected');
+  controller.abort();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(client.status, 'closed');
+  assert.equal(client.state.get(), null);
+});
+
 test('the default cloud backend receives the launch credential without probing localhost', async () => {
   const original = {
     fetch: globalThis.fetch,
     WebSocket: globalThis.WebSocket,
+    window: globalThis.window,
     location: globalThis.location,
     history: globalThis.history
   };
   const requests = [];
-  globalThis.location = { hash: '#w3session=launch-secret', pathname: '/app', search: '' };
-  globalThis.history = { replaceState(_state, _title, url) { requests.push({ cleanedUrl: url }); } };
+  const hostMessages = [];
+  const hostListeners = new Set();
+  const host = { postMessage(message) { hostMessages.push(message); } };
+  globalThis.window = {
+    parent: host,
+    opener: null,
+    addEventListener(type, listener) { if (type === 'message') hostListeners.add(listener); },
+    removeEventListener(type, listener) { if (type === 'message') hostListeners.delete(listener); }
+  };
+  globalThis.location = { hash: '#w3session=launch-secret', pathname: '/app', search: '?w3surface=application' };
+  const routerState = { navigationId: 17 };
+  globalThis.history = {
+    state: routerState,
+    replaceState(state, _title, url) { requests.push({ cleanedUrl: url, cleanedState: state }); }
+  };
   globalThis.fetch = async (url, options) => {
     requests.push({ url, authorization: options.headers.Authorization, credentials: options.credentials, body: JSON.parse(options.body) });
     return { ok: true, status: 200, async json() { return { websocketUrl: 'wss://stream.example/apps?ticket=once', protocolVersion: PROTOCOL_VERSION }; } };
@@ -607,13 +1507,311 @@ test('the default cloud backend receives the launch credential without probing l
     assert.deepEqual(brokerRequests[0].body.scopes, []);
     assert.deepEqual(brokerRequests[0].body.protocolVersions, [PROTOCOL_VERSION]);
     assert.equal(brokerRequests[0].body.sdkVersion, SDK_VERSION);
-    assert.equal(requests[0].cleanedUrl, '/app');
+    assert.equal(requests[0].cleanedUrl, '/app?w3surface=application');
+    assert.equal(requests[0].cleanedState, routerState);
+    assert.equal(client.host.available, true, 'a broker-authenticated application launch authorizes its captured host window');
+    await Promise.resolve();
+    const automaticCapabilities = hostMessages.find(message => message.command === 'host.capabilities.get');
+    for (const listener of hostListeners) listener({
+      source: host,
+      origin: '',
+      data: {
+        source: 'w3booster-host', clientId: 'test_app', type: 'host.response',
+        requestId: automaticCapabilities.requestId, ok: true, value: { capabilities: ['match-score:write'] }
+      }
+    });
+    const scoreChange = client.host.changeMatchScoreAndWait('wins', 1);
+    const scoreMessage = hostMessages.at(-1);
+    assert.equal(scoreMessage.command, 'overlay.match-score.change');
+    for (const listener of hostListeners) listener({
+      source: host,
+      origin: '',
+      data: {
+        source: 'w3booster-host', clientId: 'test_app', type: 'host.response',
+        requestId: scoreMessage.requestId, ok: true, value: { accepted: true }
+      }
+    });
+    assert.deepEqual(await scoreChange, { accepted: true });
     await client.disconnect();
   } finally {
     if (original.fetch === undefined) delete globalThis.fetch; else globalThis.fetch = original.fetch;
     if (original.WebSocket === undefined) delete globalThis.WebSocket; else globalThis.WebSocket = original.WebSocket;
+    if (original.window === undefined) delete globalThis.window; else globalThis.window = original.window;
     if (original.location === undefined) delete globalThis.location; else globalThis.location = original.location;
     if (original.history === undefined) delete globalThis.history; else globalThis.history = original.history;
+  }
+});
+
+test('backend auto continues to cloud after local authorization fails', async () => {
+  const original = { fetch: globalThis.fetch, WebSocket: globalThis.WebSocket };
+  const requests = [];
+  globalThis.fetch = async url => {
+    requests.push(String(url));
+    if (String(url).includes('localhost')) {
+      return { ok: false, status: 401, async json() { return { authorizeUrl: 'https://localhost/authorize' }; } };
+    }
+    return {
+      ok: true,
+      status: 200,
+      async json() { return { websocketUrl: 'wss://stream.example/apps?ticket=once', protocolVersion: PROTOCOL_VERSION }; }
+    };
+  };
+  globalThis.WebSocket = class FakeWebSocket {
+    static OPEN = 1;
+    constructor() { this.readyState = 0; this.listeners = new Map(); }
+    addEventListener(type, listener) {
+      this.listeners.set(type, listener);
+      if (type === 'open') queueMicrotask(() => { this.readyState = 1; listener(); });
+    }
+    close() { this.readyState = 3; this.listeners.get('close')?.(); }
+    send() {}
+  };
+  try {
+    const client = await connect({ clientId: 'test_app', backend: 'auto', tokenProvider: () => 'session' });
+    assert.deepEqual(requests, [
+      'https://localhost:25080/stream/v1/stream-tickets',
+      'https://app.w3booster.com:14969/stream/v1/stream-tickets'
+    ]);
+    assert.equal(client.diagnostics.transport, 'cloud');
+    await client.disconnect();
+  } finally {
+    if (original.fetch === undefined) delete globalThis.fetch; else globalThis.fetch = original.fetch;
+    if (original.WebSocket === undefined) delete globalThis.WebSocket; else globalThis.WebSocket = original.WebSocket;
+  }
+});
+
+test('backend auto continues to cloud after the local broker times out', async () => {
+  const original = {
+    fetch: globalThis.fetch,
+    WebSocket: globalThis.WebSocket,
+    setTimeout: globalThis.setTimeout
+  };
+  const requests = [];
+  globalThis.setTimeout = (callback, delay, ...args) =>
+    original.setTimeout(callback, delay === 5000 ? 0 : delay, ...args);
+  globalThis.fetch = (url, options) => {
+    requests.push(String(url));
+    if (String(url).includes('localhost')) {
+      return new Promise((_resolve, reject) => {
+        options.signal.addEventListener('abort', () => reject(new DOMException('Timed out', 'AbortError')), { once: true });
+      });
+    }
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      async json() { return { websocketUrl: 'wss://stream.example/apps?ticket=once', protocolVersion: PROTOCOL_VERSION }; }
+    });
+  };
+  globalThis.WebSocket = class FakeWebSocket {
+    static OPEN = 1;
+    constructor() { this.readyState = 0; this.listeners = new Map(); }
+    addEventListener(type, listener) {
+      this.listeners.set(type, listener);
+      if (type === 'open') queueMicrotask(() => { this.readyState = 1; listener(); });
+    }
+    close() { this.readyState = 3; this.listeners.get('close')?.(); }
+    send() {}
+  };
+  try {
+    const client = await connect({ clientId: 'test_app', backend: 'auto', tokenProvider: () => 'session' });
+    assert.deepEqual(requests, [
+      'https://localhost:25080/stream/v1/stream-tickets',
+      'https://app.w3booster.com:14969/stream/v1/stream-tickets'
+    ]);
+    assert.equal(client.diagnostics.transport, 'cloud');
+    await client.disconnect();
+  } finally {
+    for (const [key, value] of Object.entries(original)) {
+      if (value === undefined) delete globalThis[key]; else globalThis[key] = value;
+    }
+  }
+});
+
+test('an explicit token provider is refreshed for every broker ticket', async () => {
+  const original = { fetch: globalThis.fetch, WebSocket: globalThis.WebSocket };
+  const authorizations = [];
+  const sockets = [];
+  let tokenCalls = 0;
+  globalThis.fetch = async (_url, options) => {
+    authorizations.push(options.headers.Authorization);
+    return {
+      ok: true,
+      status: 200,
+      async json() { return { websocketUrl: 'wss://stream.example/apps?ticket=once', protocolVersion: PROTOCOL_VERSION }; }
+    };
+  };
+  globalThis.WebSocket = class FakeWebSocket {
+    static OPEN = 1;
+    constructor() {
+      this.readyState = 0;
+      this.listeners = new Map();
+      sockets.push(this);
+    }
+    addEventListener(type, listener) {
+      this.listeners.set(type, listener);
+      if (type === 'open') queueMicrotask(() => { this.readyState = 1; listener(); });
+    }
+    emit(type) { this.listeners.get(type)?.({}); }
+    close() { this.readyState = 3; this.emit('close'); }
+    send() {}
+  };
+  const client = createClient({
+    clientId: 'test_app',
+    tokenProvider: () => `session-${++tokenCalls}`
+  });
+  try {
+    await client.connect();
+    const reconnected = new Promise(resolve => {
+      let reconnecting = false;
+      client.on('status', status => {
+        if (status === 'reconnecting') reconnecting = true;
+        if (reconnecting && status === 'connected') resolve();
+      });
+    });
+    sockets[0].emit('close');
+    await reconnected;
+    assert.equal(tokenCalls, 2);
+    assert.deepEqual(authorizations, ['Bearer session-1', 'Bearer session-2']);
+  } finally {
+    await client.disconnect();
+    if (original.fetch === undefined) delete globalThis.fetch; else globalThis.fetch = original.fetch;
+    if (original.WebSocket === undefined) delete globalThis.WebSocket; else globalThis.WebSocket = original.WebSocket;
+  }
+});
+
+test('broker reconnect stops after a permanent configuration failure', async () => {
+  const original = { fetch: globalThis.fetch, WebSocket: globalThis.WebSocket };
+  const sockets = [];
+  let requests = 0;
+  globalThis.fetch = async () => {
+    requests += 1;
+    if (requests === 1) return {
+      ok: true,
+      status: 200,
+      async json() { return { websocketUrl: 'wss://stream.example/apps?ticket=first', protocolVersion: PROTOCOL_VERSION }; }
+    };
+    return { ok: false, status: 404, async json() { return {}; } };
+  };
+  globalThis.WebSocket = class FakeWebSocket {
+    static OPEN = 1;
+    constructor() { this.readyState = 0; this.listeners = new Map(); sockets.push(this); }
+    addEventListener(type, listener) {
+      this.listeners.set(type, listener);
+      if (type === 'open') queueMicrotask(() => { this.readyState = 1; listener(); });
+    }
+    emit(type) { this.listeners.get(type)?.({}); }
+    close() { this.readyState = 3; this.emit('close'); }
+    send() {}
+  };
+  const client = createClient({
+    clientId: 'test_app',
+    tokenProvider: () => 'session',
+    reconnect: { maxAttempts: 5, initialDelay: 0, maxDelay: 0 }
+  });
+  const issues = [];
+  client.on('issue', issue => issues.push(issue));
+  try {
+    await client.connect();
+    const failed = new Promise(resolve => client.on('status', status => {
+      if (status === 'error') resolve();
+    }));
+    sockets[0].emit('close');
+    await failed;
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(requests, 2);
+    assert.equal(client.status, 'error');
+    assert.equal(issues.at(-1)?.source, 'connection');
+    assert.equal(issues.at(-1)?.recoverable, false);
+    assert.equal(client.lifecycle.get().error?.code, 'CONFIGURATION');
+  } finally {
+    await client.disconnect();
+    if (original.fetch === undefined) delete globalThis.fetch; else globalThis.fetch = original.fetch;
+    if (original.WebSocket === undefined) delete globalThis.WebSocket; else globalThis.WebSocket = original.WebSocket;
+  }
+});
+
+test('disconnect aborts an in-flight broker reconnect before it can create another socket', async () => {
+  const original = { fetch: globalThis.fetch, WebSocket: globalThis.WebSocket };
+  const sockets = [];
+  let fetchCount = 0;
+  let reconnectAborted = false;
+  globalThis.fetch = async (_url, options) => {
+    fetchCount += 1;
+    if (fetchCount === 1) {
+      return {
+        ok: true,
+        status: 200,
+        async json() { return { websocketUrl: 'wss://stream.example/apps?ticket=first', protocolVersion: PROTOCOL_VERSION }; }
+      };
+    }
+    return await new Promise((_resolve, reject) => {
+      options.signal.addEventListener('abort', () => {
+        reconnectAborted = true;
+        reject(options.signal.reason || new DOMException('Aborted', 'AbortError'));
+      }, { once: true });
+    });
+  };
+  globalThis.WebSocket = class FakeWebSocket {
+    static OPEN = 1;
+    constructor() { this.readyState = 0; this.listeners = new Map(); sockets.push(this); }
+    addEventListener(type, listener) {
+      this.listeners.set(type, listener);
+      if (type === 'open') queueMicrotask(() => { this.readyState = 1; listener(); });
+    }
+    emit(type) { this.listeners.get(type)?.({}); }
+    close() { this.readyState = 3; this.emit('close'); }
+    send() {}
+  };
+  try {
+    const client = await connect({ clientId: 'test_app', tokenProvider: () => 'session' });
+    sockets[0].emit('close');
+    await new Promise(resolve => setTimeout(resolve, 520));
+    assert.equal(fetchCount, 2);
+    await client.disconnect();
+    assert.equal(reconnectAborted, true);
+    assert.equal(sockets.length, 1);
+    assert.equal(client.status, 'closed');
+  } finally {
+    if (original.fetch === undefined) delete globalThis.fetch; else globalThis.fetch = original.fetch;
+    if (original.WebSocket === undefined) delete globalThis.WebSocket; else globalThis.WebSocket = original.WebSocket;
+  }
+});
+
+test('broker timeouts include reading the response body', async () => {
+  const original = {
+    fetch: globalThis.fetch,
+    WebSocket: globalThis.WebSocket,
+    setTimeout: globalThis.setTimeout,
+    clearTimeout: globalThis.clearTimeout
+  };
+  let bodyAborted = false;
+  globalThis.setTimeout = (callback, delay, ...args) =>
+    original.setTimeout(callback, delay === 5000 ? 0 : delay, ...args);
+  globalThis.fetch = async (_url, options) => ({
+    ok: true,
+    status: 200,
+    json() {
+      return new Promise((_resolve, reject) => {
+        options.signal.addEventListener('abort', () => {
+          bodyAborted = true;
+          reject(options.signal.reason || new DOMException('Aborted', 'AbortError'));
+        }, { once: true });
+      });
+    }
+  });
+  globalThis.WebSocket = class {};
+  const client = createClient({ clientId: 'test_app', tokenProvider: () => 'session' });
+  let connecting;
+  try {
+    connecting = client.connect();
+    await assert.rejects(connecting, ConnectionError);
+    assert.equal(bodyAborted, true);
+  } finally {
+    if (connecting) void connecting.catch(() => {});
+    await client.disconnect();
+    for (const [key, value] of Object.entries(original)) {
+      if (value === undefined) delete globalThis[key]; else globalThis[key] = value;
+    }
   }
 });
 
@@ -632,7 +1830,7 @@ test('cancelling a broker connection closes a WebSocket that is still opening', 
   };
   const controller = new AbortController();
   try {
-    const client = new W3BoosterClient({ clientId: 'test_app', tokenProvider: () => 'session', signal: controller.signal });
+    const client = createClient({ clientId: 'test_app', tokenProvider: () => 'session', signal: controller.signal });
     const connecting = client.connect();
     await new Promise(resolve => setTimeout(resolve, 0));
     controller.abort();
@@ -745,6 +1943,146 @@ test('overlay composition authenticates a browser-source session', async () => {
   }
 });
 
+test('explicit compositor credentials fail clearly when missing and support cancellation', async () => {
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = async () => {
+    requests += 1;
+    return { ok: false, status: 401, async json() { return {}; } };
+  };
+  try {
+    await assert.rejects(
+      getOverlayComposition({ tokenProvider: () => null }),
+      error => error?.name === 'PermissionRequiredError'
+    );
+    assert.equal(requests, 0);
+    const controller = new AbortController();
+    controller.abort();
+    await assert.rejects(getOverlayComposition({ signal: controller.signal }), error => error?.name === 'AbortError');
+    assert.equal(requests, 0);
+  } finally {
+    if (originalFetch === undefined) delete globalThis.fetch; else globalThis.fetch = originalFetch;
+  }
+});
+
+test('compositor options and successful responses are validated at runtime', async () => {
+  await assert.rejects(getOverlayComposition(null), /options/);
+  await assert.rejects(getOverlayComposition({ surface: 'application' }), /surface/);
+  await assert.rejects(getOverlayComposition({ browserSource: { channel: '', secret: '' } }), /channel and secret/);
+  await assert.rejects(watchOverlayComposition({}, null), /listener/);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: true, status: 200, async json() { return { apps: [{ clientId: 'incomplete' }] }; } });
+  try {
+    await assert.rejects(
+      getOverlayComposition({ backend: 'local', tokenProvider: () => 'session' }),
+      error => error instanceof ProtocolError
+    );
+  } finally {
+    if (originalFetch === undefined) delete globalThis.fetch; else globalThis.fetch = originalFetch;
+  }
+});
+
+test('anonymous compositor loading distinguishes no authorization from platform failure', async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => ({ ok: false, status: 401, async json() { return {}; } });
+    await assert.doesNotReject(async () => assert.deepEqual(
+      await getOverlayComposition({ backend: 'local' }),
+      []
+    ));
+    globalThis.fetch = async () => ({ ok: false, status: 500, async json() { return {}; } });
+    await assert.rejects(
+      getOverlayComposition({ backend: 'local' }),
+      error => error instanceof ConnectionError && error.causes.some(cause =>
+        cause instanceof ConnectionError && cause.code === 'UNAVAILABLE' && cause.status === 500)
+    );
+    globalThis.fetch = async () => ({ ok: false, status: 404, async json() { return {}; } });
+    await assert.rejects(
+      getOverlayComposition({ backend: 'local' }),
+      error => error instanceof ConnectionError && error.code === 'CONFIGURATION' && error.status === 404
+    );
+  } finally {
+    if (originalFetch === undefined) delete globalThis.fetch; else globalThis.fetch = originalFetch;
+  }
+});
+
+test('overlay composition establishes a new session when auto falls back to cloud', async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url, options) => {
+    const request = { url: String(url), authorization: options.headers.Authorization };
+    requests.push(request);
+    if (request.url.startsWith('https://localhost') && request.url.endsWith('/compositor-sessions')) {
+      return { ok: true, status: 200, async json() { return { sessionToken: 'local-session' }; } };
+    }
+    if (request.url.startsWith('https://localhost')) throw new Error('local compositor unavailable');
+    if (request.url.endsWith('/compositor-sessions')) {
+      return { ok: true, status: 200, async json() { return { sessionToken: 'cloud-session' }; } };
+    }
+    return {
+      ok: true,
+      status: 200,
+      async json() { return { apps: [{ appId: 'one', clientId: 'child', name: 'Child', url: 'https://child.test/' }] }; }
+    };
+  };
+  try {
+    const apps = await getOverlayComposition({
+      backend: 'auto',
+      browserSource: { channel: 'user', secret: 'secret' }
+    });
+    assert.equal(apps[0].clientId, 'child');
+    assert.deepEqual(requests.map(request => request.url), [
+      'https://localhost:25080/stream/v1/compositor-sessions',
+      'https://localhost:25080/stream/v1/composite-launches',
+      'https://app.w3booster.com:14969/stream/v1/compositor-sessions',
+      'https://app.w3booster.com:14969/stream/v1/composite-launches'
+    ]);
+    assert.equal(requests[3].authorization, 'Bearer cloud-session');
+  } finally {
+    if (originalFetch === undefined) delete globalThis.fetch; else globalThis.fetch = originalFetch;
+  }
+});
+
+test('overlay composition auto fallback distinguishes timeouts from cancellation', async () => {
+  const original = { fetch: globalThis.fetch, setTimeout: globalThis.setTimeout };
+  const requests = [];
+  globalThis.setTimeout = (callback, delay, ...args) =>
+    original.setTimeout(callback, delay === 5000 ? 0 : delay, ...args);
+  globalThis.fetch = (url, options) => {
+    requests.push(String(url));
+    if (String(url).startsWith('https://localhost')) {
+      return new Promise((_resolve, reject) => {
+        options.signal.addEventListener('abort', () => reject(new DOMException('Timed out', 'AbortError')), { once: true });
+      });
+    }
+    if (String(url).endsWith('/compositor-sessions')) {
+      return Promise.resolve({ ok: true, status: 200, async json() { return { sessionToken: 'cloud-session' }; } });
+    }
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      async json() { return { apps: [{ appId: 'one', clientId: 'child', name: 'Child', url: 'https://child.test/' }] }; }
+    });
+  };
+  try {
+    const apps = await getOverlayComposition({
+      backend: 'auto',
+      browserSource: { channel: 'user', secret: 'secret' }
+    });
+    assert.equal(apps[0].clientId, 'child');
+    assert.deepEqual(requests, [
+      'https://localhost:25080/stream/v1/compositor-sessions',
+      'https://app.w3booster.com:14969/stream/v1/compositor-sessions',
+      'https://app.w3booster.com:14969/stream/v1/composite-launches'
+    ]);
+  } finally {
+    for (const [key, value] of Object.entries(original)) {
+      if (value === undefined) delete globalThis[key]; else globalThis[key] = value;
+    }
+  }
+});
+
 test('the stable browser-source URL remains reusable across compositor reloads', async () => {
   const original = {
     fetch: globalThis.fetch,
@@ -771,7 +2109,10 @@ test('the stable browser-source URL remains reusable across compositor reloads',
     if (String(url).includes('/compositor-sessions')) {
       return { ok: true, status: 200, async json() { return { sessionToken: 'compositor-session' }; } };
     }
-    return { ok: true, async json() { return { apps: [{ clientId: 'child-app' }] }; } };
+    return {
+      ok: true,
+      async json() { return { apps: [{ appId: 'one', clientId: 'child-app', name: 'Child', url: 'https://child.test/' }] }; }
+    };
   };
   try {
     const apps = await getOverlayComposition({ backend: 'local' });
@@ -796,6 +2137,7 @@ test('overlay composition changes arrive over an authenticated local websocket',
   const original = { fetch: globalThis.fetch, WebSocket: globalThis.WebSocket };
   const sockets = [];
   const events = [];
+  const errors = [];
   const requests = [];
   globalThis.fetch = async (url, options) => {
     requests.push({ url: String(url), authorization: options.headers.Authorization, body: JSON.parse(options.body) });
@@ -805,6 +2147,7 @@ test('overlay composition changes arrive over an authenticated local websocket',
     constructor(url, protocols) {
       this.url = String(url);
       this.protocols = protocols;
+      this.closed = false;
       this.listeners = new Map();
       sockets.push(this);
     }
@@ -812,15 +2155,21 @@ test('overlay composition changes arrive over an authenticated local websocket',
       this.listeners.set(type, listener);
       if (type === 'open') queueMicrotask(() => listener());
     }
-    close() { this.listeners.get('close')?.(); }
+    close() { this.closed = true; this.listeners.get('close')?.(); }
   };
 
   try {
+    const controller = new AbortController();
     const watcher = await watchOverlayComposition({
       backend: 'local',
       surface: 'streamOverlay',
-      tokenProvider: () => 'compositor-session'
-    }, event => events.push(event));
+      tokenProvider: () => 'compositor-session',
+      onError: error => errors.push(error),
+      signal: controller.signal
+    }, async event => {
+      events.push(event);
+      throw new Error('async compositor listener failed');
+    });
     assert.deepEqual(requests, [{
       url: 'https://localhost:25080/stream/v1/composition-watch',
       authorization: 'Bearer compositor-session',
@@ -829,8 +2178,13 @@ test('overlay composition changes arrive over an authenticated local websocket',
     assert.equal(sockets[0].url, 'wss://localhost:25081/composition?surface=streamOverlay');
     assert.deepEqual(sockets[0].protocols, ['w3booster-compositor', 'compositor-session']);
     sockets[0].listeners.get('message')({ data: JSON.stringify({ type: 'composition.changed', surface: 'streamOverlay' }) });
+    await new Promise(resolve => setTimeout(resolve, 0));
     assert.deepEqual(events, [{ type: 'composition.changed', surface: 'streamOverlay' }]);
-    watcher.close();
+    assert.equal(errors[0]?.message, 'async compositor listener failed');
+    sockets[0].listeners.get('message')({ data: JSON.stringify({ type: 'composition.changed', surface: 'application' }) });
+    assert.equal(errors[1]?.code, 'INVALID_MESSAGE');
+    controller.abort();
+    assert.equal(sockets[0].closed, true);
   } finally {
     for (const [key, value] of Object.entries(original)) {
       if (value === undefined) delete globalThis[key]; else globalThis[key] = value;
@@ -910,7 +2264,7 @@ test('unsupported protocol majors are rejected without mutating state', async ()
   let context;
   let error;
   let resyncs = 0;
-  const client = new W3BoosterClient({
+  const client = createClient({
     clientId: 'test_app',
     transport: { name: 'test', async open(value) { context = value; }, resync() { resyncs++; } }
   });
@@ -925,13 +2279,16 @@ test('unsupported protocol majors are rejected without mutating state', async ()
   assert.equal(client.state.get(), null);
   assert.ok(error instanceof ProtocolError);
   assert.equal(error.code, 'UNSUPPORTED_PROTOCOL');
-  assert.equal(resyncs, 1);
+  assert.equal(resyncs, 0);
+  assert.equal(client.status, 'error');
+  assert.equal(client.lifecycle.get().error, error);
+  await client.disconnect();
 });
 
 test('runtime validation enforces the public state types', async () => {
   let context;
   const errors = [];
-  const client = new W3BoosterClient({
+  const client = createClient({
     clientId: 'test_app',
     transport: { name: 'test', async open(value) { context = value; } }
   });
@@ -974,22 +2331,102 @@ test('runtime validation enforces the public state types', async () => {
       overlay: { settings: {}, misc: { hudScale: 'invalid' } }
     }
   });
+  context.onMessage({
+    version: PROTOCOL_VERSION,
+    sequence: 5,
+    type: 'state.snapshot',
+    data: {
+      match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' },
+      players: [],
+      overlay: { settings: {}, misc: { hudScale: 1.2 } }
+    }
+  });
+  context.onMessage({
+    version: PROTOCOL_VERSION,
+    sequence: 6,
+    type: 'state.snapshot',
+    data: {
+      match: { id: 'match', status: 'running', gameTime: 1.5, mode: '1v1' },
+      players: []
+    }
+  });
+  context.onMessage({
+    version: PROTOCOL_VERSION,
+    sequence: 7,
+    type: 'state.snapshot',
+    data: {
+      match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1', startedAt: 'yesterday' },
+      players: []
+    }
+  });
+  context.onMessage({
+    version: PROTOCOL_VERSION,
+    sequence: 8,
+    type: 'state.snapshot',
+    data: {
+      match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' },
+      players: [{ id: '7', mainAccount: { name: 'Player', mainRace: 1 } }]
+    }
+  });
+  context.onMessage({
+    version: PROTOCOL_VERSION,
+    sequence: 9,
+    type: 'state.snapshot',
+    data: {
+      match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' },
+      players: [{ id: '7', stats: { solo: { wins: 1, losses: 1, winRate: 101 } } }]
+    }
+  });
   assert.equal(client.state.get(), null);
   assert.match(errors[0]?.message, /Unknown match status/);
   assert.match(errors[1]?.message, /valid ID/);
   assert.match(errors[2]?.message, /resources.gold/);
   assert.match(errors[3]?.message, /hudScale/);
+  assert.match(errors[4]?.message, /between 0.5 and 1.0/);
+  assert.match(errors[5]?.message, /core fields/);
+  assert.match(errors[6]?.message, /ISO-8601/);
+  assert.match(errors[7]?.message, /mainRace/);
+  assert.match(errors[8]?.message, /between 0 and 100/);
+  await client.disconnect();
+});
+
+test('active and completed matches require stable identity', async () => {
+  let context;
+  let error;
+  const client = createClient({
+    clientId: 'test_app',
+    transport: { name: 'test', async open(value) { context = value; } }
+  });
+  client.on('error', value => { error = value; });
+  await client.connect();
+  context.onMessage({
+    version: PROTOCOL_VERSION,
+    sequence: 1,
+    type: 'state.snapshot',
+    data: { match: { id: '', status: 'running', gameTime: 1, mode: '1v1' }, players: [] }
+  });
+  assert.equal(client.state.get(), null);
+  assert.match(error?.message, /non-empty ID/);
   await client.disconnect();
 });
 
 test('unversioned protocol envelopes are rejected', async () => {
   let context;
   let error;
-  const client = new W3BoosterClient({
+  let closes = 0;
+  let resyncs = 0;
+  const issues = [];
+  const client = createClient({
     clientId: 'test_app',
-    transport: { name: 'test', async open(value) { context = value; } }
+    transport: {
+      name: 'test',
+      async open(value) { context = value; },
+      close() { closes += 1; },
+      resync() { resyncs += 1; }
+    }
   });
   client.on('error', value => { error = value; });
+  client.on('issue', issue => issues.push(issue));
   await client.connect();
   context.onMessage({
     sequence: 1,
@@ -998,12 +2435,19 @@ test('unversioned protocol envelopes are rejected', async () => {
   });
   assert.equal(client.state.get(), null);
   assert.equal(error?.code, 'UNSUPPORTED_PROTOCOL');
+  await Promise.resolve();
+  assert.equal(client.status, 'error');
+  assert.equal(client.lifecycle.get().isSynchronized, false);
+  assert.equal(issues.at(-1)?.recoverable, false);
+  assert.equal(resyncs, 0);
+  assert.equal(closes, 1);
+  await client.disconnect();
 });
 
 test('unsafe patch paths cannot mutate object prototypes', async () => {
   let context;
   let error;
-  const client = new W3BoosterClient({ clientId: 'test_app', transport: { name: 'test', async open(value) { context = value; } } });
+  const client = createClient({ clientId: 'test_app', transport: { name: 'test', async open(value) { context = value; } } });
   client.on('error', value => { error = value; });
   await client.connect();
   context.onMessage({
@@ -1017,4 +2461,15 @@ test('unsafe patch paths cannot mutate object prototypes', async () => {
   assert.equal(Object.prototype.w3boosterPolluted, undefined);
   assert.ok(error instanceof ProtocolError);
   assert.equal(error.code, 'UNSAFE_PATCH');
+  context.onMessage({
+    version: '1.0', sequence: 3, type: 'state.patch',
+    data: [{ op: 'replace', path: '/match/gameTime', value: 999 }]
+  });
+  assert.equal(client.state.get().match.gameTime, 0);
+  context.onMessage({
+    version: '1.0', sequence: 4, type: 'state.snapshot',
+    data: { match: { id: '', status: 'none', gameTime: 4, mode: 'undefined' }, players: [] }
+  });
+  assert.equal(client.state.get().match.gameTime, 4);
+  await client.disconnect();
 });
