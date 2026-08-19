@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noImplicitAny": false,
+    "target": "ES2022"
+  },
+  "include": [
+    "src/index.runtime.js",
+    "src/selectors.runtime.js",
+    "src/store.runtime.js",
+    "src/app.runtime.js",
+    "src/standard-game.runtime.js",
+    "src/assets.runtime.js",
+    "src/settings.js",
+    "src/compositor.js",
+    "src/testing.js",
+    "src/react.js",
+    "src/standard-game-objects.js",
+    "src/standard-game-icons.js",
+    "src/standard-game-cooldowns.js"
+  ]
+}

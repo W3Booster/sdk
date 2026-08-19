@@ -9,8 +9,10 @@ class ImmutableMap extends Map {
     Object.freeze(this);
   }
 
-  set() { throw new TypeError('Cooldown maps are immutable.'); }
-  delete() { throw new TypeError('Cooldown maps are immutable.'); }
+  /** @returns {this} */
+  set(_key, _value) { throw new TypeError('Cooldown maps are immutable.'); }
+  /** @returns {boolean} */
+  delete(_key) { throw new TypeError('Cooldown maps are immutable.'); }
   clear() { throw new TypeError('Cooldown maps are immutable.'); }
 }
 
@@ -45,7 +47,7 @@ export function getAbilityCooldown(rawcode, level = 1) {
 export function abilityCooldown(ability, gameTime) {
   const total = getAbilityCooldown(ability?.name, ability?.level);
   const activation = Number(ability?.lastActivation);
-  if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(activation) || activation <= 0) return undefined;
+  if (typeof total !== 'number' || !Number.isFinite(total) || total <= 0 || !Number.isFinite(activation) || activation <= 0) return undefined;
   const elapsed = Math.max(0, finiteNonNegative(gameTime) - activation / 1000);
   const remaining = Math.max(0, total - elapsed);
   return Object.freeze({ total, elapsed, remaining, progress: Math.min(1, elapsed / total), active: remaining > 0 });

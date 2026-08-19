@@ -1,4 +1,4 @@
-import { normalizeAssetBaseUrl } from './assets.js';
+import { countryFlagUrl, normalizeAssetBaseUrl, resolveAssetBaseUrl } from './assets.js';
 import { icons } from './standard-game-icon-data.js';
 
 const DEFAULT_ASSET_BASE_URL = 'https://static.w3booster.com/assets';
@@ -59,9 +59,11 @@ export function assetManifestUrl(options = {}) {
   return `${baseUrl}/wc3/standard-game/${ASSET_CATALOG_VERSION}/manifest.json`;
 }
 
-/** Bind a hosted catalog once and derive Classic/Reforged URLs directly from match state. */
+/** Bind launch-aware hosted catalogs once and derive shared frontend asset URLs. */
 export function createAssetResolver(options = {}) {
-  const baseUrl = normalizeAssetBaseUrl(options.baseUrl ?? DEFAULT_ASSET_BASE_URL);
+  const baseUrl = options.baseUrl === undefined
+    ? resolveAssetBaseUrl({ location: options.location })
+    : normalizeAssetBaseUrl(options.baseUrl);
   const urlOptions = match => ({
     baseUrl,
     graphics: match?.isReforged === false ? 'classic' : 'reforged'
@@ -71,6 +73,7 @@ export function createAssetResolver(options = {}) {
     hero: (match, hero) => heroIconUrl(hero, urlOptions(match)),
     ability: (match, ability) => abilityIconUrl(ability, urlOptions(match)),
     upgrade: (match, upgrade) => upgradeIconUrl(upgrade, urlOptions(match)),
-    item: (match, rawcode) => itemIconUrl(rawcode, urlOptions(match))
+    item: (match, rawcode) => itemIconUrl(rawcode, urlOptions(match)),
+    countryFlag: country => countryFlagUrl(country, { baseUrl })
   });
 }

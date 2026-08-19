@@ -83,7 +83,9 @@ async function initializeProject(arguments_) {
   }
 
   function addLifecycleScript(name) {
-    const automaticCommand = 'npm run w3booster:sync';
+    // Package lifecycle scripts already receive node_modules/.bin on PATH, so
+    // invoke the SDK CLI directly instead of assuming npm/pnpm/yarn/bun.
+    const automaticCommand = 'w3booster-settings';
     const current = typeof scripts[name] === 'string' ? scripts[name].trim() : '';
     if (current.includes(automaticCommand)) return;
     scripts[name] = current ? `${automaticCommand} && ${current}` : automaticCommand;

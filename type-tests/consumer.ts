@@ -10,7 +10,7 @@ import type {
 import { canUseHostCapability, classifyW3BoosterError, connect, ConnectionError, createClient, openClient, PermissionRequiredError, ProtocolError, startClient, W3BoosterClient } from '../src/index.js';
 import { defineApplication } from '../src/app.js';
 import type { ApplicationRuntimeStartOptions } from '../src/app.js';
-import { broadcasterFirstTeams, broadcasterPlayer, currentUpgrades, groupPlayersByTeam, hasCapability, heroInventory, inventorySlotIdentity, matchScore, matchScoreOrZero, overlayRuntime as selectOverlayRuntime, playerDisplayIdentity, playerHeroes, playerResources, playerResourcesOrZero, upgradeIdentity } from '../src/selectors.js';
+import { broadcasterFirstTeams, broadcasterPlayer, currentUpgrades, groupPlayersByTeam, hasCapability, headToHeadPair, heroInventory, inventorySlotIdentity, matchScore, matchScoreOrZero, overlayRuntime as selectOverlayRuntime, playerDisplayIdentity, playerHeroes, playerResources, playerResourcesOrZero, upgradeIdentity } from '../src/selectors.js';
 import type { PlayerTeam } from '../src/selectors.js';
 import * as standardGame from '../src/standard-game.js';
 import * as standardGameObjects from '../src/standard-game-objects.js';
@@ -59,6 +59,7 @@ async function useSdk() {
   const heroHealth: number = standardGame.valuePoolRatio({ current: 50, max: 100 });
   const raceLocalizationKey: `race.${import('../src/index.js').Race}` = standardGame.raceInfo('night_elf').localizationKey;
   const orderedPlayers: readonly Player[] = standardGame.orderHeadToHeadPlayers(state.players);
+  const scopedPair: readonly [Player, Player] | null = headToHeadPair(state.players);
   const orderedPair: readonly [Player, Player] = standardGame.orderHeadToHeadPlayers(
     [state.players[0], state.players[1]] as const
   );
@@ -132,7 +133,18 @@ async function useSdk() {
   const hostActionLifetime = new AbortController();
   const scoreResult: void = await client.host.changeMatchScore('wins', 1, { signal: hostActionLifetime.signal });
   const windowResult: void = await client.host.openWindow({ path: '?view=compact' }, { timeout: 1000 });
-  const commandResult: { accepted: boolean } = await client.host.command<{ accepted: boolean }>('example.command', { enabled: true });
+  const commandResult: { accepted: boolean } = await client.host.command('example.command', { enabled: true }, {
+    parse(value): { accepted: boolean } {
+      if (typeof value !== 'object' || value === null || !('accepted' in value) || typeof value.accepted !== 'boolean') {
+        throw new TypeError('invalid command acknowledgement');
+      }
+      return { accepted: value.accepted };
+    }
+  });
+  const unknownCommandResult: unknown = await client.host.command('example.command');
+  void unknownCommandResult;
+  // @ts-expect-error Typed acknowledgements require a runtime parser.
+  client.host.command<{ accepted: boolean }>('example.command', { enabled: true });
   const hostCapabilities = await client.host.refreshCapabilities({ signal: hostActionLifetime.signal });
   const canOpenWindow: boolean = client.host.can('window:open');
   const hostCapabilityStatus: 'unavailable' | 'pending' | 'known' | 'legacy' = client.host.capabilityStatus;
@@ -197,6 +209,8 @@ async function useSdk() {
   // @ts-expect-error Generated application revisions are owned by the binding and cannot be overridden.
   application.createClient({ applicationRevision: 'ignored' });
   const applicationRuntime = application.createRuntime<ExampleOverlayExtensions>({ demo: { interval: 0 } });
+  const runtimeSignal: AbortSignal = applicationRuntime.signal;
+  applicationRuntime.client.on('issue', event => console.log(event), { signal: runtimeSignal });
   applicationRuntime.lifecycle.subscribe(snapshot => {
     const resolvedLayout: 'compact' | 'wide' = snapshot.settings.layout;
     const runtimeState: MatchState<DeepPartial<ExampleSettings>, ExampleOverlayExtensions> | null = snapshot.state;
@@ -239,7 +253,7 @@ async function useSdk() {
   const connectionError = new ConnectionError('connection', [permissionError]);
   const protocolError = new ProtocolError('INVALID_TEST', 'protocol', { field: 'value' });
   const development: boolean | undefined = composition[0]?.development;
-  console.log(layout, player, store, scopes, message, synchronizedState, state ? store.isSynchronized : false, overlayRuntime?.hudScale, archmageIcon, archmageIconUrl, specializedIconUrl, specializedCooldown, heroIcon, germanFlagUrl, heroLevel, raceLocalizationKey, broadcaster, teams, orderedTeams, presentationTeams, inventory, stableRuntime, inventoryKey, current, upgradeKey, presentationColor, displayLevel, resourcesAvailable, resources, resourcesOrZero, score, scoreOrZero, fixture, cooldown, cooldowns, resolvedSettings, recorderClient.diagnostics.localTransport, testingOptions, testingClient, synchronousTransport, scopedClient, configuredDemo, explicitlyOpened, explicitlyStarted, extensionRound, invalidOverlay, groupedHistory, historyBroadcaster, historyIdentity, stableNames, statusStore.get(), statusSubscribable, composition, development, connectionError, protocolError, hostCapabilities, canOpenWindow, hostCapabilityStatus, scoreResult, windowResult, commandResult);
+  console.log(layout, player, store, scopes, message, synchronizedState, state ? store.isSynchronized : false, overlayRuntime?.hudScale, archmageIcon, archmageIconUrl, specializedIconUrl, specializedCooldown, heroIcon, germanFlagUrl, heroLevel, raceLocalizationKey, broadcaster, teams, orderedTeams, presentationTeams, orderedPlayers, orderedPair, scopedPair, inventory, stableRuntime, inventoryKey, current, upgradeKey, presentationColor, displayLevel, resourcesAvailable, resources, resourcesOrZero, score, scoreOrZero, fixture, cooldown, cooldowns, resolvedSettings, recorderClient.diagnostics.localTransport, testingOptions, testingClient, synchronousTransport, scopedClient, configuredDemo, explicitlyOpened, explicitlyStarted, extensionRound, invalidOverlay, groupedHistory, historyBroadcaster, historyIdentity, stableNames, statusStore.get(), statusSubscribable, composition, development, connectionError, protocolError, hostCapabilities, canOpenWindow, hostCapabilityStatus, scoreResult, windowResult, commandResult);
 }
 
 void useSdk;

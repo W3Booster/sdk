@@ -108,6 +108,21 @@ test('standard-game asset resolvers bind the catalog and derive graphics from ma
     assets.ability({ isReforged: true }, { name: 'AHbz' }),
     'http://localhost:8083/wc3/standard-game/v1/reforged/icons/btnblizzard.png'
   );
+  assert.equal(
+    assets.countryFlag('DE'),
+    'http://localhost:8083/country-flags/v1/flags/de.png'
+  );
+  const launchAssets = standardGameObjects.createAssetResolver({
+    location: { search: '?backend=local&assetBaseUrl=http%3A%2F%2Flocalhost%3A9090%2Fassets' }
+  });
+  assert.equal(
+    launchAssets.hero({ isReforged: true }, { id: 'Hamg' }),
+    'http://localhost:9090/assets/wc3/standard-game/v1/reforged/icons/btnheroarchmage.png'
+  );
+  assert.equal(
+    launchAssets.countryFlag('GB-ENG'),
+    'http://localhost:9090/assets/country-flags/v1/flags/gb-eng.png'
+  );
 });
 
 test('standard-game derives upgrade categories and statistics without application presentation rules', () => {
@@ -150,6 +165,18 @@ test('standard-game provides canonical frontend team ordering and presentation v
     standardGame.orderMatchTeams(teamPlayers, { isObserver: true, broadcasterPlayerId: 'me' })
       .map(team => team.players.map(player => player.id)),
     [['me', 'ally'], ['opponent', 'opponent-ally']]
+  );
+
+  const freeForAllPlayers = [0, 1, 2, 3].map(team => ({ id: `ffa-${team}`, team }));
+  assert.deepEqual(
+    standardGame.orderMatchTeams(freeForAllPlayers, { isObserver: true })
+      .map(team => team.teamId),
+    [0, 1, 2, 3]
+  );
+  assert.deepEqual(
+    standardGame.orderMatchTeams(freeForAllPlayers, { isObserver: true }, { reverse: true })
+      .map(team => team.teamId),
+    [3, 2, 1, 0]
   );
 
   const colorPlayers = [

@@ -1,5 +1,5 @@
 import { ConnectionError, HostActionError } from './errors.js';
-import { createAbortError, isPlainObject, validateAbortSignal } from './network.js';
+import { abortable, createAbortError, isPlainObject, validateAbortSignal } from './network.js';
 import { assertSafeValue, deepFreeze, structuredCloneSafe } from './values.js';
 
 const HOST_ACTION_TIMEOUT = 10000;
@@ -20,8 +20,10 @@ export class W3BoosterHost {
     this.onListenerError = onListenerError;
     this.authenticated = false;
     this.targetOrigin = '*';
+    /** @type {readonly import('../contracts.js').HostCapability[]} */
     this._capabilities = Object.freeze([]);
     this._capabilityStatus = 'unavailable';
+    /** @type {import('../contracts.js').HostLifecycleSnapshot} */
     this._lifecycleSnapshot = UNAVAILABLE_HOST_SNAPSHOT;
     this.capabilitySubscribers = new Set();
     this.lifecycleSubscribers = new Set();
@@ -31,6 +33,7 @@ export class W3BoosterHost {
     this.domReadyListener = null;
     this.domReadyDocument = null;
     this.pendingRequests = new Map();
+    this.settingWriteQueue = null;
     this.requestSequence = 0;
     this.responseListener = event => this.#handleResponse(event);
   }
@@ -84,7 +87,7 @@ export class W3BoosterHost {
     if (this.authenticated) {
       this.#setCapabilityState([], 'pending');
       hostEventTarget()?.addEventListener?.('message', this.responseListener);
-      queueMicrotask(() => { if (this.authenticated) void this.refreshCapabilities(); });
+      queueMicrotask(() => { if (this.authenticated) void this.#refreshCapabilities({}, true); });
     }
   }
 
@@ -122,7 +125,10 @@ export class W3BoosterHost {
       throw new TypeError('command must be a non-empty string of at most 160 characters');
     }
     if (payload !== undefined) assertSafeValue(payload, 'host command payload');
-    return this.#request(command, payload, options);
+    const parser = options?.parse;
+    if (parser !== undefined && typeof parser !== 'function') throw new TypeError('host command parser must be a function');
+    const request = this.#request(command, payload, options);
+    return parser ? request.then(value => parser(value)) : request;
   }
 
   setSetting(path, value, options = {}) {
@@ -135,6 +141,25 @@ export class W3BoosterHost {
       invalid.cause = error;
       throw invalid;
     }
+    options = validateHostActionOptions(options);
+    const previous = this.settingWriteQueue;
+    const operation = previous
+      ? previous.then(() => this.#setSettingNow(path, value, options))
+      : this.#setSettingNow(path, value, options);
+    const queueTail = operation.then(() => undefined, () => undefined);
+    this.settingWriteQueue = queueTail;
+    const release = () => {
+      if (this.settingWriteQueue === queueTail) this.settingWriteQueue = null;
+    };
+    void queueTail.then(release);
+    const result = operation.then(
+      saved => { release(); return saved; },
+      error => { release(); throw error; }
+    );
+    return abortable(result, options.signal);
+  }
+
+  #setSettingNow(path, value, options) {
     return this.#request('application.settings.set', { path, value }, options).then(result => {
       if (!isPlainObject(result?.settings)) throw new HostActionError('The W3Booster host returned invalid saved settings.', 'INVALID_HOST_RESPONSE');
       assertSafeValue(result.settings, 'saved settings');
@@ -188,11 +213,22 @@ export class W3BoosterHost {
   }
 
   async refreshCapabilities(options = {}) {
+    return this.#refreshCapabilities(options, false);
+  }
+
+  async #refreshCapabilities(options = {}, tolerateFailure = false) {
     options = validateHostActionOptions(options);
     if (options.signal?.aborted) {
       throw createAbortError('W3Booster host capability refresh was cancelled.');
     }
-    if (!this.authenticated) return this._capabilities;
+    if (!this.authenticated) {
+      if (tolerateFailure) return this._capabilities;
+      throw new ConnectionError(
+        'This application is not running inside an authenticated W3Booster host.',
+        [],
+        'HOST_UNAVAILABLE'
+      );
+    }
     if (this._capabilityStatus !== 'known') this.#setCapabilityState(this._capabilities, 'pending');
     try {
       const result = await this.#request('host.capabilities.get', undefined, options);
@@ -204,8 +240,8 @@ export class W3BoosterHost {
       if (!Array.isArray(result?.capabilities)) throw new TypeError('The W3Booster host returned invalid capabilities.');
       this.#setCapabilityState(result.capabilities.filter(capability => HOST_CAPABILITIES.has(capability)), 'known');
     } catch (error) {
-      if (error?.name === 'AbortError') throw error;
-      if (this.authenticated && this._capabilityStatus === 'pending') {
+      if (error instanceof Error && error.name === 'AbortError') throw error;
+      if (this.authenticated) {
         // Older hosts either acknowledge unknown generic commands without a
         // value or reject them explicitly. Other failures must not enable UI.
         const status = error instanceof HostActionError && error.code === 'UNKNOWN_COMMAND'
@@ -213,10 +249,15 @@ export class W3BoosterHost {
           : 'unavailable';
         this.#setCapabilityState([], status);
       }
+      if (!tolerateFailure) throw error;
     }
     return this._capabilities;
   }
 
+  /**
+   * @param {readonly import('../contracts.js').HostCapability[]} capabilities
+   * @param {import('../contracts.js').HostCapabilityStatus} status
+   */
   #setCapabilityState(capabilities, status) {
     const next = Object.freeze(Array.from(new Set(capabilities)));
     const available = this.available;
@@ -290,8 +331,9 @@ export class W3BoosterHost {
     };
     this.resizeListener = () => {
       if (this.resizeFrame !== null) return;
-      this.resizeFrame = globalThis.requestAnimationFrame
-        ? requestAnimationFrame(report)
+      const requestFrame = Reflect.get(globalThis, 'requestAnimationFrame');
+      this.resizeFrame = typeof requestFrame === 'function'
+        ? requestFrame(report)
         : setTimeout(report, 0);
     };
     const observe = () => {
@@ -323,7 +365,8 @@ export class W3BoosterHost {
     this.resizeObserver = null;
     if (this.resizeListener) globalThis.removeEventListener?.('resize', this.resizeListener);
     if (this.resizeFrame !== null) {
-      if (globalThis.cancelAnimationFrame) cancelAnimationFrame(this.resizeFrame);
+      const cancelFrame = Reflect.get(globalThis, 'cancelAnimationFrame');
+      if (typeof cancelFrame === 'function') cancelFrame(this.resizeFrame);
       else clearTimeout(this.resizeFrame);
     }
     this.resizeFrame = null;
@@ -401,7 +444,8 @@ export function captureHostContext(clientId) {
 }
 
 function hostEventTarget() {
-  return globalThis.window?.addEventListener ? globalThis.window : globalThis;
+  const candidate = Reflect.get(globalThis, 'window');
+  return candidate && typeof candidate.addEventListener === 'function' ? candidate : globalThis;
 }
 
 function launchHostOrigin() {

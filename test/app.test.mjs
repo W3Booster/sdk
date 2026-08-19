@@ -93,6 +93,7 @@ test('managed application runtimes publish client, resolved settings, host state
   runtime.lifecycle.subscribe(snapshot => snapshots.push(snapshot));
 
   assert.equal(runtime.lifecycle.get().client, runtime.client);
+  assert.equal(runtime.signal.aborted, false);
   assert.deepEqual(runtime.lifecycle.get().settings, definition.settingsDefaults);
   assert.equal(runtime.lifecycle.get().host.capabilityStatus, 'unavailable');
 
@@ -105,9 +106,72 @@ test('managed application runtimes publish client, resolved settings, host state
   assert.ok(snapshots.length >= 3);
 
   await runtime.stop();
+  assert.equal(runtime.signal.aborted, true);
   assert.equal(runtime.lifecycle.get().status, 'closed');
   assert.equal(runtime.lifecycle.get().state, null);
   await assert.rejects(runtime.start(), /has been stopped/);
+});
+
+test('managed runtime teardown never publishes a half-updated client and host aggregate', async () => {
+  const original = {
+    window: globalThis.window,
+    location: globalThis.location,
+    document: globalThis.document
+  };
+  const hostWindow = { postMessage() {} };
+  globalThis.window = {
+    parent: hostWindow,
+    opener: null,
+    addEventListener() {},
+    removeEventListener() {}
+  };
+  globalThis.location = {
+    search: '?w3surface=application',
+    hash: '#w3session=launch-session',
+    origin: 'http://localhost:8082'
+  };
+  globalThis.document = { referrer: 'https://app.w3booster.com/apps' };
+  try {
+    const app = defineApplication(definition);
+    const runtime = app.createRuntime({
+      transport: {
+        name: 'atomic-runtime-test',
+        open(context) {
+          context.onMessage({
+            version: '1.0',
+            sequence: 1,
+            type: 'state.snapshot',
+            data: createDemoState({
+              clientId: definition.clientId,
+              settings: definition.settingsDefaults
+            })
+          });
+        },
+        close() {}
+      }
+    });
+    const snapshots = [];
+    runtime.lifecycle.subscribe(snapshot => snapshots.push(snapshot));
+    await runtime.start();
+    assert.equal(runtime.lifecycle.get().host.available, true);
+    snapshots.length = 0;
+
+    await runtime.stop();
+
+    assert.equal(snapshots.some(snapshot =>
+      snapshot.status === 'connected' && snapshot.isSynchronized && !snapshot.host.available
+    ), false);
+    assert.equal(snapshots.some(snapshot =>
+      (snapshot.status === 'closed' || snapshot.status === 'error') && snapshot.host.available
+    ), false);
+    assert.equal(snapshots.at(-1).status, 'closed');
+    assert.equal(snapshots.at(-1).host.available, false);
+  } finally {
+    for (const [key, value] of Object.entries(original)) {
+      if (value === undefined) delete globalThis[key];
+      else globalThis[key] = value;
+    }
+  }
 });
 
 test('managed application runtime start and stop are single-flight operations', async () => {

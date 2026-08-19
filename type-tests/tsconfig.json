@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "strict": true,
+    "allowJs": true,
     "noEmit": true,
     "target": "ES2022",
     "module": "ESNext",
@@ -8,5 +9,5 @@
     "lib": ["ES2022", "DOM"],
     "skipLibCheck": false
   },
-  "include": ["consumer.ts"]
+  "include": ["consumer.ts", "runtime-contracts.ts"]
 }

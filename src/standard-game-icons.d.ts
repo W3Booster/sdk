@@ -1,4 +1,5 @@
 import type { CompletedUpgrade, Hero, HeroAbility, Match } from './index.js';
+import type { AssetLaunchLocation } from './assets.js';
 
 export type WarcraftGraphics = 'classic' | 'reforged';
 export interface AssetUrlOptions { readonly graphics?: WarcraftGraphics; readonly baseUrl?: string }
@@ -19,5 +20,10 @@ export interface StandardGameAssetResolver {
   ability(match: Pick<Match, 'isReforged'>, ability: Pick<HeroAbility, 'name'> | null | undefined): string | undefined;
   upgrade(match: Pick<Match, 'isReforged'>, upgrade: Pick<CompletedUpgrade, 'name'> | null | undefined): string | undefined;
   item(match: Pick<Match, 'isReforged'>, rawcode: string | null | undefined): string | undefined;
+  countryFlag(country: string | null | undefined): string | undefined;
 }
-export function createAssetResolver(options?: Pick<AssetUrlOptions, 'baseUrl'>): StandardGameAssetResolver;
+export interface CreateAssetResolverOptions extends Pick<AssetUrlOptions, 'baseUrl'> {
+  /** Launch location to inspect when no explicit base URL is supplied. Defaults to globalThis.location. */
+  readonly location?: AssetLaunchLocation | null;
+}
+export function createAssetResolver(options?: CreateAssetResolverOptions): StandardGameAssetResolver;

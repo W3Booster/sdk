@@ -44,7 +44,7 @@ export async function getOverlayComposition(options = {}) {
       credential = candidateCredential;
       return validateCompositionApps(result.body);
     } catch (error) {
-      if (options.signal?.aborted || error?.name === 'AbortError') throw createAbortError();
+      if (options.signal?.aborted || (error instanceof Error && error.name === 'AbortError')) throw createAbortError();
       errors.push(error);
       if (browserSource) credential = null;
     }
@@ -274,6 +274,7 @@ function createCompositionWatcher(authorizeWatch, listener, onError, externalSig
   function scheduleReconnect() {
     if (stopped || reconnectTimer) return;
     const delay = reconnectBackoff.nextDelay();
+    if (delay === null) return;
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
       void connect(false);
@@ -286,7 +287,7 @@ function createCompositionWatcher(authorizeWatch, listener, onError, externalSig
       if (stopped) return watcher;
       return await openSocket(authorization.websocketUrl, authorization.credential, initial);
     } catch (error) {
-      if (stopped || error?.name === 'AbortError') {
+      if (stopped || (error instanceof Error && error.name === 'AbortError')) {
         if (initial) throw error;
         return watcher;
       }

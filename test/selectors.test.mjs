@@ -7,6 +7,7 @@ import {
   currentUpgrades,
   groupPlayersByTeam,
   hasCapability,
+  headToHeadPair,
   heroInventory,
   inventorySlotIdentity,
   isActiveMatch,
@@ -37,6 +38,11 @@ test('selectors expose common match and player derivations', () => {
   assert.equal(broadcasterPlayer({}, players, { fallbackToFirst: true })?.id, 'ally');
   assert.equal(broadcasterPlayer({}, [{ id: 'undefined' }]), null);
   assert.equal(broadcasterPlayer({}, [{ id: 'undefined' }], { fallbackToFirst: true })?.id, 'undefined');
+  assert.equal(headToHeadPair(players), null);
+  const pair = headToHeadPair(players.slice(0, 2));
+  assert.deepEqual(pair, players.slice(0, 2));
+  assert.equal(Object.isFrozen(pair), true);
+  assert.equal(headToHeadPair(players.slice(0, 1)), null);
   assert.deepEqual(groupPlayersByTeam(players).map(team => ({
     teamId: team.teamId,
     players: team.players.map(player => player.id)
@@ -106,6 +112,19 @@ test('selectors expose canonical inventory and preserve non-BattleTag hashes', (
   assert.equal(upgradeIdentity({ name: 'Rhme', level: 2 }), 'Rhme:2');
   assert.throws(() => inventorySlotIdentity(-1, 'ratf'), /non-negative integer/);
   assert.throws(() => upgradeIdentity({ name: '', level: 1 }), /name and finite level/);
+});
+
+test('display identity strips BattleTag discriminators from both account and in-game names', () => {
+  assert.deepEqual(playerDisplayIdentity({
+    id: 'player',
+    name: 'InGame#1234',
+    mainAccount: { name: 'Account#5678' }
+  }, { stripBattleTagDiscriminator: true }), {
+    primaryName: 'Account',
+    inGameName: 'InGame',
+    accountName: 'Account',
+    hasAlias: true
+  });
 });
 
 test('allocating selectors preserve identity for immutable structurally shared inputs', () => {

@@ -15,6 +15,7 @@ import {
   W3BoosterClient
 } from '../src/index.js';
 import { getOverlayComposition, watchOverlayComposition } from '../src/compositor.js';
+import { applyLocalRecorderUpdates } from '../src/internal/recorder.js';
 
 const waitForRecorderFrame = () => new Promise(resolve => setTimeout(resolve, 25));
 const waitForDeferredModule = async predicate => {
@@ -146,11 +147,16 @@ test('host actions validate JavaScript inputs before contacting the host', async
   assert.throws(() => client.host.openWindow({}, { signal: {} }), /AbortSignal/);
   assert.throws(() => client.host.closeWindow({ timeout: 0 }), /positive number/);
   assert.throws(() => client.host.command('   '), /non-empty string/);
+  assert.throws(() => client.host.command('valid', undefined, { parse: true }), /parser must be a function/);
   const cancelled = new AbortController();
   cancelled.abort();
   await assert.rejects(
     client.host.refreshCapabilities({ signal: cancelled.signal }),
     error => error?.name === 'AbortError'
+  );
+  await assert.rejects(
+    client.host.refreshCapabilities(),
+    error => error?.code === 'HOST_UNAVAILABLE'
   );
 });
 
@@ -394,6 +400,42 @@ test('host bridge opens app-owned windows after an authenticated platform connec
       }
     });
     assert.deepEqual(await saved, { layout: 'wide' });
+
+    const firstSettingWrite = client.host.setSetting('observer', { layout: 'first' });
+    const firstSettingMessage = messages.at(-1).message;
+    const secondSettingWrite = client.host.setSetting('observer.layout', 'second');
+    assert.equal(messages.at(-1).message.requestId, firstSettingMessage.requestId);
+    for (const listener of listeners) listener({
+      source: host,
+      origin: 'https://app.w3booster.com',
+      data: {
+        source: 'w3booster-host', clientId: 'test_app', type: 'host.response',
+        requestId: firstSettingMessage.requestId, ok: true, value: { settings: { observer: { layout: 'first' } } }
+      }
+    });
+    assert.deepEqual(await firstSettingWrite, { observer: { layout: 'first' } });
+    await Promise.resolve();
+    const secondSettingMessage = messages.at(-1).message;
+    assert.notEqual(secondSettingMessage.requestId, firstSettingMessage.requestId);
+    assert.equal(secondSettingMessage.payload.value, 'second');
+    for (const listener of listeners) listener({
+      source: host,
+      origin: 'https://app.w3booster.com',
+      data: {
+        source: 'w3booster-host', clientId: 'test_app', type: 'host.response',
+        requestId: secondSettingMessage.requestId, ok: true, value: { settings: { observer: { layout: 'second' } } }
+      }
+    });
+    assert.deepEqual(await secondSettingWrite, { observer: { layout: 'second' } });
+
+    const parsedCommand = client.host.command('example.parsed', undefined, {
+      parse: value => {
+        if (!value || typeof value !== 'object' || value.accepted !== true) throw new TypeError('invalid acknowledgement');
+        return value.accepted;
+      }
+    });
+    assert.equal(await acknowledge(parsedCommand, { accepted: true }), true);
+
     await acknowledge(client.host.changeMatchScore('wins', 1));
     await acknowledge(client.host.resetMatchScore());
     await acknowledge(client.host.closeWindow());
@@ -412,6 +454,20 @@ test('host bridge opens app-owned windows after an authenticated platform connec
     assert.deepEqual(await capabilities, ['window:open', 'settings:write']);
     assert.equal(client.host.supports('window:open'), true);
     assert.equal(client.host.supports('window:close'), false);
+    const invalidCapabilities = client.host.refreshCapabilities();
+    const invalidCapabilityMessage = messages.at(-1).message;
+    for (const listener of listeners) listener({
+      source: host,
+      origin: 'https://app.w3booster.com',
+      data: {
+        source: 'w3booster-host', clientId: 'test_app', type: 'host.response',
+        requestId: invalidCapabilityMessage.requestId, ok: true,
+        value: { capabilities: 'invalid' }
+      }
+    });
+    await assert.rejects(invalidCapabilities, /invalid capabilities/);
+    assert.equal(client.host.capabilityStatus, 'unavailable');
+    assert.deepEqual(client.host.capabilities, []);
     const acknowledgedWindow = client.host.openWindow({ path: '?view=compact' });
     const windowMessage = messages.at(-1).message;
     assert.equal(windowMessage.type, 'host.open-window');
@@ -756,6 +812,39 @@ test('public overlay runtime snapshots and demo extensions survive normalization
   assert.equal(demo.state.get().overlay.runtime.hudScale, 0.75);
   assert.deepEqual(demo.state.get().overlay.tournament, { round: 4 });
   await demo.disconnect();
+});
+
+test('modern overlay runtime values override coexisting legacy platform metadata', async () => {
+  let context;
+  const client = createClient({
+    clientId: 'test_app',
+    transport: { name: 'mixed-overlay-runtime', open(value) { context = value; }, close() {} }
+  });
+  await client.open();
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {
+    match: { id: '', status: 'none', gameTime: 0, mode: 'undefined' },
+    players: [],
+    overlay: {
+      misc: {
+        localServerUrls: [],
+        hudScale: 1,
+        teamColors: false,
+        matchscoreWins: 9,
+        matchscoreLosses: 8
+      },
+      runtime: {
+        hudScale: 0.75,
+        teamColors: true,
+        matchScore: { wins: 3, losses: 2 }
+      }
+    }
+  } });
+  assert.deepEqual(client.state.get().overlay.runtime, {
+    hudScale: 0.75,
+    teamColors: true,
+    matchScore: { wins: 3, losses: 2 }
+  });
+  await client.disconnect();
 });
 
 test('map names are decoded once at snapshot and patch ingress', async () => {
@@ -1886,7 +1975,23 @@ test('an AbortSignal cancels the initial connection attempt', async () => {
   const connecting = client.connect();
   controller.abort();
   await assert.rejects(connecting, error => error?.name === 'AbortError');
-  await client.disconnect();
+  assert.equal(client.status, 'closed');
+  assert.equal(client.lifecycle.get().status, 'closed');
+  assert.equal(client.state.get(), null);
+});
+
+test('recorder team-color booleans normalize numeric string values', () => {
+  const state = {
+    capabilities: ['overlay'],
+    match: { id: 'match' },
+    players: [],
+    overlay: { runtime: { teamColors: true } }
+  };
+  const disabled = applyLocalRecorderUpdates(state, [{ class: 'W3TeamColor', value: '0' }]);
+  const enabled = applyLocalRecorderUpdates(disabled, [{ class: 'W3TeamColor', value: '1' }]);
+
+  assert.equal(disabled.overlay.runtime.teamColors, false);
+  assert.equal(enabled.overlay.runtime.teamColors, true);
 });
 
 test('the connection AbortSignal owns the established client lifetime', async () => {

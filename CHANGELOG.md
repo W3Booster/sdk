@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.0.0 - 2026-08-19
+
+- Added a launch-aware standard-game asset resolver that binds Warcraft icons and country flags to one validated asset origin.
+- Replaced parallel JavaScript/declaration surfaces for the root API and core frontend subpaths with generated TypeScript facades and generated version declarations.
+- Made optional settings lifecycle hooks package-manager neutral by invoking the installed SDK CLI directly.
+- Preserved modern overlay runtime values when legacy private metadata coexists during protocol migration, with modern values taking precedence.
+- Added a typed `headToHeadPair()` selector and tuple-preserving head-to-head ordering overload for incomplete scoped frontend state.
+- Made reverse observer ordering apply consistently to multi-team and free-for-all matches.
+- Added compile-time assignability checks between private runtime modules and their generated public value contracts.
+- Serialized all host setting writes so overlapping parent and child paths preserve request order.
+- **Breaking:** generic host commands now return `unknown` unless a runtime parser validates and transforms the acknowledgement.
+- Made the release gate fail when committed generated API files are stale.
+- Enabled checked-JavaScript validation over the public runtime graph in addition to public-contract assignability checks.
+- Made BattleTag-discriminator stripping apply consistently to account and in-game display names.
+
 ## 1.0.1 - 2026-08-19
 
 - Changed the standard cloud API origin from the retired direct `app.w3booster.com:14969` endpoint to the proxied `https://api.w3booster.com` endpoint for stream tickets and compositor requests.

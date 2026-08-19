@@ -22,13 +22,15 @@ export function createReactStore(source, options = {}) {
     getServerSnapshot: () => serverSnapshot,
     subscribe(listener) {
       if (typeof listener !== 'function') throw new TypeError('listener must be a function');
+      const initialSnapshot = source.get();
       let subscribing = true;
       let receivedSynchronousInitial = false;
-      const unsubscribe = source.subscribe(() => {
-        if (subscribing && !receivedSynchronousInitial) {
+      const unsubscribe = source.subscribe(snapshot => {
+        if (subscribing && !receivedSynchronousInitial && Object.is(snapshot, initialSnapshot)) {
           receivedSynchronousInitial = true;
           return;
         }
+        if (subscribing) receivedSynchronousInitial = true;
         listener();
       });
       subscribing = false;

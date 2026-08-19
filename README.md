@@ -207,9 +207,9 @@ Useful events include:
 - `hero.added`, `hero.changed`, `hero.removed`
 - `hero.inventory.changed`, `hero.abilities.changed`
 - `application.settings.changed`
-- `status`, `error`, and `stream.gap`
+- `status`, `issue`, the deprecated compatibility `error`, and `stream.gap`
 
-`on()` and `once()` return unsubscribe functions. Listener failures are isolated and forwarded to the `error` event so one application callback cannot interrupt state delivery.
+`on()` and `once()` return unsubscribe functions. Listener failures are isolated and forwarded to the structured `issue` event (and mirrored to deprecated `error` listeners) so one application callback cannot interrupt state delivery.
 
 Event payloads are immutable and shared safely between listeners. Async listener promises are observed for rejection but do not delay or serialize later events; applications that require ordered asynchronous work should queue it explicitly inside the listener.
 
@@ -332,6 +332,7 @@ import {
   broadcasterFirstTeams,
   broadcasterPlayer,
   groupPlayersByTeam,
+  headToHeadPair,
   heroInventory,
   inventorySlotIdentity,
   matchScore,
@@ -346,6 +347,7 @@ import {
 
 const broadcaster = broadcasterPlayer(state.match, state.players);
 const teams = groupPlayersByTeam(state.players);
+const observerPlayers = headToHeadPair(state.players); // typed pair, or null until both players are scoped
 const broadcasterTeams = broadcasterFirstTeams(state.players, state.match);
 const relation = playerRelationship(state.players[0], state.match, state.players);
 const inventory = heroInventory(broadcaster?.heroes?.[0]);
@@ -361,7 +363,7 @@ const resourcesForDisplay = playerResourcesOrZero(broadcaster); // explicit stab
 const itemKey = inventorySlotIdentity(0, inventory[0]);
 ```
 
-Also available: `isActiveMatch()`, `battleTagName()`, `upgradeIdentity()`, and `currentUpgrades()`. Grouping, broadcaster, and team-ordering selectors preserve input subtypes, so lightweight history and view-model records do not need application-side casts or regrouping. `playerDisplayIdentity()` centralizes account versus in-game naming semantics and offers an explicit numeric BattleTag-discriminator policy while applications retain localized formatting. Selectors keep common protocol-derived identity, grouping, and relationship logic out of individual applications. Standard-game presentation rules such as observer ordering and simplified team colors live in the separate namespace below.
+Also available: `isActiveMatch()`, `battleTagName()`, `upgradeIdentity()`, and `currentUpgrades()`. Grouping, broadcaster, pair, and team-ordering selectors preserve input subtypes, so lightweight history and view-model records do not need application-side casts or regrouping. `playerDisplayIdentity()` centralizes account versus in-game naming semantics and offers an explicit numeric BattleTag-discriminator policy while applications retain localized formatting. Selectors keep common protocol-derived identity, grouping, and relationship logic out of individual applications. Standard-game presentation rules such as observer ordering and simplified team colors live in the separate namespace below.
 
 Additive overlay branches can remain strictly typed without a catch-all index signature. Supply the extension model as the client's second generic; it is deeply read-only and propagates through state, lifecycle, and event payloads. The normalization-owned names `runtime`, `misc`, and `settings` are reserved and rejected as extension branches:
 
@@ -385,7 +387,6 @@ Lightweight Warcraft III rules live in `@w3booster/sdk/standard-game`. Icon meta
 import * as standardGame from '@w3booster/sdk/standard-game';
 import * as standardGameIcons from '@w3booster/sdk/standard-game/icons';
 import * as standardGameCooldowns from '@w3booster/sdk/standard-game/cooldowns';
-import { resolveAssetBaseUrl } from '@w3booster/sdk/assets';
 
 const icon = standardGameIcons.iconUrl('Hamg', { graphics: 'reforged' });
 const cooldown = standardGameCooldowns.abilityCooldown(ability, state.match.gameTime);
@@ -403,8 +404,9 @@ const presentationTeams = standardGame.orderMatchTeams(state.players, state.matc
 const presentationColor = standardGame.presentationPlayerColor(player, state.match, state.players, runtime);
 const raceLabelKey = standardGame.raceInfo(player.race)?.localizationKey;
 const displayLevel = standardGame.formatHeroLevelProgress(heroState);
-const assets = standardGameIcons.createAssetResolver({ baseUrl: resolveAssetBaseUrl() });
+const assets = standardGameIcons.createAssetResolver(); // launch-aware by default
 const heroIcon = assets.hero(state.match, heroState);
+const countryFlag = assets.countryFlag(player.mainAccount?.country);
 ```
 
 Rawcode and typed entity helpers are strict: missing shipped metadata returns `undefined` rather than guessing a filename. Tooling that intentionally owns a catalog filename can opt into `iconFilenameUrl(filename)` explicitly.
@@ -417,13 +419,14 @@ Icons default to the immutable `https://static.w3booster.com/assets/wc3/standard
 
 ## Shared asset URLs
 
-Reusable, non-game asset URL helpers live in `@w3booster/sdk/assets`. Country identifiers from `MainAccount.country` can be resolved without bundling a flag set in every application:
+The match-aware resolver above binds the launch-selected asset host once for both standard-game icons and country flags. Lower-level reusable URL helpers remain available from `@w3booster/sdk/assets` when a frontend does not need Warcraft icons:
 
 ```js
 import { countryFlagUrl, resolveAssetBaseUrl } from '@w3booster/sdk/assets';
 
-const assetBaseUrl = resolveAssetBaseUrl();
-const flag = countryFlagUrl(player.mainAccount?.country, { baseUrl: assetBaseUrl });
+const flag = countryFlagUrl(player.mainAccount?.country, {
+  baseUrl: resolveAssetBaseUrl()
+});
 ```
 
 Country identifiers are trimmed and normalized to lowercase. Flags default to the immutable `https://static.w3booster.com/assets/country-flags/v1/` catalog. `resolveAssetBaseUrl()` safely consumes the host-owned `assetBaseUrl` launch parameter only when W3Booster selects the local backend and advertises a loopback mirror; an explicit validated `baseUrl` still takes precedence. The artwork remains outside the npm package.
@@ -438,6 +441,14 @@ await client.host.closeWindow();
 await client.host.changeMatchScore('wins', 1);
 await client.host.resetMatchScore();
 const settings = await client.host.setSetting('observer.layout', 'wide');
+const accepted = await client.host.command('application.preview', undefined, {
+  parse(value) {
+    if (!value || typeof value !== 'object' || value.accepted !== true) {
+      throw new TypeError('Invalid preview acknowledgement');
+    }
+    return value.accepted;
+  }
+});
 ```
 
 Every asynchronous host method accepts action options at its final argument, so pending acknowledgements can share a feature or component lifetime and use a shorter timeout when appropriate:
@@ -448,7 +459,7 @@ await client.host.changeMatchScore('wins', 1, { signal: feature.signal, timeout:
 feature.abort(); // cancels any later pending feature actions
 ```
 
-`client.host.available` becomes `true` after an authenticated connection inside a captured W3Booster application launch. Browser responses must come from the launch's embedding origin; Electron windows use the injected host bridge. Every action waits for a host acknowledgement and rejects when delivery, execution, cancellation, or timeout fails; use `void client.host.openWindow(...)` only when a view deliberately does not need to await it. Named window and score actions resolve with `void`; `command<TResult>()` can type an application-specific acknowledgement. A capability refresh starts automatically after authentication. `host.can(capability)` is a synchronous read for imperative code. Reactive UIs should subscribe to `host.lifecycle` and call `canUseHostCapability(snapshot, capability)`, or consume `snapshot.host` from a generated application runtime, so controls update when discovery completes. Both distinguish pending discovery and explicit unsupported actions while preserving compatibility with `legacy` hosts that cannot advertise capabilities. `host.capabilityStatus`, `capabilities`, `supports()`, and `subscribeCapabilities()` expose lower-level reads. Call `refreshCapabilities()` only when an explicit refresh is needed. `setSetting()` resolves to the complete persisted settings. Embedded application surfaces automatically report their document height. Pass `autoResize: false` when an application deliberately manages its host height itself.
+`client.host.available` becomes `true` after an authenticated connection inside a captured W3Booster application launch. Browser responses must come from the launch's embedding origin; Electron windows use the injected host bridge. Every action waits for a host acknowledgement and rejects when delivery, execution, cancellation, or timeout fails; use `void client.host.openWindow(...)` only when a view deliberately does not need to await it. Named window and score actions resolve with `void`. Generic `command()` results remain `unknown` unless a parser validates and transforms the host acknowledgement. A capability refresh starts automatically after authentication. `host.can(capability)` is a synchronous read for imperative code. Reactive UIs should subscribe to `host.lifecycle` and call `canUseHostCapability(snapshot, capability)`, or consume `snapshot.host` from a generated application runtime, so controls update when discovery completes. Both distinguish pending discovery and explicit unsupported actions while preserving compatibility with `legacy` hosts that cannot advertise capabilities. `host.capabilityStatus`, `capabilities`, `supports()`, and `subscribeCapabilities()` expose lower-level reads. Call `refreshCapabilities()` only when an explicit refresh is needed. Settings writes are serialized globally because parent and child paths may overlap; `setSetting()` resolves to the complete persisted settings. Embedded application surfaces automatically report their document height. Pass `autoResize: false` when an application deliberately manages its host height itself.
 
 ## Settings definitions
 
@@ -466,7 +477,7 @@ Bind the project once with the client ID shown in the Application tab:
 npx w3booster-settings init app_your_id
 ```
 
-This creates `src/w3booster.generated.ts`, stores the public app binding in `package.json`, and adds explicit `w3booster:sync` and `w3booster:check` scripts. This keeps ordinary installs, starts, and builds deterministic and offline-friendly. Pass `--install-hooks` only when a project deliberately wants synchronization after dependency installation and before its existing `dev`, `start`, and `build` scripts. Existing lifecycle commands are preserved and run after synchronization.
+This creates `src/w3booster.generated.ts`, stores the public app binding in `package.json`, and adds explicit `w3booster:sync` and `w3booster:check` scripts. This keeps ordinary installs, starts, and builds deterministic and offline-friendly. Pass `--install-hooks` only when a project deliberately wants synchronization after dependency installation and before its existing `dev`, `start`, and `build` scripts. Existing lifecycle commands are preserved and run after synchronization. Installed hooks invoke `w3booster-settings` directly from the lifecycle `PATH`, so they do not assume npm, pnpm, Yarn, or Bun.
 
 Use `--output` only when the generated file should live somewhere else. `--endpoint` is persisted in the project binding for non-default platform environments; connected CI can instead provide `W3BOOSTER_SETTINGS_URL`. Synchronization does not rewrite an unchanged file. During ordinary development, a checked-in binding remains usable when the public endpoint is temporarily unavailable; `npm run w3booster:check` remains deliberately strict for CI.
 

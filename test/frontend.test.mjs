@@ -67,6 +67,103 @@ test('frontend adapters do not suppress the first update from change-only source
   assert.deepEqual(reactStore.getSnapshot(), { status: 'connected', count: 1 });
 });
 
+test('React adapters preserve a real update emitted synchronously during subscription', () => {
+  let value = 'idle';
+  const source = {
+    get: () => value,
+    subscribe(listener) {
+      value = 'connected';
+      listener(value);
+      return () => {};
+    }
+  };
+  const store = createReactStore(source);
+  let notifications = 0;
+
+  store.subscribe(() => { notifications += 1; });
+
+  assert.equal(notifications, 1);
+  assert.equal(store.getSnapshot(), 'connected');
+});
+
+test('selector stores deliver a synchronous subscription update exactly once', () => {
+  let value = 'idle';
+  const source = {
+    get: () => value,
+    subscribe(listener) {
+      listener(value);
+      value = 'connected';
+      listener(value);
+      return () => {};
+    }
+  };
+  const values = [];
+  const store = createSelectorStore(source, snapshot => snapshot);
+
+  store.subscribe(snapshot => values.push(snapshot));
+
+  assert.deepEqual(values, ['connected']);
+  assert.equal(store.get(), 'connected');
+});
+
+test('selector stores rederive when source metadata changes without replacing the snapshot', () => {
+  const snapshot = Object.freeze({ matchId: 'same-match' });
+  let synchronized = false;
+  const listeners = new Set();
+  const source = {
+    get: () => snapshot,
+    get isSynchronized() { return synchronized; },
+    subscribe(listener) {
+      listeners.add(listener);
+      listener(snapshot);
+      return () => listeners.delete(listener);
+    },
+    setSynchronized(next) {
+      synchronized = next;
+      for (const listener of listeners) listener(snapshot);
+    }
+  };
+  const values = [];
+  const store = createSelectorStore(source, () => source.isSynchronized);
+  store.subscribe(value => values.push(value));
+
+  source.setSynchronized(true);
+
+  assert.deepEqual(values, [false, true]);
+  assert.equal(store.get(), true);
+});
+
+test('selector stores refresh same-identity source metadata after an idle interval', () => {
+  const snapshot = Object.freeze({ matchId: 'same-match' });
+  let synchronized = false;
+  const listeners = new Set();
+  const source = {
+    get: () => snapshot,
+    get isSynchronized() { return synchronized; },
+    subscribe(listener) {
+      listeners.add(listener);
+      listener(snapshot);
+      return () => listeners.delete(listener);
+    },
+    setSynchronized(next) {
+      synchronized = next;
+      for (const listener of listeners) listener(snapshot);
+    }
+  };
+  const store = createSelectorStore(source, () => source.isSynchronized);
+  const firstValues = [];
+  const unsubscribe = store.subscribe(value => firstValues.push(value));
+  unsubscribe();
+
+  source.setSynchronized(true);
+  const resumedValues = [];
+  store.subscribe(value => resumedValues.push(value));
+
+  assert.deepEqual(firstValues, [false]);
+  assert.deepEqual(resumedValues, [true]);
+  assert.equal(store.get(), true);
+});
+
 test('selector external stores notify only when their stable selected value changes', () => {
   const source = immediateStore({ status: 'idle', count: 0 });
   const store = createReactSelectorStore(source, snapshot => snapshot.status);
@@ -161,6 +258,64 @@ test('selector stores report synchronous and asynchronous subscriber failures wi
   assert.deepEqual(errors.map(error => error.message), [
     'initial subscriber failed', 'subscriber failed', 'async subscriber failed'
   ]);
+});
+
+test('selector stores retain their last valid value when selectors or comparators fail', () => {
+  const source = immediateStore({ status: 'idle', failSelector: false, failEquals: false });
+  const errors = [];
+  const store = createSelectorStore(source, snapshot => {
+    if (snapshot.failSelector) throw new Error('selector failed');
+    return snapshot.status;
+  }, {
+    equals: (previous, next) => {
+      if (source.get().failEquals) throw new Error('comparator failed');
+      return previous === next;
+    },
+    onError: error => errors.push(error)
+  });
+  const values = [];
+  store.subscribe(value => values.push(value));
+
+  source.set({ status: 'selecting', failSelector: true, failEquals: false });
+  assert.equal(store.get(), 'idle');
+  source.set({ status: 'comparing', failSelector: false, failEquals: true });
+  assert.equal(store.get(), 'idle');
+  source.set({ status: 'connected', failSelector: false, failEquals: false });
+
+  assert.deepEqual(values, ['idle', 'connected']);
+  assert.deepEqual(errors.map(error => error.message), [
+    'selector failed', 'selector failed', 'comparator failed', 'comparator failed'
+  ]);
+});
+
+test('selector stores report initial derivation failures and do not retain failed subscribers', () => {
+  const initialErrors = [];
+  assert.throws(() => createSelectorStore(
+    immediateStore('invalid'),
+    () => { throw new Error('initial selector failed'); },
+    { onError: error => initialErrors.push(error) }
+  ), /initial selector failed/);
+  assert.deepEqual(initialErrors.map(error => error.message), ['initial selector failed']);
+
+  let subscribeAttempts = 0;
+  let retainedNotifications = 0;
+  const listeners = new Set();
+  const source = {
+    get: () => 'ready',
+    subscribe(listener) {
+      subscribeAttempts += 1;
+      if (subscribeAttempts === 1) throw new Error('subscription setup failed');
+      listeners.add(listener);
+      listener('ready');
+      return () => listeners.delete(listener);
+    }
+  };
+  const store = createSelectorStore(source, value => value);
+  assert.throws(() => store.subscribe(() => { retainedNotifications += 1; }), /subscription setup failed/);
+  const unsubscribe = store.subscribe(() => {});
+  for (const listener of listeners) listener('changed');
+  assert.equal(retainedNotifications, 0);
+  unsubscribe();
 });
 
 test('memoized selectors use caller-owned argument identity invalidation', () => {

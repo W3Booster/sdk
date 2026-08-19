@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "declaration": true,
+    "declarationMap": false,
+    "esModuleInterop": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmitOnError": true,
+    "outDir": ".generated-public-api",
+    "rootDir": "api-source",
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ES2022"
+  },
+  "include": [
+    "api-source/index.ts",
+    "api-source/contracts.ts",
+    "api-source/version.ts",
+    "api-source/selectors.ts",
+    "api-source/store.ts",
+    "api-source/app.ts",
+    "api-source/standard-game.ts",
+    "api-source/assets.ts"
+  ]
+}

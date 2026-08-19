@@ -2,12 +2,19 @@ export class PermissionRequiredError extends Error {
   constructor(message, authorizeUrl) {
     super(message);
     this.name = 'PermissionRequiredError';
+    /** @type {'PERMISSION_REQUIRED'} */
     this.code = 'PERMISSION_REQUIRED';
     this.authorizeUrl = safeAuthorizeUrl(authorizeUrl);
   }
 }
 
 export class ConnectionError extends Error {
+  /**
+   * @param {string} message
+   * @param {readonly unknown[]} [causes]
+   * @param {import('../../api-source/contracts.js').ConnectionErrorCode} [code]
+   * @param {number} [status]
+   */
   constructor(message, causes = [], code = 'UNAVAILABLE', status) {
     super(message);
     this.name = 'ConnectionError';
@@ -34,10 +41,21 @@ export class ProtocolError extends Error {
   }
 }
 
+/**
+ * @param {unknown} error
+ * @returns {error is import('../../api-source/contracts.js').AbortError}
+ */
 export function isAbortError(error) {
-  return error?.name === 'AbortError';
+  return typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError';
 }
 
+/**
+ * @param {unknown} error
+ * @returns {error is import('../../api-source/contracts.js').PermissionRequiredError |
+ *   import('../../api-source/contracts.js').ConnectionError |
+ *   import('../../api-source/contracts.js').ProtocolError |
+ *   import('../../api-source/contracts.js').HostActionError}
+ */
 export function isW3BoosterError(error) {
   return error instanceof PermissionRequiredError || error instanceof ConnectionError ||
     error instanceof ProtocolError || error instanceof HostActionError;
@@ -58,7 +76,11 @@ function isRetryableCause(error, seen) {
   return !causes.length || causes.some(cause => isRetryableCause(cause, seen));
 }
 
-/** Return one stable discriminated classification for frontend error handling. */
+/**
+ * Return one stable discriminated classification for frontend error handling.
+ * @param {unknown} error
+ * @returns {import('../../api-source/contracts.js').W3BoosterErrorInfo}
+ */
 export function classifyW3BoosterError(error) {
   if (isAbortError(error)) return Object.freeze({ kind: 'abort', code: 'ABORTED', error });
   if (error instanceof PermissionRequiredError) {

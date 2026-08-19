@@ -2,7 +2,7 @@ import { ConnectionError } from './errors.js';
 import { createAbortError, isPlainObject, validateAbortSignal } from './network.js';
 
 export class StateStore {
-  constructor({ freeze, onListenerError = reportListenerError, onSnapshotChange = () => {} }) {
+  constructor({ freeze, onListenerError = reportListenerError, onSnapshotChange = _snapshot => {} }) {
     this.freeze = freeze;
     this.state = null;
     this.synchronized = false;

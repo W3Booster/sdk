@@ -104,10 +104,17 @@ export function validateState(value, clientId, cloneState = true) {
     }
   }
   if (state.overlay !== undefined) {
-    const runtime = state.overlay?.misc ?? state.overlay?.runtime;
-    if (!isPlainObject(state.overlay) || !isPlainObject(runtime)) {
+    if (!isPlainObject(state.overlay)) {
       throw new ProtocolError('INVALID_STATE', 'Overlay state must contain a runtime object.');
     }
+    const legacyRuntime = state.overlay.misc;
+    const modernRuntime = state.overlay.runtime;
+    if ((legacyRuntime !== undefined && !isPlainObject(legacyRuntime)) ||
+        (modernRuntime !== undefined && !isPlainObject(modernRuntime)) ||
+        (legacyRuntime === undefined && modernRuntime === undefined)) {
+      throw new ProtocolError('INVALID_STATE', 'Overlay state must contain a runtime object.');
+    }
+    const runtime = { ...(legacyRuntime ?? {}), ...(modernRuntime ?? {}) };
     if (state.overlay.settings !== undefined && !isPlainObject(state.overlay.settings)) {
       throw new ProtocolError('INVALID_STATE', 'Legacy overlay settings must be an object when present.');
     }

@@ -90,21 +90,22 @@ test('settings CLI init persists its endpoint without mutating project lifecycle
   }
 });
 
-test('settings CLI installs lifecycle hooks only when explicitly requested', async () => {
+test('settings CLI installs package-manager-neutral lifecycle hooks only when explicitly requested', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'w3booster-settings-hooks-'));
   const server = definitionServer();
   try {
     const endpoint = await listen(server);
     await writeFile(join(directory, 'package.json'), JSON.stringify({
       private: true,
+      packageManager: 'pnpm@10.15.0',
       scripts: { dev: 'vite', predev: 'node prepare.js', 'start-ssl': 'vite --https', build: 'vite build' }
     }, null, 2));
     await run(process.execPath, [cli, 'init', 'app_cli', '--endpoint', endpoint, '--install-hooks'], { cwd: directory });
     const manifest = JSON.parse(await readFile(join(directory, 'package.json'), 'utf8'));
-    assert.equal(manifest.scripts.predev, 'npm run w3booster:sync && node prepare.js');
-    assert.equal(manifest.scripts['prestart-ssl'], 'npm run w3booster:sync');
-    assert.equal(manifest.scripts.prebuild, 'npm run w3booster:sync');
-    assert.equal(manifest.scripts.postinstall, 'npm run w3booster:sync');
+    assert.equal(manifest.scripts.predev, 'w3booster-settings && node prepare.js');
+    assert.equal(manifest.scripts['prestart-ssl'], 'w3booster-settings');
+    assert.equal(manifest.scripts.prebuild, 'w3booster-settings');
+    assert.equal(manifest.scripts.postinstall, 'w3booster-settings');
   } finally {
     await close(server);
     await rm(directory, { recursive: true, force: true });

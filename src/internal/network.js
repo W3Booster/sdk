@@ -40,7 +40,7 @@ export async function fetchJsonWithTimeout(url, options, timeout, signal, errors
     }
     return { response, body };
   } catch (error) {
-    if (timedOut && !signal?.aborted && error?.name === 'AbortError') throw errors.timeout(error);
+    if (timedOut && !signal?.aborted && error instanceof Error && error.name === 'AbortError') throw errors.timeout(error);
     throw error;
   } finally {
     clearTimeout(timer);

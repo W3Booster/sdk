@@ -136,6 +136,7 @@ export function createBrokerTransport(name, baseUrl, credentialProvider, reconne
     }
     context.onStatus('reconnecting');
     const delay = reconnectBackoff.nextDelay();
+    if (delay === null) return;
     reconnectTimer = setTimeout(async () => {
       reconnectTimer = null;
       try {

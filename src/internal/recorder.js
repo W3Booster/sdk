@@ -86,7 +86,8 @@ export class LocalRecorderTransport {
   }
 
   connect() {
-    if (this.stopped || !this.urls.length || !globalThis.WebSocket || this.socket) return;
+    if (this.stopped || !this.urls.length ||
+        typeof Reflect.get(globalThis, 'WebSocket') !== 'function' || this.socket) return;
     const url = this.urls[this.urlIndex++ % this.urls.length];
     let opened = false;
     try {
@@ -95,7 +96,7 @@ export class LocalRecorderTransport {
       const failOpening = () => {
         if (this.socket !== socket || opened) return;
         this.socket = null;
-        clearTimeout(this.openTimer);
+        if (this.openTimer !== null) clearTimeout(this.openTimer);
         this.openTimer = null;
         socket.close();
         this.scheduleReconnect();
@@ -103,7 +104,7 @@ export class LocalRecorderTransport {
       this.openTimer = setTimeout(failOpening, CONNECTION_TIMEOUT);
       socket.addEventListener('open', () => {
         if (this.socket !== socket) return;
-        clearTimeout(this.openTimer);
+        if (this.openTimer !== null) clearTimeout(this.openTimer);
         this.openTimer = null;
         opened = true;
         this.active = true;
@@ -136,7 +137,7 @@ export class LocalRecorderTransport {
       });
       socket.addEventListener('close', () => {
         if (this.socket !== socket) return;
-        clearTimeout(this.openTimer);
+        if (this.openTimer !== null) clearTimeout(this.openTimer);
         this.openTimer = null;
         this.socket = null;
         this.active = false;
@@ -147,7 +148,7 @@ export class LocalRecorderTransport {
         this.scheduleReconnect();
       });
     } catch (error) {
-      clearTimeout(this.openTimer);
+      if (this.openTimer !== null) clearTimeout(this.openTimer);
       this.openTimer = null;
       this.socket = null;
       this.scheduleReconnect();
@@ -157,6 +158,7 @@ export class LocalRecorderTransport {
   scheduleReconnect() {
     if (this.stopped || this.retryTimer || !this.urls.length) return;
     const delay = this.reconnectBackoff.nextDelay();
+    if (delay === null) return;
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
       this.connect();
@@ -180,7 +182,8 @@ export class LocalRecorderTransport {
         this.latest.set(key, update);
       }
     };
-    this.updateFrameUsesAnimationFrame = Boolean(globalThis.requestAnimationFrame && globalThis.cancelAnimationFrame);
+    this.updateFrameUsesAnimationFrame = typeof Reflect.get(globalThis, 'requestAnimationFrame') === 'function' &&
+      typeof Reflect.get(globalThis, 'cancelAnimationFrame') === 'function';
     this.updateFrame = this.updateFrameUsesAnimationFrame
       ? requestAnimationFrame(publish)
       : setTimeout(publish, 16);
@@ -195,9 +198,9 @@ export class LocalRecorderTransport {
   }
 
   stopSocket() {
-    clearTimeout(this.retryTimer);
+    if (this.retryTimer !== null) clearTimeout(this.retryTimer);
     this.retryTimer = null;
-    clearTimeout(this.openTimer);
+    if (this.openTimer !== null) clearTimeout(this.openTimer);
     this.openTimer = null;
     this.cancelUpdateFrame();
     const socket = this.socket;
@@ -288,7 +291,8 @@ export function applyLocalRecorderUpdates(state, updates) {
       const hudScale = normalizedHudScale(update.value);
       if (hudScale !== null) updateMisc('hudScale', hudScale);
     } else if (update.class === 'W3TeamColor' && hasCapability(next, 'overlay') && next.overlay?.runtime) {
-      updateMisc('teamColors', Boolean(update.value));
+      const value = Number(update.value);
+      if (value === 0 || value === 1) updateMisc('teamColors', value === 1);
     } else if (update.class === 'W3Resource' && hasCapability(next, 'resources')) {
       const resource = localResourceName(update.type);
       const value = Number(update.value);
