@@ -1,5 +1,5 @@
 export const DEFAULT_LOCAL_API = 'https://localhost:25080';
-export const DEFAULT_CLOUD_API = 'https://app.w3booster.com:14969';
+export const DEFAULT_CLOUD_API = 'https://api.w3booster.com';
 export const CONNECTION_TIMEOUT = 5000;
 
 export function backendUrls(options = {}) {

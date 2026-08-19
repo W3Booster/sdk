@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1 - 2026-08-19
+
+- Changed the standard cloud API origin from the retired direct `app.w3booster.com:14969` endpoint to the proxied `https://api.w3booster.com` endpoint for stream tickets and compositor requests.
+
 ## 1.0.0 - 2026-08-19
 
 - Notified state subscribers and watchers on synchronization-freshness-only transitions, and preserved overlay-extension generics in generated application aliases.

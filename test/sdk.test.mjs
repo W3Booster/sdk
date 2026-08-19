@@ -1948,7 +1948,7 @@ test('the default cloud backend receives the launch credential without probing l
     assert.equal(brokerRequests.length, 1);
     assert.ok(brokerRequests.every(request => request.authorization === 'Bearer launch-secret'));
     assert.ok(brokerRequests.every(request => request.credentials === undefined));
-    assert.match(brokerRequests[0].url, /^https:\/\/app\.w3booster\.com:14969\/stream\/v1\/stream-tickets$/);
+    assert.match(brokerRequests[0].url, /^https:\/\/api\.w3booster\.com\/stream\/v1\/stream-tickets$/);
     assert.deepEqual(brokerRequests[0].body.scopes, []);
     assert.deepEqual(brokerRequests[0].body.protocolVersions, [PROTOCOL_VERSION]);
     assert.equal(brokerRequests[0].body.sdkVersion, SDK_VERSION);
@@ -2016,7 +2016,7 @@ test('backend auto continues to cloud after local authorization fails', async ()
     const client = await connect({ clientId: 'test_app', backend: 'auto', tokenProvider: () => 'session' });
     assert.deepEqual(requests, [
       'https://localhost:25080/stream/v1/stream-tickets',
-      'https://app.w3booster.com:14969/stream/v1/stream-tickets'
+      'https://api.w3booster.com/stream/v1/stream-tickets'
     ]);
     assert.equal(client.diagnostics.transport, 'cloud');
     await client.disconnect();
@@ -2062,7 +2062,7 @@ test('backend auto continues to cloud after the local broker times out', async (
     const client = await connect({ clientId: 'test_app', backend: 'auto', tokenProvider: () => 'session' });
     assert.deepEqual(requests, [
       'https://localhost:25080/stream/v1/stream-tickets',
-      'https://app.w3booster.com:14969/stream/v1/stream-tickets'
+      'https://api.w3booster.com/stream/v1/stream-tickets'
     ]);
     assert.equal(client.diagnostics.transport, 'cloud');
     await client.disconnect();
@@ -2378,7 +2378,7 @@ test('overlay composition authenticates a browser-source session', async () => {
     });
     assert.equal(apps[0].clientId, 'child');
     assert.equal(requests.length, 2);
-    assert.ok(requests.every(request => request.url.startsWith('https://app.w3booster.com:14969/')));
+    assert.ok(requests.every(request => request.url.startsWith('https://api.w3booster.com/')));
     assert.match(requests[0].url, /\/stream\/v1\/compositor-sessions$/);
     assert.deepEqual(requests[0].body, { channel: 'user', secret: 'secret', surface: 'ingameOverlay' });
     assert.match(requests[1].url, /\/stream\/v1\/composite-launches$/);
@@ -2484,8 +2484,8 @@ test('overlay composition establishes a new session when auto falls back to clou
     assert.deepEqual(requests.map(request => request.url), [
       'https://localhost:25080/stream/v1/compositor-sessions',
       'https://localhost:25080/stream/v1/composite-launches',
-      'https://app.w3booster.com:14969/stream/v1/compositor-sessions',
-      'https://app.w3booster.com:14969/stream/v1/composite-launches'
+      'https://api.w3booster.com/stream/v1/compositor-sessions',
+      'https://api.w3booster.com/stream/v1/composite-launches'
     ]);
     assert.equal(requests[3].authorization, 'Bearer cloud-session');
   } finally {
@@ -2522,8 +2522,8 @@ test('overlay composition auto fallback distinguishes timeouts from cancellation
     assert.equal(apps[0].clientId, 'child');
     assert.deepEqual(requests, [
       'https://localhost:25080/stream/v1/compositor-sessions',
-      'https://app.w3booster.com:14969/stream/v1/compositor-sessions',
-      'https://app.w3booster.com:14969/stream/v1/composite-launches'
+      'https://api.w3booster.com/stream/v1/compositor-sessions',
+      'https://api.w3booster.com/stream/v1/composite-launches'
     ]);
   } finally {
     for (const [key, value] of Object.entries(original)) {
