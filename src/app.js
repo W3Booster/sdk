@@ -1,8 +1,9 @@
-import { connect, createClient } from './index.js';
-import { isPlainObject, validateAbortSignal } from './internal/network.js';
+import { createClient, openClient } from './index.js';
+import { abortable, isPlainObject, validateAbortSignal } from './internal/network.js';
 import { isKnownScope } from './internal/scopes.js';
+import { normalizeStartupOptions, waitForStartupState } from './internal/startup.js';
 import { resolveSettings } from './settings.js';
-import { reportConsumerIssue } from './internal/consumer-issues.js';
+import { registerConsumerIssueReporter, reportConsumerIssue } from './internal/consumer-issues.js';
 
 /**
  * Bind immutable public application metadata to the SDK runtime.
@@ -38,8 +39,11 @@ export function defineApplication(definition) {
 
   const application = {
     ...metadata,
+    open(options = {}) {
+      return openClient(bindOptions(options, metadata));
+    },
     connect(options = {}) {
-      return connect(bindOptions(options, metadata));
+      return application.open(options);
     },
     createClient(options = {}) {
       return createClient(bindOptions(options, metadata));
@@ -82,7 +86,6 @@ function createApplicationRuntime(application, options) {
   const client = application.createClient({ ...options, signal: lifetime.signal });
   const subscribers = new Set();
   let stopped = false;
-  let startPromise = null;
   let stopPromise = null;
   let lifecycle = client.lifecycle.get();
   let host = client.host.lifecycle.get();
@@ -118,11 +121,7 @@ function createApplicationRuntime(application, options) {
     }),
     start(startup = {}) {
       if (stopped) return Promise.reject(new Error('This W3Booster application runtime has been stopped.'));
-      if (startPromise) return startPromise;
-      const operation = client.start(startup);
-      startPromise = operation;
-      operation.finally(() => { if (startPromise === operation) startPromise = null; }).catch(() => {});
-      return operation;
+      return startRuntimeClient(client, startup);
     },
     stop() {
       if (stopPromise) return stopPromise;
@@ -139,6 +138,7 @@ function createApplicationRuntime(application, options) {
     }
   };
   const abortRuntime = () => { void runtime.stop(); };
+  registerConsumerIssueReporter(runtime.lifecycle, error => reportConsumerIssue(client, error));
   if (externalSignal?.aborted) abortRuntime();
   else externalSignal?.addEventListener('abort', abortRuntime, { once: true });
   return Object.freeze(runtime);
@@ -151,6 +151,14 @@ function makeRuntimeSnapshot(application, client, lifecycle, host) {
     settings: application.resolveSettings(lifecycle.state?.application?.settings),
     host
   });
+}
+
+async function startRuntimeClient(client, options) {
+  const { until, timeout, signal } = normalizeStartupOptions(options);
+  await abortable(client.open(), signal);
+  if (until === 'connected') return client;
+  await waitForStartupState(client, client.lifecycle, until, timeout, signal);
+  return client;
 }
 
 function sameRuntimeSnapshot(left, right) {
@@ -184,5 +192,9 @@ function bindOptions(options, metadata) {
       throw new TypeError(`Scope ${String(unavailable)} is not configured for application ${metadata.clientId}`);
     }
   }
-  return { ...options, clientId: metadata.clientId };
+  return {
+    ...options,
+    clientId: metadata.clientId,
+    applicationRevision: metadata.revision
+  };
 }

@@ -16,11 +16,15 @@ export function getIcon(rawcode) {
   return Object.prototype.hasOwnProperty.call(icons, rawcode) ? icons[rawcode] : icons[candidate];
 }
 
-/** Resolve a rawcode or icon filename to one safe catalog filename. */
-export function iconFileName(identifier) {
+/** Resolve a known standard-game rawcode to its catalog filename. */
+export function iconFileName(rawcode) {
+  const mapped = getIcon(rawcode);
+  return mapped ? safeIconFileName(mapped) : undefined;
+}
+
+function safeIconFileName(identifier) {
   if (typeof identifier !== 'string') return undefined;
-  const mapped = getIcon(identifier);
-  const candidate = (mapped ?? identifier).trim().toLowerCase();
+  const candidate = identifier.trim().toLowerCase();
   const filename = candidate.endsWith('.png') ? candidate : `${candidate}.png`;
   return filename && !filename.includes('/') && !filename.includes('\\') && filename !== '.png'
     ? filename
@@ -34,6 +38,15 @@ export function iconUrl(identifier, options = {}) {
   const graphics = options.graphics === 'classic' ? 'classic' : 'reforged';
   const baseUrl = normalizeAssetBaseUrl(options.baseUrl ?? DEFAULT_ASSET_BASE_URL);
   return `${baseUrl}/wc3/standard-game/${ASSET_CATALOG_VERSION}/${graphics}/icons/${encodeURIComponent(filename)}`;
+}
+
+/** Explicit escape hatch for a trusted catalog filename that is not in shipped rawcode metadata. */
+export function iconFilenameUrl(filename, options = {}) {
+  const safeFilename = safeIconFileName(filename);
+  if (!safeFilename) return undefined;
+  const graphics = options.graphics === 'classic' ? 'classic' : 'reforged';
+  const baseUrl = normalizeAssetBaseUrl(options.baseUrl ?? DEFAULT_ASSET_BASE_URL);
+  return `${baseUrl}/wc3/standard-game/${ASSET_CATALOG_VERSION}/${graphics}/icons/${encodeURIComponent(safeFilename)}`;
 }
 
 export function heroIconUrl(hero, options = {}) { return iconUrl(hero?.id, options); }

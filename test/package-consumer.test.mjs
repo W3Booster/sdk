@@ -63,7 +63,7 @@ test('the packed package resolves every public entry point for TypeScript consum
       include: ['consumer.ts']
     }, null, 2));
     await writeFile(join(consumerDirectory, 'consumer.ts'), `
-import { connect, type MatchState } from '@w3booster/sdk';
+import { connect, openClient, startClient, type MatchState } from '@w3booster/sdk';
 import { broadcasterPlayer } from '@w3booster/sdk/selectors';
 import { heroExperienceState } from '@w3booster/sdk/standard-game';
 import { iconUrl } from '@w3booster/sdk/standard-game/objects';
@@ -75,7 +75,15 @@ import { createDemoTransport, type TestingConnectOptions } from '@w3booster/sdk/
 import { validateSettingsSchema } from '@w3booster/sdk/settings';
 import { defineApplication } from '@w3booster/sdk/app';
 import { createReactStore } from '@w3booster/sdk/react';
-import { w3boosterApp, type W3BoosterAppSettings } from './w3booster.generated';
+import { createSelectorStore } from '@w3booster/sdk/store';
+import {
+  w3boosterApp,
+  type W3BoosterAppClient,
+  type W3BoosterAppConnectOptions,
+  type W3BoosterAppRuntime,
+  type W3BoosterAppRuntimeSnapshot,
+  type W3BoosterAppSettings
+} from './w3booster.generated';
 
 interface Settings { layout: 'compact' | 'wide' }
 const options: TestingConnectOptions<Settings> = {
@@ -84,6 +92,9 @@ const options: TestingConnectOptions<Settings> = {
 };
 const clientPromise = connect(options);
 const externalStore = createReactStore({ get: () => 1, subscribe: listener => { listener(1); return () => undefined; } });
+const selectedStore = createSelectorStore({ get: () => 1, subscribe: listener => { listener(1); return () => undefined; } }, value => String(value));
+const openedClient = openClient(options);
+const startedClient = startClient({ clientId: 'package_consumer', demo: true });
 declare const state: MatchState<Settings>;
 const player = broadcasterPlayer(state.match, state.players);
 const experience = heroExperienceState(500);
@@ -99,7 +110,15 @@ const app = defineApplication<Settings, readonly ['match:read']>({
 const generatedSettings: W3BoosterAppSettings = { display: { layout: 'compact' } };
 const generatedClient = w3boosterApp.connect({ demo: { settings: generatedSettings } });
 const generatedLifecycleClient = w3boosterApp.createClient({ demo: { settings: generatedSettings } });
-void [clientPromise, generatedClient, generatedLifecycleClient, player, experience, icon, heroIcon, abilityCooldown, flag, composition, schema, app];
+interface OverlayExtensions { broadcast: { label: string } }
+declare const typedGeneratedClient: W3BoosterAppClient<OverlayExtensions>;
+declare const typedGeneratedRuntime: W3BoosterAppRuntime<OverlayExtensions>;
+declare const typedGeneratedSnapshot: W3BoosterAppRuntimeSnapshot<OverlayExtensions>;
+const typedGeneratedOptions: W3BoosterAppConnectOptions<OverlayExtensions> = {};
+const overlayLabel: string | undefined = typedGeneratedClient.state.get()?.overlay?.broadcast.label;
+const runtimeOverlayLabel: string | undefined = typedGeneratedRuntime.client.state.get()?.overlay?.broadcast.label;
+const snapshotOverlayLabel: string | undefined = typedGeneratedSnapshot.state?.overlay?.broadcast.label;
+void [clientPromise, openedClient, startedClient, externalStore, selectedStore, generatedClient, generatedLifecycleClient, typedGeneratedOptions, overlayLabel, runtimeOverlayLabel, snapshotOverlayLabel, player, experience, icon, heroIcon, abilityCooldown, flag, composition, schema, app];
 `);
 
     const runtimeResult = await run(process.execPath, ['--input-type=module', '--eval', `
@@ -115,6 +134,7 @@ await Promise.all([
   '@w3booster/sdk/settings',
   '@w3booster/sdk/app',
   '@w3booster/sdk/react',
+  '@w3booster/sdk/store',
   '@w3booster/sdk/testing'
 ].map(entryPoint => import(entryPoint)));
 `], { cwd: consumerDirectory });

@@ -26,8 +26,8 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-      - uses: browser-actions/setup-chrome@v2
       - run: npm ci
+      - run: npx playwright install --with-deps chromium firefox webkit
       - run: npm run test:browser
   node-18:
     runs-on: ubuntu-latest

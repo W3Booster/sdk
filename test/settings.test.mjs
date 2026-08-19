@@ -59,6 +59,10 @@ test('database definitions generate deterministic typed frontend bindings', () =
   assert.match(binding, /revision: "revision-1"/);
   assert.match(binding, /defineApplication</);
   assert.match(binding, /W3BoosterAppDeliveredSettings = DeepPartial<W3BoosterAppSettings>/);
+  assert.match(binding, /W3BoosterAppClient<TOverlayExtensions extends object = object> = W3BoosterClient<W3BoosterAppDeliveredSettings, TOverlayExtensions>/);
+  assert.match(binding, /W3BoosterAppRuntime<TOverlayExtensions extends object = object> = ApplicationRuntime<W3BoosterAppSettings, TOverlayExtensions>/);
+  assert.match(binding, /W3BoosterAppRuntimeSnapshot<TOverlayExtensions extends object = object> = ApplicationRuntimeSnapshot<W3BoosterAppSettings, TOverlayExtensions>/);
+  assert.match(binding, /W3BoosterAppConnectOptions<TOverlayExtensions extends object = object> = ApplicationConnectOptions<[\s\S]*TOverlayExtensions/);
   assert.match(binding, /export const w3boosterApp = defineApplication/);
   assert.doesNotMatch(binding, /WeakMap|client\.start|client\.disconnect|connectW3BoosterApp/);
 });

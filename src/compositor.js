@@ -1,4 +1,4 @@
-import { ConnectionError, PermissionRequiredError, ProtocolError } from './internal/errors.js';
+import { ConnectionError, isRetryableConnectionError, PermissionRequiredError, ProtocolError } from './internal/errors.js';
 import {
   backendUrls,
   CONNECTION_TIMEOUT,
@@ -298,6 +298,10 @@ function createCompositionWatcher(authorizeWatch, listener, onError, externalSig
         throw error;
       }
       reportError(error);
+      if (!isRetryableConnectionError(error)) {
+        watcher.close();
+        return watcher;
+      }
       scheduleReconnect();
       return watcher;
     }

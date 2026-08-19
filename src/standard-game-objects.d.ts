@@ -18,6 +18,7 @@ export function getObject(rawcode: string): StandardGameObjectMetadata | undefin
 export function getIcon(rawcode: string): string | undefined;
 export function iconFileName(identifier: string): string | undefined;
 export function iconUrl(identifier: string, options?: AssetUrlOptions): string | undefined;
+export function iconFilenameUrl(filename: string, options?: AssetUrlOptions): string | undefined;
 export function heroIconUrl(hero: Pick<Hero, 'id'> | null | undefined, options?: AssetUrlOptions): string | undefined;
 export function abilityIconUrl(ability: Pick<HeroAbility, 'name'> | null | undefined, options?: AssetUrlOptions): string | undefined;
 export function upgradeIconUrl(upgrade: Pick<CompletedUpgrade, 'name'> | null | undefined, options?: AssetUrlOptions): string | undefined;
@@ -34,4 +35,5 @@ export function createAssetResolver(options?: Pick<AssetUrlOptions, 'baseUrl'>):
 export function getAbilityCooldown(rawcode: string, level?: number): number | undefined;
 export function numberField(rawcode: string, field: string): number | undefined;
 export function abilityCooldown(ability: HeroAbility, gameTime: number): AbilityCooldownState | undefined;
+/** A native Map whose mutating methods reject at runtime; exposed read-only to consumers. */
 export function abilityCooldownsForState<TSettings extends object>(state: MatchState<TSettings>): ReadonlyMap<HeroAbility, AbilityCooldownState>;

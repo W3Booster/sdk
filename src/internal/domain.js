@@ -25,8 +25,17 @@ export function emitDomainEvents(previous, state, emit) {
   const sameMatch = String(previousMatch.id || '') === String(match.id || '');
   const wasActive = isActiveMatch(previousMatch);
   const isActive = isActiveMatch(match);
-  if (wasActive && (!isActive || !sameMatch)) emit('match.ended', { match: previousMatch, nextMatch: match, state });
-  if (isActive && (!wasActive || !sameMatch)) emit('match.started', { match, previousMatch, state });
+  const observedAt = new Date().toISOString();
+  if (wasActive && (!isActive || !sameMatch)) emit('match.ended', {
+    // When the same match becomes terminal, expose that completed snapshot so
+    // authoritative fields such as endedAt are available directly on event.match.
+    match: sameMatch ? match : previousMatch,
+    previousMatch,
+    nextMatch: match,
+    state,
+    observedAt
+  });
+  if (isActive && (!wasActive || !sameMatch)) emit('match.started', { match, previousMatch, state, observedAt });
   if (!deepEqual(previousMatch, match)) {
     emit('match.changed', { match, previousMatch, changedFields: changedKeys(previousMatch, match), state });
   }

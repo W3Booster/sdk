@@ -1,14 +1,10 @@
-import { execFile } from 'node:child_process';
-import { access, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
-import { tmpdir } from 'node:os';
 import { dirname, extname, join, normalize } from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
+import { chromium, firefox, webkit } from 'playwright';
 
-const run = promisify(execFile);
 const repository = dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
-const MINIMUM_CHROMIUM_MAJOR = 92;
 const html = `<!doctype html>
 <html><body data-result="pending"><script type="module">
   import { connect, createClient } from '/src/index.js';
@@ -34,13 +30,6 @@ const html = `<!doctype html>
   }
 </script></body></html>`;
 
-const chrome = await findChrome();
-const { stdout: chromeVersion } = await run(chrome, ['--version']);
-const chromiumMajor = Number(chromeVersion.match(/(?:Chrome|Chromium)\s+(\d+)/)?.[1]);
-if (!Number.isSafeInteger(chromiumMajor) || chromiumMajor < MINIMUM_CHROMIUM_MAJOR) {
-  throw new Error(`Chrome or Chromium ${MINIMUM_CHROMIUM_MAJOR}+ is required; found ${chromeVersion.trim() || 'an unknown version'}.`);
-}
-const profile = await mkdtemp(join(tmpdir(), 'w3booster-sdk-chrome-'));
 const server = createServer(async (request, response) => {
   try {
     const pathname = new URL(request.url || '/', 'http://localhost').pathname;
@@ -69,40 +58,27 @@ try {
     server.listen(0, '127.0.0.1', resolve);
   });
   const address = server.address();
-  const { stdout } = await run(chrome, [
-    '--headless=new',
-    '--no-sandbox',
-    '--disable-gpu',
-    '--disable-dev-shm-usage',
-    `--user-data-dir=${profile}`,
-    '--virtual-time-budget=2000',
-    '--dump-dom',
-    `http://127.0.0.1:${address.port}/`
-  ], { timeout: 20000, maxBuffer: 2 * 1024 * 1024 });
-  if (!stdout.includes('data-result="pass"')) {
-    throw new Error(`Browser smoke test failed:\n${stdout}`);
+  const url = `http://127.0.0.1:${address.port}/`;
+  for (const [name, browserType] of Object.entries({ chromium, firefox, webkit })) {
+    let browser;
+    try {
+      browser = await browserType.launch({ headless: true });
+      const page = await browser.newPage();
+      await page.goto(url);
+      await page.waitForFunction(() => document.body.dataset.result !== 'pending', null, { timeout: 20000 });
+      const result = await page.locator('body').getAttribute('data-result');
+      const output = await page.locator('body').innerText();
+      if (result !== 'pass') throw new Error(`${name} browser smoke failed:\n${output}`);
+      console.log(`W3Booster SDK ${name} smoke passed.`);
+    } catch (error) {
+      if (error instanceof Error && /Executable doesn't exist|browserType\.launch/.test(String(error))) {
+        error.message += '\nInstall test engines with: npx playwright install chromium firefox webkit';
+      }
+      throw error;
+    } finally {
+      await browser?.close();
+    }
   }
-  console.log('W3Booster SDK browser smoke passed.');
 } finally {
   await new Promise(resolve => server.close(resolve));
-  await rm(profile, { recursive: true, force: true });
-}
-
-async function findChrome() {
-  const executableNames = ['google-chrome-stable', 'google-chrome', 'chrome', 'chromium'];
-  const pathCandidates = (process.env.PATH || '').split(':')
-    .flatMap(directory => executableNames.map(name => join(directory, name)));
-  const candidates = [
-    process.env.CHROME_BIN,
-    '/usr/bin/google-chrome-stable',
-    '/usr/bin/google-chrome',
-    '/usr/bin/chromium',
-    '/snap/bin/chromium',
-    ...pathCandidates
-  ].filter(Boolean);
-  for (const candidate of candidates) {
-    try { await access(candidate); return candidate; }
-    catch (_) { /* Try the next installed browser. */ }
-  }
-  throw new Error('Chrome or Chromium is required for npm run test:browser. Set CHROME_BIN when it is installed elsewhere.');
 }

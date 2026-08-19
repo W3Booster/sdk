@@ -5,6 +5,11 @@ export function registerConsumerIssueReporter(client, reporter) {
   reporters.set(client, reporter);
 }
 
+/** Retrieve a registered reporter so composed stores can preserve the diagnostic channel. */
+export function consumerIssueReporter(owner) {
+  return reporters.get(owner);
+}
+
 export function reportConsumerIssue(client, error) {
   const reporter = reporters.get(client);
   if (reporter) {

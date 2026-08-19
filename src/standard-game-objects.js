@@ -10,6 +10,7 @@ export {
   getIcon,
   heroIconUrl,
   iconFileName,
+  iconFilenameUrl,
   iconUrl,
   itemIconUrl,
   upgradeIconUrl

@@ -50,7 +50,8 @@ export function isRetryableConnectionError(error) {
 function isRetryableCause(error, seen) {
   if (error instanceof PermissionRequiredError || error instanceof ProtocolError || error instanceof TypeError) return false;
   if (!(error instanceof ConnectionError)) return true;
-  if (error.code === 'CONFIGURATION' || error.code === 'MISSING_BROWSER_API') return false;
+  if (error.code === 'CONFIGURATION' || error.code === 'APPLICATION_DEFINITION_MISMATCH' ||
+      error.code === 'MISSING_BROWSER_API') return false;
   if (seen.has(error)) return false;
   seen.add(error);
   const causes = error.causes || [];

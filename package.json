@@ -1,6 +1,6 @@
 {
   "name": "@w3booster/sdk",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "One SDK for realtime W3Booster match data in overlays and web apps.",
   "type": "module",
   "main": "./src/index.js",
@@ -59,6 +59,10 @@
     "./react": {
       "types": "./src/react.d.ts",
       "import": "./src/react.js"
+    },
+    "./store": {
+      "types": "./src/store.d.ts",
+      "import": "./src/store.js"
     }
   },
   "files": [
@@ -107,6 +111,7 @@
   "devDependencies": {
     "eslint": "^9.39.5",
     "eslint-plugin-compat": "^6.2.1",
+    "playwright": "^1.62.1",
     "typescript": "~6.0.3"
   }
 }

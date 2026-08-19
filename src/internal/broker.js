@@ -39,7 +39,8 @@ export function createBrokerTransport(name, baseUrl, credentialProvider, reconne
         clientId: context.clientId,
         scopes: context.scopes,
         protocolVersions: [...context.protocolVersions],
-        sdkVersion: SDK_VERSION
+        sdkVersion: SDK_VERSION,
+        ...(context.applicationRevision ? { applicationRevision: context.applicationRevision } : {})
       })
     }, CONNECTION_TIMEOUT, signal, {
       invalidJson: error => new ProtocolError('INVALID_TICKET', 'The stream broker returned invalid JSON.', error),
@@ -50,6 +51,14 @@ export function createBrokerTransport(name, baseUrl, credentialProvider, reconne
       throw new PermissionRequiredError('This app has not been authorized.', ticket?.authorizeUrl);
     }
     if (!response.ok) {
+      if (response.status === 409 && ticket?.code === 'APPLICATION_DEFINITION_MISMATCH') {
+        throw new ConnectionError(
+          ticket.error || 'The generated application definition is outdated.',
+          [],
+          'APPLICATION_DEFINITION_MISMATCH',
+          response.status
+        );
+      }
       const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
       throw new ConnectionError(
         `${name} broker returned ${response.status}`,
@@ -61,6 +70,14 @@ export function createBrokerTransport(name, baseUrl, credentialProvider, reconne
     const negotiatedVersion = ticket?.protocolVersion;
     if (!supportsProtocolVersion(negotiatedVersion)) {
       throw new ProtocolError('UNSUPPORTED_PROTOCOL', `The server selected unsupported protocol ${negotiatedVersion}.`, { negotiatedVersion });
+    }
+    if (context.applicationRevision && ticket?.applicationRevision !== context.applicationRevision) {
+      throw new ConnectionError(
+        'The stream broker did not confirm the generated application definition revision.',
+        [],
+        'APPLICATION_DEFINITION_MISMATCH',
+        response.status
+      );
     }
     const websocketUrl = validateWebSocketUrl(ticket?.websocketUrl);
     throwIfAborted(signal);

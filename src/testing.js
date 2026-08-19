@@ -7,7 +7,7 @@ export function createDemoTransport(options = {}) {
   let sequence = 0;
   const interval = options.interval === undefined ? 1000 : Number(options.interval);
   if (!Number.isFinite(interval) || interval < 0) throw new TypeError('demo interval must be a non-negative number');
-  const state = clone(options.state || createDemoState());
+  const state = clone(options.state || createDemoState({ overlayExtensions: options.overlayExtensions }));
   return {
     name: 'demo',
     async open(context) {
@@ -77,6 +77,7 @@ export function createDemoState(options = {}) {
       }
     ],
     overlay: {
+      ...clone(options.overlayExtensions || {}),
       runtime: { hudScale: 1, chatbarOpen: false, matchScore: { wins: 0, losses: 0 }, teamColors: true }
     }
   };
@@ -97,11 +98,13 @@ function platformState(state) {
   const runtime = snapshot.overlay.runtime;
   const matchScore = runtime.matchScore;
   snapshot.overlay = {
+    ...snapshot.overlay,
     misc: {
       ...runtime,
       ...(matchScore ? { matchscoreWins: matchScore.wins, matchscoreLosses: matchScore.losses } : {})
     }
   };
+  delete snapshot.overlay.runtime;
   delete snapshot.overlay.misc.matchScore;
   return snapshot;
 }

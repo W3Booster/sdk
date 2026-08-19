@@ -1,12 +1,13 @@
 import { finiteNonNegative } from './internal/numbers.js';
+import { createImmutableSelector } from './internal/immutable-selector.js';
 import { broadcasterFirstTeams, groupPlayersByTeam, isObserverOrReplayMatch, playerRelationship } from './selectors.js';
 
 const RACES = Object.freeze({
-  random: Object.freeze({ name: 'Random', shortName: 'RDM' }),
-  human: Object.freeze({ name: 'Human', shortName: 'HU' }),
-  orc: Object.freeze({ name: 'Orc', shortName: 'ORC' }),
-  undead: Object.freeze({ name: 'Undead', shortName: 'UD' }),
-  'night-elf': Object.freeze({ name: 'Night Elf', shortName: 'NE' })
+  random: Object.freeze({ localizationKey: 'race.random', shortLocalizationKey: 'race.random.short' }),
+  human: Object.freeze({ localizationKey: 'race.human', shortLocalizationKey: 'race.human.short' }),
+  orc: Object.freeze({ localizationKey: 'race.orc', shortLocalizationKey: 'race.orc.short' }),
+  undead: Object.freeze({ localizationKey: 'race.undead', shortLocalizationKey: 'race.undead.short' }),
+  'night-elf': Object.freeze({ localizationKey: 'race.night-elf', shortLocalizationKey: 'race.night-elf.short' })
 });
 
 const PLAYER_COLORS = Object.freeze([
@@ -25,6 +26,27 @@ const WEAPON_OR_ARMOR_UPGRADE_RAWCODES = Object.freeze([
 const WEAPON_OR_ARMOR_UPGRADES = new Set(WEAPON_OR_ARMOR_UPGRADE_RAWCODES);
 const DAY_NIGHT_CYCLE_SECONDS = 480;
 const HERO_MAX_LEVEL = 10;
+const selectHeadToHeadPlayers = createImmutableSelector((players, reverse) => {
+  const ordered = [...players];
+  if (ordered.length === 2) {
+    const left = Number(ordered[0]?.startPosition?.x);
+    const right = Number(ordered[1]?.startPosition?.x);
+    if (Number.isFinite(left) && Number.isFinite(right) && left > right) ordered.reverse();
+  }
+  if (reverse) ordered.reverse();
+  return Object.freeze(ordered);
+});
+const selectMatchTeams = createImmutableSelector((players, observerOrReplay, broadcasterPlayerId, reverse) => {
+  const teams = groupPlayersByTeam(players);
+  if (!observerOrReplay || teams.length !== 2) return teams;
+  const playerCount = teams.reduce((count, team) => count + team.players.length, 0);
+  if (playerCount === 2) {
+    const ordered = orderHeadToHeadPlayers(teams.map(team => team.players[0]), { reverse });
+    const orderedTeams = ordered.map(player => teams.find(team => team.players[0]?.id === player?.id));
+    return orderedTeams.every(Boolean) ? Object.freeze(orderedTeams) : teams;
+  }
+  return broadcasterFirstTeams(players, { broadcasterPlayerId }, { reverse });
+});
 const MELEE_MODES = Object.freeze({
   '1v1': Object.freeze({ id: '1v1', kind: 'head-to-head', playerCount: 2, teamSize: 1, stats: 'solo' }),
   '2v2': Object.freeze({ id: '2v2', kind: 'team', playerCount: 4, teamSize: 2, stats: 'team' }),
@@ -39,6 +61,12 @@ export const playerColors = PLAYER_COLORS;
 export const weaponOrArmorUpgradeRawcodes = WEAPON_OR_ARMOR_UPGRADE_RAWCODES;
 export const meleeModes = MELEE_MODES;
 
+/** Resolve locale-neutral metadata without choosing application display copy. */
+export function raceInfo(race) {
+  const normalized = String(race || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
+  return RACES[normalized] || RACES.random;
+}
+
 export function normalizeMode(mode) {
   if (!mode || mode === 'undefined') return 'undefined';
   return mode.startsWith('gm-') ? mode : `gm-${mode}`;
@@ -52,14 +80,6 @@ export function isMode(mode, expected) {
 export function modeInfo(mode) {
   const id = normalizeMode(mode).replace(/^gm-/, '');
   return MELEE_MODES[id];
-}
-
-export function raceName(race = 'random') {
-  return (RACES[race] || RACES.random).name;
-}
-
-export function raceShortName(race = 'random') {
-  return (RACES[race] || RACES.random).shortName;
 }
 
 export function playerColor(colorId) {
@@ -150,29 +170,29 @@ export function isValuePoolDepleted(pool) {
   return Number.isFinite(Number(pool?.current)) && Number(pool.current) <= 0;
 }
 
+/** Classify standard Warcraft III upkeep from normalized supply. */
+export function upkeepState(supply) {
+  if (supply === null || supply === undefined) return undefined;
+  const value = Number(supply);
+  if (!Number.isFinite(value) || value < 0) return undefined;
+  if (value <= 50) return 'none';
+  if (value <= 80) return 'low';
+  return 'high';
+}
+
 /** Order a two-player standard-game presentation by known map start positions. */
 export function orderHeadToHeadPlayers(players, options = {}) {
-  const ordered = [...players];
-  if (ordered.length === 2) {
-    const left = Number(ordered[0]?.startPosition?.x);
-    const right = Number(ordered[1]?.startPosition?.x);
-    if (Number.isFinite(left) && Number.isFinite(right) && left > right) ordered.reverse();
-  }
-  if (options.reverse === true) ordered.reverse();
-  return ordered;
+  return selectHeadToHeadPlayers(players, options.reverse === true);
 }
 
 /** Apply W3Booster's canonical observer/replay team presentation order. */
 export function orderMatchTeams(players, match, options = {}) {
-  const teams = groupPlayersByTeam(players);
-  if (!isObserverOrReplayMatch(match) || teams.length !== 2) return teams;
-  const playerCount = teams.reduce((count, team) => count + team.players.length, 0);
-  if (playerCount === 2) {
-    const ordered = orderHeadToHeadPlayers(teams.map(team => team.players[0]), options);
-    const orderedTeams = ordered.map(player => teams.find(team => team.players[0]?.id === player?.id));
-    return orderedTeams.every(Boolean) ? orderedTeams : teams;
-  }
-  return broadcasterFirstTeams(players, match, options);
+  return selectMatchTeams(
+    players,
+    isObserverOrReplayMatch(match),
+    typeof match?.broadcasterPlayerId === 'string' ? match.broadcasterPlayerId : '',
+    options.reverse === true
+  );
 }
 
 /** Resolve native or simplified W3Booster team colors for one player. */

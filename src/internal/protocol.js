@@ -61,10 +61,13 @@ export function validateState(value, clientId, cloneState = true) {
   }
   validateOptionalFields(state.match, {
     map: 'string', realm: 'string', paused: 'boolean', isReplay: 'boolean', isReforged: 'boolean', isObserver: 'boolean',
-    broadcasterPlayerId: 'string', realBroadcasterPlayerId: 'string', startedAt: 'string'
+    broadcasterPlayerId: 'string', realBroadcasterPlayerId: 'string', startedAt: 'string', endedAt: 'string'
   }, 'State match');
   if (state.match.startedAt !== undefined && !isIsoTimestamp(state.match.startedAt)) {
     throw new ProtocolError('INVALID_STATE', 'State match startedAt must be an ISO-8601 timestamp.');
+  }
+  if (state.match.endedAt !== undefined && !isIsoTimestamp(state.match.endedAt)) {
+    throw new ProtocolError('INVALID_STATE', 'State match endedAt must be an ISO-8601 timestamp.');
   }
   if (state.players === undefined) state.players = [];
   if (!Array.isArray(state.players)) throw new ProtocolError('INVALID_STATE', 'State players must be an array.');
@@ -238,7 +241,7 @@ function validateHero(hero, playerId) {
     const abilityIds = new Set();
     for (const ability of hero.abilities) {
       if (!isPlainObject(ability) || typeof ability.id !== 'string' || !ability.id || typeof ability.name !== 'string' || !ability.name || !Number.isFinite(ability.level) ||
-          (ability.lastActivation !== undefined && !Number.isFinite(ability.lastActivation))) {
+          (ability.lastActivation !== undefined && (!Number.isFinite(ability.lastActivation) || ability.lastActivation <= 0))) {
         throw new ProtocolError('INVALID_STATE', `Hero ${String(hero.id)} contains an invalid ability.`);
       }
       if (abilityIds.has(ability.id)) throw new ProtocolError('INVALID_STATE', `Hero ${String(hero.id)} ability ID ${ability.id} occurs more than once.`);

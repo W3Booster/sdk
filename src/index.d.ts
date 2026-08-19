@@ -1,10 +1,16 @@
-export const SDK_VERSION: '0.2.0';
+export const SDK_VERSION: '1.0.0';
 export const PROTOCOL_VERSION: '1.0';
 export const SUPPORTED_PROTOCOL_VERSIONS: readonly ['1.0'];
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
 export interface JsonObject { [key: string]: JsonValue }
+export type JsonCompatible<T> =
+  T extends JsonPrimitive ? T :
+  T extends (...args: never[]) => unknown ? never :
+  T extends readonly (infer TValue)[] ? readonly JsonCompatible<TValue>[] :
+  T extends object ? { [TKey in keyof T]: JsonCompatible<T[TKey]> } :
+  never;
 export type DeepReadonly<T> =
   T extends JsonPrimitive ? T :
   T extends readonly (infer TValue)[] ? readonly DeepReadonly<TValue>[] :
@@ -27,15 +33,16 @@ export type AppSurface = 'application' | 'streamOverlay' | 'ingameOverlay';
 export type OverlaySurface = Exclude<AppSurface, 'application'>;
 export type MatchStatus = 'starting' | 'running' | 'finished' | 'none';
 export type Race = 'random' | 'human' | 'orc' | 'undead' | 'night-elf';
-export type ConnectionErrorCode = 'UNAVAILABLE' | 'CONFIGURATION' | 'MISSING_BROWSER_API' | 'BROKER_TIMEOUT' | 'STATE_TIMEOUT' | 'HOST_UNAVAILABLE' | 'HOST_TIMEOUT';
+export type ConnectionErrorCode = 'UNAVAILABLE' | 'CONFIGURATION' | 'APPLICATION_DEFINITION_MISMATCH' | 'MISSING_BROWSER_API' | 'BROKER_TIMEOUT' | 'STATE_TIMEOUT' | 'HOST_UNAVAILABLE' | 'HOST_TIMEOUT';
 export type W3BoosterErrorKind = 'abort' | 'permission' | 'connection' | 'protocol' | 'host-action' | 'unknown';
-export interface W3BoosterErrorInfo {
-  readonly kind: W3BoosterErrorKind;
-  readonly code: string;
-  readonly error: unknown;
-  readonly status?: number;
-  readonly authorizeUrl?: string;
-}
+export interface AbortError { readonly name: 'AbortError'; readonly message?: string }
+export type W3BoosterErrorInfo =
+  | { readonly kind: 'abort'; readonly code: 'ABORTED'; readonly error: AbortError }
+  | { readonly kind: 'permission'; readonly code: 'PERMISSION_REQUIRED'; readonly error: PermissionRequiredError; readonly authorizeUrl?: string }
+  | { readonly kind: 'connection'; readonly code: ConnectionErrorCode; readonly error: ConnectionError; readonly status?: number }
+  | { readonly kind: 'protocol'; readonly code: string; readonly error: ProtocolError }
+  | { readonly kind: 'host-action'; readonly code: string; readonly error: HostActionError }
+  | { readonly kind: 'unknown'; readonly code: 'UNKNOWN'; readonly error: unknown };
 
 export interface RetryOptions {
   /** Total connection attempts. Omit for unlimited retries. */
@@ -73,8 +80,13 @@ export interface WatchOptions<T> extends SubscriptionOptions {
   equals?: (previous: T, current: T) => boolean;
 }
 
-export interface ConnectOptions<TSettings extends object = JsonObject> {
+export interface ConnectOptions<
+  TSettings extends object = JsonObject,
+  TOverlayExtensions extends object = object
+> {
   clientId: string;
+  /** Generated application-definition revision. `defineApplication()` supplies this automatically. */
+  applicationRevision?: string;
   /** Owns the client lifetime: aborting cancels connection attempts and disconnects an established client. */
   signal?: AbortSignal;
   /** Uses the scopes configured for the app by default. Pass an array only to request a smaller subset. */
@@ -82,8 +94,8 @@ export interface ConnectOptions<TSettings extends object = JsonObject> {
   demo?: boolean | {
     /** Update interval in milliseconds. Zero keeps the demo state static. Defaults to 1000. */
     interval?: number;
-    state?: MatchState<TSettings>;
-    settings?: TSettings;
+    state?: MatchState<TSettings, TOverlayExtensions>;
+    settings?: JsonCompatible<TSettings>;
     surface?: AppSurface;
   };
   /** Defaults to cloud. A platform-provided backend=local|cloud launch parameter takes precedence; applications do not parse it themselves. */
@@ -106,7 +118,7 @@ export interface ConnectOptions<TSettings extends object = JsonObject> {
 
 export interface ApplicationState<TSettings extends object = JsonObject> {
   readonly clientId: string;
-  readonly settings: DeepReadonly<TSettings>;
+  readonly settings: DeepReadonly<JsonCompatible<TSettings>>;
   readonly surface?: AppSurface;
   readonly development?: boolean;
 }
@@ -122,14 +134,22 @@ export interface MatchScore {
   readonly wins: number;
   readonly losses: number;
 }
-export interface OverlayState {
-  readonly runtime: OverlayRuntimeState;
-}
-export interface MatchState<TSettings extends object = JsonObject> {
+export type OverlayExtensionReservedKey = 'runtime' | 'misc' | 'settings';
+/** Extension branches are deeply immutable; normalization-owned overlay keys cannot be extensions. */
+export type OverlayState<TOverlayExtensions extends object = object> =
+  TOverlayExtensions extends JsonCompatible<TOverlayExtensions>
+    ? Extract<keyof TOverlayExtensions, OverlayExtensionReservedKey> extends never
+      ? DeepReadonly<TOverlayExtensions> & { readonly runtime: OverlayRuntimeState }
+      : never
+    : never;
+export interface MatchState<
+  TSettings extends object = JsonObject,
+  TOverlayExtensions extends object = object
+> {
   readonly capabilities: readonly Capability[];
   readonly match: Match;
   readonly players: readonly Player[];
-  readonly overlay?: OverlayState;
+  readonly overlay?: OverlayState<TOverlayExtensions>;
   readonly application?: ApplicationState<TSettings>;
 }
 export interface Match {
@@ -150,6 +170,8 @@ export interface Match {
   readonly realBroadcasterPlayerId?: string;
   /** ISO-8601 timestamp serialized by the API. */
   readonly startedAt?: string;
+  /** Authoritative ISO-8601 completion time when supplied by the platform. */
+  readonly endedAt?: string;
 }
 /** Warcraft III map coordinates. They are useful for relative map placement/order and are not screen pixels. */
 export interface Point { readonly x: number; readonly y: number }
@@ -174,7 +196,7 @@ export interface HeroAbility {
   /** Standard-game ability rawcode used for metadata and artwork lookup. */
   readonly name: string;
   readonly level: number;
-  /** Activation time in milliseconds on the match game-time clock. */
+  /** Positive millisecond timestamp on the match game-time clock; absence means never activated. */
   readonly lastActivation?: number;
 }
 export interface Hero {
@@ -229,74 +251,87 @@ export interface ProtocolEnvelope<TType extends string = string, TData = unknown
   type: TType;
   data: TData;
 }
-export type SnapshotMessage<TSettings extends object = JsonObject> = ProtocolEnvelope<'state.snapshot', MatchState<TSettings>>;
+export type SnapshotMessage<
+  TSettings extends object = JsonObject,
+  TOverlayExtensions extends object = object
+> = ProtocolEnvelope<'state.snapshot', MatchState<TSettings, TOverlayExtensions>>;
 export type PatchMessage = ProtocolEnvelope<'state.patch', readonly JsonPatchOperation[]>;
 
-export interface StateChangedEvent<TSettings extends object = JsonObject> { readonly state: MatchState<TSettings>; readonly previousState: MatchState<TSettings> | null; readonly initial: boolean }
-export interface MatchChangedEvent<TSettings extends object = JsonObject> { readonly match: Match; readonly previousMatch: Match; readonly changedFields: readonly string[]; readonly state: MatchState<TSettings> }
-export interface MatchLifecycleEvent<TSettings extends object = JsonObject> { readonly match: Match; readonly previousMatch?: Match; readonly nextMatch?: Match; readonly state: MatchState<TSettings> }
-export interface PlayerEvent<TSettings extends object = JsonObject> { readonly playerId: string; readonly player: Player; readonly previousPlayer?: Player; readonly state: MatchState<TSettings> }
-export interface PlayerChangedEvent<TSettings extends object = JsonObject> extends PlayerEvent<TSettings> { readonly changedFields: readonly string[] }
-export interface HeroEvent<TSettings extends object = JsonObject> extends PlayerEvent<TSettings> { readonly heroId: string; readonly hero: Hero; readonly previousHero?: Hero }
-export interface HeroChangedEvent<TSettings extends object = JsonObject> extends HeroEvent<TSettings> { readonly changedFields: readonly string[] }
-export interface W3BoosterEventMap<TSettings extends object = JsonObject> {
-  'state.ready': { readonly state: MatchState<TSettings> };
-  'state.changed': StateChangedEvent<TSettings>;
-  'match.started': MatchLifecycleEvent<TSettings>;
-  'match.changed': MatchChangedEvent<TSettings>;
-  'match.ended': MatchLifecycleEvent<TSettings>;
-  'player.added': PlayerEvent<TSettings>;
-  'player.changed': PlayerChangedEvent<TSettings>;
-  'player.removed': PlayerEvent<TSettings>;
-  'player.resources.changed': PlayerEvent<TSettings> & { readonly resources?: Resources; readonly previousResources?: Resources };
-  'player.stats.changed': PlayerEvent<TSettings> & { readonly stats?: PlayerStatsCollection; readonly previousStats?: PlayerStatsCollection };
-  'player.upgrades.changed': PlayerEvent<TSettings> & { readonly upgrades?: UpgradeState; readonly previousUpgrades?: UpgradeState };
-  'hero.added': HeroEvent<TSettings>;
-  'hero.changed': HeroChangedEvent<TSettings>;
-  'hero.removed': HeroEvent<TSettings>;
-  'hero.inventory.changed': HeroEvent<TSettings> & { readonly inventory: readonly string[]; readonly previousInventory: readonly string[] };
-  'hero.abilities.changed': HeroEvent<TSettings> & { readonly abilities: readonly HeroAbility[]; readonly previousAbilities: readonly HeroAbility[] };
-  'application.settings.changed': { readonly settings: DeepReadonly<TSettings> | undefined; readonly previousSettings: DeepReadonly<TSettings> | undefined; readonly application?: ApplicationState<TSettings>; readonly state: MatchState<TSettings> };
+export interface StateChangedEvent<TSettings extends object = JsonObject, TOverlayExtensions extends object = object> { readonly state: MatchState<TSettings, TOverlayExtensions>; readonly previousState: MatchState<TSettings, TOverlayExtensions> | null; readonly initial: boolean }
+export interface MatchChangedEvent<TSettings extends object = JsonObject, TOverlayExtensions extends object = object> { readonly match: Match; readonly previousMatch: Match; readonly changedFields: readonly string[]; readonly state: MatchState<TSettings, TOverlayExtensions> }
+export interface MatchLifecycleEvent<TSettings extends object = JsonObject, TOverlayExtensions extends object = object> {
+  /** Started match, or the completed snapshot for a same-ID ended transition. */
+  readonly match: Match;
+  readonly previousMatch?: Match;
+  readonly nextMatch?: Match;
+  readonly state: MatchState<TSettings, TOverlayExtensions>;
+  /** Client observation time; this is not an authoritative match timestamp. */
+  readonly observedAt: string;
+}
+export interface MatchLifecycleObservationEvent<TSettings extends object = JsonObject, TOverlayExtensions extends object = object> extends MatchLifecycleEvent<TSettings, TOverlayExtensions> { readonly phase: 'started' | 'ended'; /** True when subscription observes a match that was already active. */ readonly initial: boolean }
+export interface PlayerEvent<TSettings extends object = JsonObject, TOverlayExtensions extends object = object> { readonly playerId: string; readonly player: Player; readonly previousPlayer?: Player; readonly state: MatchState<TSettings, TOverlayExtensions> }
+export interface PlayerChangedEvent<TSettings extends object = JsonObject, TOverlayExtensions extends object = object> extends PlayerEvent<TSettings, TOverlayExtensions> { readonly changedFields: readonly string[] }
+export interface HeroEvent<TSettings extends object = JsonObject, TOverlayExtensions extends object = object> extends PlayerEvent<TSettings, TOverlayExtensions> { readonly heroId: string; readonly hero: Hero; readonly previousHero?: Hero }
+export interface HeroChangedEvent<TSettings extends object = JsonObject, TOverlayExtensions extends object = object> extends HeroEvent<TSettings, TOverlayExtensions> { readonly changedFields: readonly string[] }
+export interface W3BoosterEventMap<TSettings extends object = JsonObject, TOverlayExtensions extends object = object> {
+  'state.ready': { readonly state: MatchState<TSettings, TOverlayExtensions> };
+  'state.changed': StateChangedEvent<TSettings, TOverlayExtensions>;
+  'match.started': MatchLifecycleEvent<TSettings, TOverlayExtensions>;
+  'match.changed': MatchChangedEvent<TSettings, TOverlayExtensions>;
+  'match.ended': MatchLifecycleEvent<TSettings, TOverlayExtensions>;
+  'player.added': PlayerEvent<TSettings, TOverlayExtensions>;
+  'player.changed': PlayerChangedEvent<TSettings, TOverlayExtensions>;
+  'player.removed': PlayerEvent<TSettings, TOverlayExtensions>;
+  'player.resources.changed': PlayerEvent<TSettings, TOverlayExtensions> & { readonly resources?: Resources; readonly previousResources?: Resources };
+  'player.stats.changed': PlayerEvent<TSettings, TOverlayExtensions> & { readonly stats?: PlayerStatsCollection; readonly previousStats?: PlayerStatsCollection };
+  'player.upgrades.changed': PlayerEvent<TSettings, TOverlayExtensions> & { readonly upgrades?: UpgradeState; readonly previousUpgrades?: UpgradeState };
+  'hero.added': HeroEvent<TSettings, TOverlayExtensions>;
+  'hero.changed': HeroChangedEvent<TSettings, TOverlayExtensions>;
+  'hero.removed': HeroEvent<TSettings, TOverlayExtensions>;
+  'hero.inventory.changed': HeroEvent<TSettings, TOverlayExtensions> & { readonly inventory: readonly string[]; readonly previousInventory: readonly string[] };
+  'hero.abilities.changed': HeroEvent<TSettings, TOverlayExtensions> & { readonly abilities: readonly HeroAbility[]; readonly previousAbilities: readonly HeroAbility[] };
+  'application.settings.changed': { readonly settings: DeepReadonly<TSettings> | undefined; readonly previousSettings: DeepReadonly<TSettings> | undefined; readonly application?: ApplicationState<TSettings>; readonly state: MatchState<TSettings, TOverlayExtensions> };
   status: ConnectionStatus;
   /** @deprecated Use `issue` for structured diagnostics and `client.lifecycle.error` for connection/synchronization failures. */
   error: unknown;
   issue: W3BoosterIssue;
   'stream.gap': { readonly expected: number; readonly received: number };
 }
-export type W3BoosterEvent<TSettings extends object = JsonObject> = {
-  [TType in keyof W3BoosterEventMap<TSettings>]: {
+export type W3BoosterEvent<TSettings extends object = JsonObject, TOverlayExtensions extends object = object> = {
+  [TType in keyof W3BoosterEventMap<TSettings, TOverlayExtensions>]: {
     readonly type: TType;
-    readonly data: W3BoosterEventMap<TSettings>[TType];
+    readonly data: W3BoosterEventMap<TSettings, TOverlayExtensions>[TType];
   }
-}[keyof W3BoosterEventMap<TSettings>];
+}[keyof W3BoosterEventMap<TSettings, TOverlayExtensions>];
 
 export interface ReadyOptions {
   timeout?: number;
   /** Cancels only this readiness wait. */
   signal?: AbortSignal;
 }
-export interface StateStore<TSettings extends object = JsonObject> {
+export interface StateStore<TSettings extends object = JsonObject, TOverlayExtensions extends object = object> {
   /** Current hydrated state, or null until the first snapshot after connecting. */
-  get(): MatchState<TSettings> | null;
+  get(): MatchState<TSettings, TOverlayExtensions> | null;
   /** True only when state belongs to the current connected transport generation. */
   readonly isSynchronized: boolean;
   player(playerId: string | number): Player | null;
-  /** Runs immediately and after every later state update or reset. Null means no hydrated state is currently available. */
-  subscribe(listener: (state: MatchState<TSettings> | null) => void | Promise<void>, options?: SubscriptionOptions): () => void;
-  /** Runs immediately for the first selected value, including unavailable state, then according to the configured equality function. */
-  watch<T>(selector: (state: MatchState<TSettings> | null) => T, listener: (value: T, previousValue: T | undefined, state: MatchState<TSettings> | null) => void | Promise<void>, options?: WatchOptions<T>): () => void;
+  /** Runs immediately and after every later state update, reset, or synchronization-freshness change. The same state identity may be delivered when only freshness changes. Null means no hydrated state is currently available. */
+  subscribe(listener: (state: MatchState<TSettings, TOverlayExtensions> | null) => void | Promise<void>, options?: SubscriptionOptions): () => void;
+  /** Runs immediately for the first selected value, including unavailable state, and reevaluates after state, reset, or synchronization-freshness changes. The listener runs according to the configured equality function. */
+  watch<T>(selector: (state: MatchState<TSettings, TOverlayExtensions> | null) => T, listener: (value: T, previousValue: T | undefined, state: MatchState<TSettings, TOverlayExtensions> | null) => void | Promise<void>, options?: WatchOptions<T>): () => void;
   /** Wait for the first state snapshot. The default timeout is 10 seconds; zero disables the timeout. */
-  whenReady(options?: ReadyOptions): Promise<MatchState<TSettings>>;
+  whenReady(options?: ReadyOptions): Promise<MatchState<TSettings, TOverlayExtensions>>;
   /** Wait for a complete snapshot belonging to the current transport generation. */
-  whenSynchronized(options?: ReadyOptions): Promise<MatchState<TSettings>>;
+  whenSynchronized(options?: ReadyOptions): Promise<MatchState<TSettings, TOverlayExtensions>>;
 }
-export interface W3BoosterEventEmitter<TSettings extends object = JsonObject> {
-  on<K extends keyof W3BoosterEventMap<TSettings>>(type: K, listener: (data: W3BoosterEventMap<TSettings>[K]) => void | Promise<void>, options?: SubscriptionOptions): () => void;
-  on(type: '*', listener: (event: W3BoosterEvent<TSettings>) => void | Promise<void>, options?: SubscriptionOptions): () => void;
+export interface W3BoosterEventEmitter<TSettings extends object = JsonObject, TOverlayExtensions extends object = object> {
+  on<K extends keyof W3BoosterEventMap<TSettings, TOverlayExtensions>>(type: K, listener: (data: W3BoosterEventMap<TSettings, TOverlayExtensions>[K]) => void | Promise<void>, options?: SubscriptionOptions): () => void;
+  on(type: '*', listener: (event: W3BoosterEvent<TSettings, TOverlayExtensions>) => void | Promise<void>, options?: SubscriptionOptions): () => void;
   onUnknown(type: string, listener: (data: unknown) => void | Promise<void>, options?: SubscriptionOptions): () => void;
-  once<K extends keyof W3BoosterEventMap<TSettings>>(type: K, listener: (data: W3BoosterEventMap<TSettings>[K]) => void | Promise<void>, options?: SubscriptionOptions): () => void;
+  once<K extends keyof W3BoosterEventMap<TSettings, TOverlayExtensions>>(type: K, listener: (data: W3BoosterEventMap<TSettings, TOverlayExtensions>[K]) => void | Promise<void>, options?: SubscriptionOptions): () => void;
+  once(type: '*', listener: (event: W3BoosterEvent<TSettings, TOverlayExtensions>) => void | Promise<void>, options?: SubscriptionOptions): () => void;
   onceUnknown(type: string, listener: (data: unknown) => void | Promise<void>, options?: SubscriptionOptions): () => void;
-  off<K extends keyof W3BoosterEventMap<TSettings>>(type: K, listener: (data: W3BoosterEventMap<TSettings>[K]) => void): void;
+  off<K extends keyof W3BoosterEventMap<TSettings, TOverlayExtensions>>(type: K, listener: (data: W3BoosterEventMap<TSettings, TOverlayExtensions>[K]) => void): void;
   off(type: string, listener: (data: unknown) => void): void;
 }
 export interface Diagnostics {
@@ -305,9 +340,9 @@ export interface Diagnostics {
   readonly transport: string | null;
   readonly localTransport: 'recorder-local' | null;
 }
-export interface ClientLifecycleSnapshot<TSettings extends object = JsonObject> {
+export interface ClientLifecycleSnapshot<TSettings extends object = JsonObject, TOverlayExtensions extends object = object> {
   readonly status: ConnectionStatus;
-  readonly state: MatchState<TSettings> | null;
+  readonly state: MatchState<TSettings, TOverlayExtensions> | null;
   readonly isSynchronized: boolean;
   /** The current connection or state-synchronization error. Non-fatal recorder and listener issues stay on the issue event. */
   readonly error: unknown | null;
@@ -320,38 +355,43 @@ export interface W3BoosterIssue {
   readonly recoverable: boolean;
   readonly error: unknown;
 }
-export interface ClientLifecycleStore<TSettings extends object = JsonObject> {
+export interface ClientLifecycleStore<TSettings extends object = JsonObject, TOverlayExtensions extends object = object> {
   /** Atomically read connection, state freshness, and the most recent SDK error. */
-  get(): ClientLifecycleSnapshot<TSettings>;
+  get(): ClientLifecycleSnapshot<TSettings, TOverlayExtensions>;
   /** Runs immediately and whenever any lifecycle field changes. */
   subscribe(
-    listener: (snapshot: ClientLifecycleSnapshot<TSettings>) => void | Promise<void>,
+    listener: (snapshot: ClientLifecycleSnapshot<TSettings, TOverlayExtensions>) => void | Promise<void>,
     options?: SubscriptionOptions
   ): () => void;
 }
-export class W3BoosterClient<TSettings extends object = JsonObject> {
+export class W3BoosterClient<TSettings extends object = JsonObject, TOverlayExtensions extends object = object> {
   /** Complete platform state. */
-  readonly state: StateStore<TSettings>;
-  readonly events: W3BoosterEventEmitter<TSettings>;
+  readonly state: StateStore<TSettings, TOverlayExtensions>;
+  readonly events: W3BoosterEventEmitter<TSettings, TOverlayExtensions>;
   readonly host: W3BoosterHost<TSettings>;
   readonly diagnostics: Diagnostics;
-  readonly lifecycle: ClientLifecycleStore<TSettings>;
+  readonly lifecycle: ClientLifecycleStore<TSettings, TOverlayExtensions>;
   readonly status: ConnectionStatus;
-  private constructor(options: ConnectOptions<TSettings> | string);
+  private constructor(options: ConnectOptions<TSettings, TOverlayExtensions> | string);
   /** Open a transport. The optional signal cancels this connection attempt. */
+  open(options?: { readonly signal?: AbortSignal }): Promise<this>;
+  /** @deprecated Use `open()` for transport-only startup or `start()` when synchronized state is required. */
   connect(options?: { readonly signal?: AbortSignal }): Promise<this>;
   /** Connect and optionally wait for hydrated or synchronized state. The default synchronized wait has no timeout. */
   start(options?: StartupOptions): Promise<this>;
-  whenReady(options?: ReadyOptions): Promise<MatchState<TSettings>>;
-  whenSynchronized(options?: ReadyOptions): Promise<MatchState<TSettings>>;
+  whenReady(options?: ReadyOptions): Promise<MatchState<TSettings, TOverlayExtensions>>;
+  whenSynchronized(options?: ReadyOptions): Promise<MatchState<TSettings, TOverlayExtensions>>;
   /** Runs immediately with the current status and after every later transition. */
   subscribeStatus(listener: (status: ConnectionStatus) => void | Promise<void>, options?: SubscriptionOptions): () => void;
-  on<K extends keyof W3BoosterEventMap<TSettings>>(type: K, listener: (data: W3BoosterEventMap<TSettings>[K]) => void | Promise<void>, options?: SubscriptionOptions): () => void;
-  on(type: '*', listener: (event: W3BoosterEvent<TSettings>) => void | Promise<void>, options?: SubscriptionOptions): () => void;
+  /** Reports an already-active match immediately, then all later start/end transitions. */
+  subscribeMatchLifecycle(listener: (event: MatchLifecycleObservationEvent<TSettings, TOverlayExtensions>) => void | Promise<void>, options?: SubscriptionOptions): () => void;
+  on<K extends keyof W3BoosterEventMap<TSettings, TOverlayExtensions>>(type: K, listener: (data: W3BoosterEventMap<TSettings, TOverlayExtensions>[K]) => void | Promise<void>, options?: SubscriptionOptions): () => void;
+  on(type: '*', listener: (event: W3BoosterEvent<TSettings, TOverlayExtensions>) => void | Promise<void>, options?: SubscriptionOptions): () => void;
   onUnknown(type: string, listener: (data: unknown) => void | Promise<void>, options?: SubscriptionOptions): () => void;
-  once<K extends keyof W3BoosterEventMap<TSettings>>(type: K, listener: (data: W3BoosterEventMap<TSettings>[K]) => void | Promise<void>, options?: SubscriptionOptions): () => void;
+  once<K extends keyof W3BoosterEventMap<TSettings, TOverlayExtensions>>(type: K, listener: (data: W3BoosterEventMap<TSettings, TOverlayExtensions>[K]) => void | Promise<void>, options?: SubscriptionOptions): () => void;
+  once(type: '*', listener: (event: W3BoosterEvent<TSettings, TOverlayExtensions>) => void | Promise<void>, options?: SubscriptionOptions): () => void;
   onceUnknown(type: string, listener: (data: unknown) => void | Promise<void>, options?: SubscriptionOptions): () => void;
-  off<K extends keyof W3BoosterEventMap<TSettings>>(type: K, listener: (data: W3BoosterEventMap<TSettings>[K]) => void): void;
+  off<K extends keyof W3BoosterEventMap<TSettings, TOverlayExtensions>>(type: K, listener: (data: W3BoosterEventMap<TSettings, TOverlayExtensions>[K]) => void): void;
   off(type: string, listener: (data: unknown) => void): void;
   /** Close transports and clear hydrated state. Event subscriptions remain usable if this client reconnects. */
   disconnect(): Promise<void>;
@@ -361,6 +401,12 @@ export interface OpenWindowOptions {
   readonly width?: number;
   readonly height?: number;
   readonly title?: string;
+}
+export interface HostActionOptions {
+  /** Cancels only this pending host request. */
+  readonly signal?: AbortSignal;
+  /** Acknowledgement timeout in milliseconds. Defaults to 10 seconds. */
+  readonly timeout?: number;
 }
 export type MatchScoreSide = 'wins' | 'losses';
 export type HostCapability = 'window:open' | 'window:close' | 'match-score:write' | 'settings:write' | 'resize:report' | 'command';
@@ -402,18 +448,18 @@ export interface W3BoosterHost<TSettings extends object = JsonObject> {
   /** Whether an action should currently be offered, including compatibility with legacy hosts. */
   can(capability: HostCapability): boolean;
   /** Ask the authenticated host to advertise supported actions. Older hosts transition to `legacy`. */
-  refreshCapabilities(): Promise<readonly HostCapability[]>;
+  refreshCapabilities(options?: HostActionOptions): Promise<readonly HostCapability[]>;
   subscribeCapabilities(
     listener: (capabilities: readonly HostCapability[], status: HostCapabilityStatus) => void | Promise<void>,
     options?: SubscriptionOptions
   ): () => void;
-  openWindow(options?: OpenWindowOptions): Promise<unknown>;
-  closeWindow(): Promise<unknown>;
-  changeMatchScore(side: MatchScoreSide, delta: 1 | -1): Promise<unknown>;
-  resetMatchScore(): Promise<unknown>;
-  command(command: string, payload?: unknown): Promise<unknown>;
+  openWindow(options?: OpenWindowOptions, actionOptions?: HostActionOptions): Promise<void>;
+  closeWindow(options?: HostActionOptions): Promise<void>;
+  changeMatchScore(side: MatchScoreSide, delta: 1 | -1, options?: HostActionOptions): Promise<void>;
+  resetMatchScore(options?: HostActionOptions): Promise<void>;
+  command<TResult = unknown>(command: string, payload?: JsonValue, options?: HostActionOptions): Promise<TResult>;
   /** Persist a setting and resolve only after the host confirms the saved settings. */
-  setSetting<TPath extends SettingsPath<TSettings>>(path: TPath, value: SettingsPathValue<TSettings, TPath>): Promise<DeepReadonly<TSettings>>;
+  setSetting<TPath extends SettingsPath<TSettings>>(path: TPath, value: SettingsPathValue<TSettings, TPath>, options?: HostActionOptions): Promise<DeepReadonly<TSettings>>;
   startAutoResize(): void;
   stopAutoResize(): void;
 }
@@ -437,9 +483,19 @@ export class HostActionError extends Error {
   constructor(message: string, code?: string);
   readonly code: string;
 }
-export function connect<TSettings extends object = JsonObject>(options: ConnectOptions<TSettings> | string): Promise<W3BoosterClient<TSettings>>;
-export function createClient<TSettings extends object = JsonObject>(options: ConnectOptions<TSettings> | string): W3BoosterClient<TSettings>;
-export function isAbortError(error: unknown): boolean;
+/** @deprecated Use `openClient()` for transport-only startup or `startClient()` for synchronized state. */
+export type ClientOptionsInput<TSettings extends object, TOverlayExtensions extends object> =
+  TSettings extends JsonCompatible<TSettings>
+    ? TOverlayExtensions extends JsonCompatible<TOverlayExtensions>
+      ? ConnectOptions<TSettings, TOverlayExtensions> | string
+      : never
+    : never;
+export function connect<TSettings extends object = JsonObject, TOverlayExtensions extends object = object>(options: ClientOptionsInput<TSettings, TOverlayExtensions>): Promise<W3BoosterClient<TSettings, TOverlayExtensions>>;
+export function openClient<TSettings extends object = JsonObject, TOverlayExtensions extends object = object>(options: ClientOptionsInput<TSettings, TOverlayExtensions>): Promise<W3BoosterClient<TSettings, TOverlayExtensions>>;
+export function startClient<TSettings extends object = JsonObject, TOverlayExtensions extends object = object>(options: ClientOptionsInput<TSettings, TOverlayExtensions>, startup?: StartupOptions): Promise<W3BoosterClient<TSettings, TOverlayExtensions>>;
+export function createClient<TSettings extends object = JsonObject, TOverlayExtensions extends object = object>(options: ClientOptionsInput<TSettings, TOverlayExtensions>): W3BoosterClient<TSettings, TOverlayExtensions>;
+export function isAbortError(error: unknown): error is AbortError;
 export function isW3BoosterError(error: unknown): error is PermissionRequiredError | ConnectionError | ProtocolError | HostActionError;
 export function classifyW3BoosterError(error: unknown): W3BoosterErrorInfo;
 export function canUseHostCapability(snapshot: HostLifecycleSnapshot, capability: HostCapability): boolean;
+export const UNAVAILABLE_HOST_SNAPSHOT: HostLifecycleSnapshot;

@@ -1,19 +1,66 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 - 2026-08-19
 
+- Notified state subscribers and watchers on synchronization-freshness-only transitions, and preserved overlay-extension generics in generated application aliases.
+- Kept broadcaster-independent Match Vision surfaces visible when authoritative broadcaster identity is unavailable.
+- Added the promised locale-neutral `raceInfo()` accessor and automated checks that synchronize every public runtime/declaration export and validate README namespace calls.
+- Made Match Vision require explicit broadcaster identity before applying broadcaster display settings, and carried generated-runtime resolved settings atomically into every surface.
+- **Breaking:** replaced SDK-owned English `raceName()` / `raceShortName()` copy and race label fields with locale-neutral `raceInfo(...).localizationKey` and `shortLocalizationKey`; applications now own translations.
+- Versioned the new frontend/store contract as a new major so clean consumers cannot resolve it to the earlier `0.2.0` artifact.
+- Exposed the completed same-match snapshot directly as `event.match` for ended lifecycle events, including authoritative `endedAt` when supplied.
+- Returned branded native immutable cooldown maps, distinguished shared-runtime caller cancellation from standalone startup options, and preserved null upkeep input as unavailable.
+- Reused safe SDK pool ratios for Match Vision mana bars and added actionable application-definition mismatch guidance.
+- Made match lifecycle observations derive from one state stream so subscriptions created during a transition receive it exactly once.
+- Added validated authoritative `match.endedAt` completion timestamps while retaining explicit client-observed lifecycle timing as a fallback.
+- Made race metadata locale-neutral through stable localization keys; display-language copy remains application-owned.
+- Accepted both eager and change-only source stores without suppressing the latter's first real frontend update.
+- Separated Match Vision's player presentation overrides from authoritative SDK player fields through an explicit view model.
+- Negotiated generated application-definition revisions with the broker and exposed a permanent `APPLICATION_DEFINITION_MISMATCH` error for stale bundles.
+- Preserved additive public overlay extension branches while continuing to remove private recorder and legacy settings fields.
+- Preserved public `overlay.runtime` values from typed custom/testing transports and kept additive overlay branches through demo transport adaptation.
+- Propagated an explicit overlay-extension generic through state, clients, lifecycle, events, testing transports, and generated application runtimes.
+- Added framework-neutral selector stores and made the React selector adapter build on the same implementation.
+- Observed synchronous and asynchronous selector-store subscriber failures through a configurable `onError` hook.
+- Routed eager selector-store subscriber failures through the same `onError` contract as later notifications and observed asynchronous error reporters.
+- Added immutable-input selector memoization, stable allocation-heavy SDK selectors, and generic lightweight-record team grouping.
+- Defined memoization as caller-owned identity invalidation, preserved lightweight record subtypes through broadcaster/team ordering, and added structured player display identity.
+- Replaced one-entry selector caches with weak multi-identity caches suitable for interleaved lists and views.
+- Limited public selector caching to recursively frozen inputs so mutable frontend collections always recompute.
+- Preserved SDK issue reporting through derived selector-store chains without requiring application wiring.
+- Made cooldown timestamps explicitly positive, retained fractional-second precision, and added tuple-preserving head-to-head ordering types.
+- Kept concurrent generated-runtime startup milestones, timeouts, and cancellation independent over one shared transport open.
+- Cached allocating React selector snapshots by source identity to satisfy `useSyncExternalStore`, completed typed demo overlay fixtures, and bounded Match Vision's profile-selector variants with the SDK memoizer.
+- Stabilized whole-state cooldown derivation, added explicit lifecycle `observedAt` timing, and composed BattleTag discriminator handling into player display identity.
+- Consolidated standalone-client and generated-runtime readiness validation/waiting while retaining their distinct cancellation ownership.
+- Distinguished initial retrying from reconnection, accepted startup cancellation for unlimited incomplete retries, and added an initial-aware match lifecycle subscription.
+- Generated bound client/runtime/snapshot aliases and exported the canonical unavailable-host lifecycle snapshot.
+- Made overlay extensions deeply read-only and rejected normalization-owned `runtime`, `misc`, and `settings` extension keys.
+- Rejected non-JSON settings and extension models at client creation in TypeScript.
+- Made whole-state cooldown collections and values immutable and added canonical Warcraft III upkeep classification adopted by Match Vision.
+- Made standard-game rawcode/entity icon resolution strict, with an explicit filename URL escape hatch.
+- Added a dependency-free observer-style `Subscribable` adapter for Angular, RxJS, and other frontend integrations.
+- Aligned every Match Vision observer surface on the SDK's canonical team ordering and made service restart races generation-safe.
+- Made `playerResources()` and `matchScore()` preserve unavailable data as `undefined`; use the new explicit `playerResourcesOrZero()` and `matchScoreOrZero()` presentation fallbacks when zeroes are intended.
+- Added explicit `open()` / `openClient()` transport-ready names and `startClient()` synchronized startup while retaining deprecated `connect()` aliases.
+- Aligned wildcard `once('*')` TypeScript declarations with the supported runtime behavior.
 - Kept the SDK framework-neutral and documented that framework lifecycle, dependency injection, and UI state belong in consuming applications.
 - Routed generated application-runtime listener failures through the structured client issue channel.
 - Deferred demo and local-recorder modules until they are actually needed.
 - Split standard-game icon and cooldown metadata into independently importable entry points while preserving the combined objects API.
 - Documented that trust-sensitive identity redaction is enforced by the platform server, not by consumer-controlled SDK code.
 - Added compatibility linting against the declared browser targets.
+- Made reconnect-time `connect()` and connected-only startup wait for a genuinely active transport.
+- Stopped compositor watchers after permanent authorization, configuration, and protocol failures.
+- Added cancellable, timeout-aware host actions with precise result and JSON-payload types.
+- Made frontend error classification a TypeScript-discriminated union.
+- Expanded browser smoke coverage from Chromium alone to Chromium, Firefox, and WebKit.
 
 ## 0.2.0 - 2026-08-18
 
 - Added a managed generated-application runtime that atomically exposes connection state, resolved settings, and reactive host capabilities with single-flight startup and teardown.
 - Replaced the public recorder-shaped `overlay.misc` object with `overlay.runtime` and a nested `matchScore`, while retaining the legacy shape only at the private protocol boundary.
-- Added reusable player-resource, player-hero, and match-score selectors with stable empty fallbacks.
+- Added reusable player-resource, player-hero, and match-score selectors.
 - Rejected `Date`, `Map`, custom prototypes, and other non-JSON objects in settings instead of silently erasing their values during cloning.
 - Declared and smoke-test enforced the browser runtime floor: Chromium/Edge 92, Firefox 90, and Safari 15.4.
 - Preserved application-visible overlay identities when hidden control-plane metadata is removed, including across unrelated patches and recorder overlays.

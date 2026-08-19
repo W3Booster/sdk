@@ -1,10 +1,65 @@
 export { hasCapability, isActiveMatch, isObserverOrReplayMatch } from './internal/domain.js';
+import { createImmutableSelector } from './internal/immutable-selector.js';
 
 const EMPTY_OVERLAY_RUNTIME = Object.freeze({});
 const EMPTY_INVENTORY = Object.freeze([]);
 const EMPTY_HEROES = Object.freeze([]);
 const EMPTY_RESOURCES = Object.freeze({ gold: 0, lumber: 0, supply: 0, supplyCap: 0, workerSupply: 0 });
 const EMPTY_MATCH_SCORE = Object.freeze({ wins: 0, losses: 0 });
+
+const selectGroupedPlayers = createImmutableSelector(players => {
+  const teams = new Map();
+  for (const player of players) {
+    const team = Number.isFinite(player.team) ? Number(player.team) : null;
+    if (!teams.has(team)) teams.set(team, []);
+    teams.get(team).push(player);
+  }
+  return Object.freeze([...teams].map(([teamId, teamPlayers]) => Object.freeze({
+    teamId,
+    players: Object.freeze(teamPlayers)
+  })));
+});
+
+const selectBroadcasterFirstTeams = createImmutableSelector((players, broadcasterId, reverse) => {
+  const teams = [...groupPlayersByTeam(players)];
+  const broadcaster = broadcasterId
+    ? players.find(player => String(player.id) === broadcasterId)
+    : undefined;
+  if (broadcaster) {
+    teams.sort((left, right) =>
+      Number(right.teamId === broadcaster.team) - Number(left.teamId === broadcaster.team));
+  }
+  if (reverse) teams.reverse();
+  return Object.freeze(teams);
+});
+
+const selectCurrentUpgrades = createImmutableSelector((upgradesState, includeResearching) => {
+  const upgrades = [...(upgradesState?.active ?? [])];
+  if (includeResearching) {
+    const identities = new Set(upgrades.map(upgradeIdentity));
+    for (const upgrade of upgradesState?.researching ?? []) {
+      const identity = upgradeIdentity(upgrade);
+      if (identities.has(identity)) continue;
+      identities.add(identity);
+      upgrades.push(upgrade);
+    }
+  }
+  return Object.freeze(upgrades);
+});
+
+const selectPlayerDisplayIdentity = createImmutableSelector((player, stripBattleTagDiscriminator) => {
+  const rawInGameName = typeof player?.name === 'string' && player.name ? player.name : String(player?.id ?? '');
+  const inGameName = stripBattleTagDiscriminator ? battleTagName(rawInGameName) : rawInGameName;
+  const accountName = typeof player?.mainAccount?.name === 'string' && player.mainAccount.name
+    ? player.mainAccount.name
+    : undefined;
+  return Object.freeze({
+    primaryName: accountName ?? inGameName,
+    inGameName,
+    accountName,
+    hasAlias: Boolean(accountName && inGameName && accountName !== inGameName)
+  });
+});
 
 /** The configured broadcaster. A missing identity stays explicit unless fallbackToFirst is requested. */
 export function broadcasterPlayer(match, players, options = {}) {
@@ -17,25 +72,13 @@ export function broadcasterPlayer(match, players, options = {}) {
 
 /** Group players by their protocol team id while preserving input order. */
 export function groupPlayersByTeam(players) {
-  const teams = new Map();
-  for (const player of players) {
-    const team = Number.isFinite(player.team) ? Number(player.team) : null;
-    if (!teams.has(team)) teams.set(team, []);
-    teams.get(team).push(player);
-  }
-  return [...teams].map(([teamId, teamPlayers]) => ({ teamId, players: teamPlayers }));
+  return selectGroupedPlayers(players);
 }
 
 /** Group teams and place the configured broadcaster's team first. */
 export function broadcasterFirstTeams(players, match, options = {}) {
-  const teams = groupPlayersByTeam(players);
-  const broadcaster = broadcasterPlayer(match, players);
-  if (broadcaster) {
-    teams.sort((left, right) =>
-      Number(right.teamId === broadcaster.team) - Number(left.teamId === broadcaster.team));
-  }
-  if (options.reverse === true) teams.reverse();
-  return teams;
+  const broadcasterId = typeof match?.broadcasterPlayerId === 'string' ? match.broadcasterPlayerId : '';
+  return selectBroadcasterFirstTeams(players, broadcasterId, options.reverse === true);
 }
 
 /** Relationship to the configured broadcaster, independent of any application's color palette. */
@@ -45,6 +88,11 @@ export function playerRelationship(player, match, players) {
   if (String(player.id) === String(broadcaster.id)) return 'self';
   if (!Number.isFinite(player.team) || !Number.isFinite(broadcaster.team)) return 'unknown';
   return Number(player.team) === Number(broadcaster.team) ? 'ally' : 'opponent';
+}
+
+/** Resolve protocol account and in-game names without choosing localized display copy. */
+export function playerDisplayIdentity(player, options = {}) {
+  return selectPlayerDisplayIdentity(player, options.stripBattleTagDiscriminator === true);
 }
 
 /** Read a hero's item-slot inventory. */
@@ -57,9 +105,14 @@ export function playerHeroes(player) {
   return player?.heroes ?? EMPTY_HEROES;
 }
 
-/** Read normalized player resources through one stable zero-valued fallback. */
+/** Read player resources without collapsing unavailable scoped data into zeroes. */
 export function playerResources(player) {
-  return player?.resources ?? EMPTY_RESOURCES;
+  return player?.resources;
+}
+
+/** Read player resources with an explicit stable zero-valued presentation fallback. */
+export function playerResourcesOrZero(player) {
+  return playerResources(player) ?? EMPTY_RESOURCES;
 }
 
 /** Read public overlay runtime values through one stable empty fallback. */
@@ -67,9 +120,14 @@ export function overlayRuntime(state) {
   return state?.overlay?.runtime ?? EMPTY_OVERLAY_RUNTIME;
 }
 
-/** Read the normalized match score through one stable zero-valued fallback. */
+/** Read the normalized match score without collapsing unavailable overlay data into zeroes. */
 export function matchScore(state) {
-  return state?.overlay?.runtime?.matchScore ?? EMPTY_MATCH_SCORE;
+  return state?.overlay?.runtime?.matchScore;
+}
+
+/** Read the normalized match score with an explicit stable 0-0 presentation fallback. */
+export function matchScoreOrZero(state) {
+  return matchScore(state) ?? EMPTY_MATCH_SCORE;
 }
 
 /** Stable identity for one rendered inventory slot and its current contents. */
@@ -92,16 +150,7 @@ export function upgradeIdentity(upgrade) {
  * level twice. Some producers include a researching upgrade in both lists.
  */
 export function currentUpgrades(player, options = {}) {
-  const upgrades = [...(player?.upgrades?.active ?? [])];
-  if (options.includeResearching === false) return upgrades;
-  const identities = new Set(upgrades.map(upgradeIdentity));
-  for (const upgrade of player?.upgrades?.researching ?? []) {
-    const identity = upgradeIdentity(upgrade);
-    if (identities.has(identity)) continue;
-    identities.add(identity);
-    upgrades.push(upgrade);
-  }
-  return upgrades;
+  return selectCurrentUpgrades(player?.upgrades, options.includeResearching !== false);
 }
 
 /** Remove a numeric BattleTag discriminator while preserving ordinary hash characters. */

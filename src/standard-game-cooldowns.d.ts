@@ -9,4 +9,5 @@ export interface AbilityCooldownState {
 }
 export function getAbilityCooldown(rawcode: string, level?: number): number | undefined;
 export function abilityCooldown(ability: HeroAbility, gameTime: number): AbilityCooldownState | undefined;
+/** A native Map whose mutating methods reject at runtime; exposed read-only to consumers. */
 export function abilityCooldownsForState<TSettings extends object>(state: MatchState<TSettings>): ReadonlyMap<HeroAbility, AbilityCooldownState>;

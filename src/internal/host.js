@@ -1,5 +1,5 @@
 import { ConnectionError, HostActionError } from './errors.js';
-import { isPlainObject, validateAbortSignal } from './network.js';
+import { createAbortError, isPlainObject, validateAbortSignal } from './network.js';
 import { assertSafeValue, deepFreeze, structuredCloneSafe } from './values.js';
 
 const HOST_ACTION_TIMEOUT = 10000;
@@ -7,6 +7,11 @@ const HOST_CONTEXT_LIFETIME = 12 * 60 * 60 * 1000;
 const HOST_CAPABILITIES = new Set([
   'window:open', 'window:close', 'match-score:write', 'settings:write', 'resize:report', 'command'
 ]);
+export const UNAVAILABLE_HOST_SNAPSHOT = Object.freeze({
+  available: false,
+  capabilities: Object.freeze([]),
+  capabilityStatus: 'unavailable'
+});
 
 /** Host bridge for application surfaces embedded by W3Booster. */
 export class W3BoosterHost {
@@ -17,11 +22,7 @@ export class W3BoosterHost {
     this.targetOrigin = '*';
     this._capabilities = Object.freeze([]);
     this._capabilityStatus = 'unavailable';
-    this._lifecycleSnapshot = Object.freeze({
-      available: false,
-      capabilities: this._capabilities,
-      capabilityStatus: this._capabilityStatus
-    });
+    this._lifecycleSnapshot = UNAVAILABLE_HOST_SNAPSHOT;
     this.capabilitySubscribers = new Set();
     this.lifecycleSubscribers = new Set();
     this.resizeObserver = null;
@@ -91,37 +92,40 @@ export class W3BoosterHost {
     this.authenticated = false;
     this.targetOrigin = '*';
     hostEventTarget()?.removeEventListener?.('message', this.responseListener);
-    for (const pending of this.pendingRequests.values()) {
-      clearTimeout(pending.timer);
+    for (const pending of [...this.pendingRequests.values()]) {
       pending.reject(new ConnectionError('W3Booster disconnected before the host action completed.', [], 'HOST_UNAVAILABLE'));
     }
-    this.pendingRequests.clear();
     this.#setCapabilityState([], 'unavailable');
   }
 
-  openWindow(options = {}) {
-    validateOpenWindowOptions(options);
-    return this.#requestMessage('host.open-window', { options }, 'opening an application window');
+  openWindow(windowOptions = {}, actionOptions = {}) {
+    validateOpenWindowOptions(windowOptions);
+    return this.#requestMessage('host.open-window', { options: windowOptions }, 'opening an application window', actionOptions)
+      .then(() => undefined);
   }
-  closeWindow() { return this.#requestMessage('host.close-window', {}, 'closing the application window'); }
+  closeWindow(options = {}) {
+    return this.#requestMessage('host.close-window', {}, 'closing the application window', options).then(() => undefined);
+  }
 
-  changeMatchScore(side, delta) {
+  changeMatchScore(side, delta, options = {}) {
     if (!['wins', 'losses'].includes(side)) throw new TypeError('side must be wins or losses');
     if (![1, -1].includes(delta)) throw new TypeError('delta must be 1 or -1');
-    return this.command('overlay.match-score.change', { side, delta });
+    return this.command('overlay.match-score.change', { side, delta }, options).then(() => undefined);
   }
 
-  resetMatchScore() { return this.command('overlay.match-score.reset'); }
+  resetMatchScore(options = {}) {
+    return this.command('overlay.match-score.reset', undefined, options).then(() => undefined);
+  }
 
-  command(command, payload) {
+  command(command, payload, options = {}) {
     if (typeof command !== 'string' || !command.trim() || command.length > 160) {
       throw new TypeError('command must be a non-empty string of at most 160 characters');
     }
     if (payload !== undefined) assertSafeValue(payload, 'host command payload');
-    return this.#request(command, payload);
+    return this.#request(command, payload, options);
   }
 
-  setSetting(path, value) {
+  setSetting(path, value, options = {}) {
     if (typeof path !== 'string' || path.length > 120 || !/^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*$/.test(path)) {
       throw new TypeError('path must contain dot-separated setting identifiers');
     }
@@ -131,7 +135,7 @@ export class W3BoosterHost {
       invalid.cause = error;
       throw invalid;
     }
-    return this.#request('application.settings.set', { path, value }).then(result => {
+    return this.#request('application.settings.set', { path, value }, options).then(result => {
       if (!isPlainObject(result?.settings)) throw new HostActionError('The W3Booster host returned invalid saved settings.', 'INVALID_HOST_RESPONSE');
       assertSafeValue(result.settings, 'saved settings');
       return deepFreeze(structuredCloneSafe(result.settings));
@@ -146,28 +150,52 @@ export class W3BoosterHost {
   }
 
   #requestMessage(type, data, action, options = {}) {
+    options = validateHostActionOptions(options);
     assertSafeValue(data, 'host request');
     const requestId = `${Date.now().toString(36)}-${(++this.requestSequence).toString(36)}`;
     const timeout = options.timeout ?? HOST_ACTION_TIMEOUT;
+    if (options.signal?.aborted) {
+      return Promise.reject(createAbortError(`W3Booster host action was cancelled before ${action}.`));
+    }
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
+      let settled = false;
+      let timer;
+      const cleanup = () => {
+        if (timer) clearTimeout(timer);
+        options.signal?.removeEventListener('abort', abort);
         this.pendingRequests.delete(requestId);
-        reject(new ConnectionError(`The W3Booster host did not acknowledge ${action}.`, [], 'HOST_TIMEOUT'));
+      };
+      const finish = (callback, value) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        callback(value);
+      };
+      const pending = {
+        resolve: value => finish(resolve, value),
+        reject: error => finish(reject, error)
+      };
+      const abort = () => pending.reject(createAbortError(`W3Booster host action was cancelled while ${action}.`));
+      timer = setTimeout(() => {
+        pending.reject(new ConnectionError(`The W3Booster host did not acknowledge ${action}.`, [], 'HOST_TIMEOUT'));
       }, timeout);
-      this.pendingRequests.set(requestId, { resolve, reject, timer });
+      this.pendingRequests.set(requestId, pending);
+      options.signal?.addEventListener('abort', abort, { once: true });
       if (!this.#post(type, { ...data, requestId })) {
-        clearTimeout(timer);
-        this.pendingRequests.delete(requestId);
-        reject(new ConnectionError('This application is not running inside an authenticated W3Booster host.', [], 'HOST_UNAVAILABLE'));
+        pending.reject(new ConnectionError('This application is not running inside an authenticated W3Booster host.', [], 'HOST_UNAVAILABLE'));
       }
     });
   }
 
-  async refreshCapabilities() {
+  async refreshCapabilities(options = {}) {
+    options = validateHostActionOptions(options);
+    if (options.signal?.aborted) {
+      throw createAbortError('W3Booster host capability refresh was cancelled.');
+    }
     if (!this.authenticated) return this._capabilities;
     if (this._capabilityStatus !== 'known') this.#setCapabilityState(this._capabilities, 'pending');
     try {
-      const result = await this.#request('host.capabilities.get');
+      const result = await this.#request('host.capabilities.get', undefined, options);
       if (!this.authenticated) return this._capabilities;
       if (result == null) {
         this.#setCapabilityState([], 'legacy');
@@ -176,6 +204,7 @@ export class W3BoosterHost {
       if (!Array.isArray(result?.capabilities)) throw new TypeError('The W3Booster host returned invalid capabilities.');
       this.#setCapabilityState(result.capabilities.filter(capability => HOST_CAPABILITIES.has(capability)), 'known');
     } catch (error) {
+      if (error?.name === 'AbortError') throw error;
       if (this.authenticated && this._capabilityStatus === 'pending') {
         // Older hosts either acknowledge unknown generic commands without a
         // value or reject them explicitly. Other failures must not enable UI.
@@ -230,8 +259,6 @@ export class W3BoosterHost {
     if (expectedOrigin !== '*' && event.origin !== expectedOrigin) return;
     const pending = this.pendingRequests.get(message.requestId);
     if (!pending) return;
-    this.pendingRequests.delete(message.requestId);
-    clearTimeout(pending.timer);
     if (message.ok) pending.resolve(message.value);
     else pending.reject(new HostActionError(message.error?.message || 'The W3Booster host action failed.', message.error?.code));
   }
@@ -323,6 +350,15 @@ function validateOpenWindowOptions(options) {
       throw new TypeError(`open window ${field} must be a positive number`);
     }
   }
+}
+
+function validateHostActionOptions(options) {
+  if (!isPlainObject(options)) throw new TypeError('host action options must be an object');
+  validateAbortSignal(options.signal);
+  if (options.timeout !== undefined && (!Number.isFinite(Number(options.timeout)) || Number(options.timeout) <= 0)) {
+    throw new TypeError('host action timeout must be a positive number');
+  }
+  return options;
 }
 
 function hostWindow(authenticated = false) {

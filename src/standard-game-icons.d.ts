@@ -7,6 +7,7 @@ export const assetCatalogVersion: 'v1';
 export function getIcon(rawcode: string): string | undefined;
 export function iconFileName(identifier: string): string | undefined;
 export function iconUrl(identifier: string, options?: AssetUrlOptions): string | undefined;
+export function iconFilenameUrl(filename: string, options?: AssetUrlOptions): string | undefined;
 export function heroIconUrl(hero: Pick<Hero, 'id'> | null | undefined, options?: AssetUrlOptions): string | undefined;
 export function abilityIconUrl(ability: Pick<HeroAbility, 'name'> | null | undefined, options?: AssetUrlOptions): string | undefined;
 export function upgradeIconUrl(upgrade: Pick<CompletedUpgrade, 'name'> | null | undefined, options?: AssetUrlOptions): string | undefined;

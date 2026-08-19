@@ -11,9 +11,12 @@ import {
   inventorySlotIdentity,
   isActiveMatch,
   matchScore,
+  matchScoreOrZero,
   overlayRuntime,
   playerHeroes,
+  playerDisplayIdentity,
   playerResources,
+  playerResourcesOrZero,
   playerRelationship,
   upgradeIdentity
 } from '../src/selectors.js';
@@ -55,6 +58,23 @@ test('selectors expose common match and player derivations', () => {
   assert.equal(playerRelationship(players[0], {}, players), 'unknown');
   assert.equal(playerRelationship({ id: 'unknown' }, { broadcasterPlayerId: 'broadcaster' }, [...players, { id: 'unknown' }]), 'unknown');
   assert.equal(groupPlayersByTeam([{ id: 'unknown' }])[0].teamId, null);
+  assert.deepEqual(playerDisplayIdentity({
+    id: 'player', name: 'InGame', mainAccount: { name: 'Account' }
+  }), {
+    primaryName: 'Account', inGameName: 'InGame', accountName: 'Account', hasAlias: true
+  });
+  assert.deepEqual(playerDisplayIdentity({ id: 'player', name: 'Same', mainAccount: { name: 'Same' } }), {
+    primaryName: 'Same', inGameName: 'Same', accountName: 'Same', hasAlias: false
+  });
+  assert.deepEqual(playerDisplayIdentity({ id: 'fallback' }), {
+    primaryName: 'fallback', inGameName: 'fallback', accountName: undefined, hasAlias: false
+  });
+  assert.deepEqual(playerDisplayIdentity(
+    { id: 'player', name: 'Player#1234' },
+    { stripBattleTagDiscriminator: true }
+  ), {
+    primaryName: 'Player', inGameName: 'Player', accountName: undefined, hasAlias: false
+  });
 });
 
 test('current upgrades merge overlapping active and researching records', () => {
@@ -74,14 +94,54 @@ test('selectors expose canonical inventory and preserve non-BattleTag hashes', (
   assert.equal(battleTagName(undefined), undefined);
   assert.equal(overlayRuntime(undefined), overlayRuntime({}));
   assert.equal(playerHeroes(undefined), playerHeroes({}));
-  assert.equal(playerResources(undefined), playerResources({}));
-  assert.deepEqual(playerResources(undefined), { gold: 0, lumber: 0, supply: 0, supplyCap: 0, workerSupply: 0 });
-  assert.equal(matchScore(undefined), matchScore({}));
-  assert.deepEqual(matchScore(undefined), { wins: 0, losses: 0 });
+  assert.equal(playerResources(undefined), undefined);
+  assert.equal(playerResourcesOrZero(undefined), playerResourcesOrZero({}));
+  assert.deepEqual(playerResourcesOrZero(undefined), { gold: 0, lumber: 0, supply: 0, supplyCap: 0, workerSupply: 0 });
+  assert.equal(matchScore(undefined), undefined);
+  assert.equal(matchScoreOrZero(undefined), matchScoreOrZero({}));
+  assert.deepEqual(matchScoreOrZero(undefined), { wins: 0, losses: 0 });
   const runtime = { overlay: { runtime: { matchScore: { wins: 2, losses: 1 } } } };
   assert.equal(matchScore(runtime), runtime.overlay.runtime.matchScore);
   assert.equal(inventorySlotIdentity(0, 'ratf'), '0:ratf');
   assert.equal(upgradeIdentity({ name: 'Rhme', level: 2 }), 'Rhme:2');
   assert.throws(() => inventorySlotIdentity(-1, 'ratf'), /non-negative integer/);
   assert.throws(() => upgradeIdentity({ name: '', level: 1 }), /name and finite level/);
+});
+
+test('allocating selectors preserve identity for immutable structurally shared inputs', () => {
+  const players = Object.freeze([
+    Object.freeze({ id: 'one', team: 0 }),
+    Object.freeze({ id: 'two', team: 1 })
+  ]);
+  assert.equal(groupPlayersByTeam(players), groupPlayersByTeam(players));
+  assert.equal(
+    broadcasterFirstTeams(players, { broadcasterPlayerId: 'one' }),
+    broadcasterFirstTeams(players, { broadcasterPlayerId: 'one' })
+  );
+  const upgrades = Object.freeze({
+    active: Object.freeze([Object.freeze({ name: 'Rhme', level: 1 })]),
+    researching: Object.freeze([])
+  });
+  assert.equal(currentUpgrades({ upgrades }), currentUpgrades({ upgrades }));
+  const firstIdentity = playerDisplayIdentity(players[0]);
+  playerDisplayIdentity(players[1]);
+  assert.equal(playerDisplayIdentity(players[0]), firstIdentity);
+});
+
+test('allocating selectors recompute for mutable frontend-owned inputs', () => {
+  const players = [{ id: 'one', team: 0 }];
+  assert.deepEqual(groupPlayersByTeam(players).map(team => team.teamId), [0]);
+  players.push({ id: 'two', team: 1 });
+  assert.deepEqual(groupPlayersByTeam(players).map(team => team.teamId), [0, 1]);
+
+  const upgrades = { active: [], researching: [] };
+  const player = { upgrades };
+  assert.deepEqual(currentUpgrades(player), []);
+  upgrades.active.push({ name: 'Rhme', level: 1 });
+  assert.deepEqual(currentUpgrades(player), [{ name: 'Rhme', level: 1 }]);
+
+  const identity = { id: 'one', name: 'First' };
+  assert.equal(playerDisplayIdentity(identity).primaryName, 'First');
+  identity.name = 'Second';
+  assert.equal(playerDisplayIdentity(identity).primaryName, 'Second');
 });

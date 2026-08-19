@@ -34,7 +34,7 @@ export class StateStore {
     this.publishSnapshot();
     for (const waiter of [...this.readyWaiters]) waiter.resolve(this.state);
     if (this.synchronized) for (const waiter of [...this.synchronizationWaiters]) waiter.resolve(this.state);
-    [...this.subscribers].forEach(listener => this.notify(listener));
+    this.notifySubscribers();
     return this.state;
   }
   reset(reason = createAbortError('W3Booster state was reset before it became ready.'), options = {}) {
@@ -42,7 +42,7 @@ export class StateStore {
     this.state = null;
     this.synchronized = false;
     if (options.publish !== false) this.publishSnapshot();
-    if (hadState) [...this.subscribers].forEach(listener => this.notify(listener));
+    if (hadState) this.notifySubscribers();
     for (const waiter of [...this.readyWaiters]) waiter.reject(reason);
     for (const waiter of [...this.synchronizationWaiters]) waiter.reject(reason);
   }
@@ -50,6 +50,7 @@ export class StateStore {
     if (!this.synchronized) return false;
     this.synchronized = false;
     if (options.publish !== false) this.publishSnapshot();
+    this.notifySubscribers();
     return true;
   }
   markSynchronized(options = {}) {
@@ -57,6 +58,7 @@ export class StateStore {
     this.synchronized = true;
     if (options.publish !== false) this.publishSnapshot();
     for (const waiter of [...this.synchronizationWaiters]) waiter.resolve(this.state);
+    this.notifySubscribers();
     return true;
   }
   publishSnapshot() {
@@ -65,6 +67,9 @@ export class StateStore {
   notify(listener) {
     try { handleListenerResult(listener(this.state), this.onListenerError); }
     catch (error) { this.onListenerError(error); }
+  }
+  notifySubscribers() {
+    [...this.subscribers].forEach(listener => this.notify(listener));
   }
   watch(selector, listener, options) {
     if (typeof selector !== 'function') throw new TypeError('selector must be a function');

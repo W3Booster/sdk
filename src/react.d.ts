@@ -1,7 +1,5 @@
-export interface ImmediateStore<TSnapshot> {
-  get(): TSnapshot;
-  subscribe(listener: (snapshot: TSnapshot) => void): () => void;
-}
+import type { ImmediateStore } from './store.js';
+export type { ImmediateStore } from './store.js';
 
 export interface ReactExternalStore<TSnapshot> {
   getSnapshot(): TSnapshot;
@@ -16,6 +14,7 @@ export interface ReactStoreOptions<TSnapshot> {
 
 export interface ReactSelectorStoreOptions<TSnapshot, TSelected> extends ReactStoreOptions<TSnapshot> {
   equals?: (previous: TSelected, current: TSelected) => boolean;
+  onError?: (error: unknown) => void | Promise<void>;
 }
 
 export function createReactStore<TSnapshot>(

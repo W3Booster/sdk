@@ -1,5 +1,5 @@
 import { SDK_VERSION, PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS } from './version.js';
-import { emitDomainEvents } from './internal/domain.js';
+import { emitDomainEvents, isActiveMatch } from './internal/domain.js';
 import { registerConsumerIssueReporter } from './internal/consumer-issues.js';
 import { DeferredLocalRecorderTransport } from './internal/deferred-recorder.js';
 import {
@@ -13,7 +13,7 @@ import {
 } from './internal/errors.js';
 import { createReconnectBackoff } from './internal/websocket.js';
 import { createBrokerTransport, createCredentialProvider } from './internal/broker.js';
-import { canUseHostCapability, captureHostContext, W3BoosterHost } from './internal/host.js';
+import { canUseHostCapability, captureHostContext, UNAVAILABLE_HOST_SNAPSHOT, W3BoosterHost } from './internal/host.js';
 import { applyPatch, normalizeStatePatch, parseProtocolMessage, validateState } from './internal/protocol.js';
 import {
   ClientLifecycleStore,
@@ -34,6 +34,7 @@ import {
 } from './internal/network.js';
 import { deepEqual, deepFreeze } from './internal/values.js';
 import { isKnownScope } from './internal/scopes.js';
+import { normalizeStartupOptions, waitForStartupState } from './internal/startup.js';
 
 export { SDK_VERSION, PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS } from './version.js';
 export {
@@ -49,11 +50,26 @@ export {
 const APP_SURFACES = new Set(['application', 'streamOverlay', 'ingameOverlay']);
 const CLIENT_CONSTRUCTOR_TOKEN = Symbol('W3BoosterClient');
 
-/** Connect to W3Booster without choosing a local or cloud transport. */
-export async function connect(options) {
+/** Open a W3Booster transport without waiting for hydrated state. */
+export async function openClient(options) {
   const client = createClient(options);
   try {
-    await client.connect();
+    await client.open();
+    return client;
+  } catch (error) {
+    await client.disconnect();
+    throw error;
+  }
+}
+
+/** @deprecated Use openClient() for transport-only startup or startClient() for synchronized state. */
+export function connect(options) { return openClient(options); }
+
+/** Create a client and wait for the frontend lifecycle milestone requested by startup options. */
+export async function startClient(options, startup = {}) {
+  const client = createClient(options);
+  try {
+    await client.start(startup);
     return client;
   } catch (error) {
     await client.disconnect();
@@ -65,7 +81,7 @@ export async function connect(options) {
 export function createClient(options) { return new W3BoosterClient(options, CLIENT_CONSTRUCTOR_TOKEN); }
 
 /** Decide whether a host action should be offered from a reactive host snapshot. */
-export { canUseHostCapability };
+export { canUseHostCapability, UNAVAILABLE_HOST_SNAPSHOT };
 
 export class W3BoosterClient {
   #events;
@@ -76,7 +92,7 @@ export class W3BoosterClient {
 
   constructor(options = {}, token) {
     if (token !== CLIENT_CONSTRUCTOR_TOKEN) {
-      throw new TypeError('Use createClient() or connect() to create a W3Booster client.');
+      throw new TypeError('Use createClient(), openClient(), or startClient() to create a W3Booster client.');
     }
     this.#runtime = Object.create(null);
     this.#runtime.options = normalizeConnectOptions(options);
@@ -88,6 +104,9 @@ export class W3BoosterClient {
       source: 'listener', severity: 'error', recoverable: true
     }));
     this.lifecycle = createLifecycleFacade(this.#lifecycle);
+    registerConsumerIssueReporter(this.lifecycle, error => this.#reportIssue(error, {
+      source: 'listener', severity: 'error', recoverable: true
+    }));
     this.#state = new StateStore({
       freeze: deepFreeze,
       onListenerError: error => this.#reportIssue(error, {
@@ -100,10 +119,16 @@ export class W3BoosterClient {
       })
     });
     this.state = createStateFacade(this.#state);
+    registerConsumerIssueReporter(this.state, error => this.#reportIssue(error, {
+      source: 'listener', severity: 'error', recoverable: true
+    }));
     this.#host = new W3BoosterHost(this.#runtime.options.clientId, error => this.#reportIssue(error, {
       source: 'listener', severity: 'error', recoverable: true
     }));
     this.host = createHostFacade(this.#host);
+    registerConsumerIssueReporter(this.host.lifecycle, error => this.#reportIssue(error, {
+      source: 'listener', severity: 'error', recoverable: true
+    }));
     this.#runtime._status = 'idle';
     this.#runtime._diagnostics = { protocolVersion: null, transport: null, localTransport: null };
     const diagnostics = this.#runtime._diagnostics;
@@ -141,13 +166,20 @@ export class W3BoosterClient {
 
   get status() { return this.#runtime._status; }
 
-  async connect(options = {}) {
-    if (!isPlainObject(options)) throw new TypeError('connect options must be an object');
+  connect(options = {}) { return this.open(options); }
+
+  async open(options = {}) {
+    if (!isPlainObject(options)) throw new TypeError('open options must be an object');
     validateAbortSignal(options.signal);
+    if (this.#runtime.options.retry?.maxAttempts === Infinity &&
+        !this.#runtime.options.signal && !options.signal) {
+      throw new TypeError('An AbortSignal is required for an unlimited retry policy');
+    }
     throwIfAborted(options.signal);
     if (this.#runtime.disconnectPromise) await abortable(this.#runtime.disconnectPromise, options.signal);
     if (this.#runtime.connectPromise) return abortable(this.#runtime.connectPromise, options.signal);
-    if (this.status === 'connected' || this.status === 'reconnecting') return this;
+    if (this.status === 'connected') return this;
+    if (this.status === 'reconnecting') return this.#waitForConnected(options.signal);
     if (this.status === 'error' && this.#runtime.transport) {
       const failedTransport = this.#runtime.transport;
       this.#runtime.transport = null;
@@ -189,51 +221,43 @@ export class W3BoosterClient {
 
   /** Connect and wait for the lifecycle milestone needed by a long-lived frontend. */
   async start(options = {}) {
-    if (!isPlainObject(options)) throw new TypeError('start options must be an object');
-    validateAbortSignal(options.signal);
-    const until = options.until ?? 'synchronized';
-    if (!['connected', 'ready', 'synchronized'].includes(until)) {
-      throw new TypeError('start.until must be connected, ready, or synchronized');
-    }
-    const timeout = options.timeout === undefined ? 0 : Number(options.timeout);
-    if (!Number.isFinite(timeout) || timeout < 0) throw new TypeError('start.timeout must be a non-negative number');
-    if (options.signal?.aborted) throw createAbortError('W3Booster startup was cancelled.');
+    const { until, timeout, signal } = normalizeStartupOptions(options);
     try {
-      await this.connect({ signal: options.signal });
-      if (until !== 'connected') await this.#waitForStartupState(until, timeout, options.signal);
+      await this.open({ signal });
+      if (until !== 'connected') await waitForStartupState(this, this.lifecycle, until, timeout, signal);
       return this;
     } catch (error) {
-      if (options.signal?.aborted && options.signal !== this.#runtime.options.signal) await this.disconnect();
+      if (signal?.aborted && signal !== this.#runtime.options.signal) await this.disconnect();
       throw error;
     }
   }
 
-  async #waitForStartupState(until, timeout, signal) {
-    const controller = new AbortController();
-    const abort = () => controller.abort(signal?.reason);
-    if (signal?.aborted) abort();
-    else signal?.addEventListener('abort', abort, { once: true });
-    let unsubscribe = () => {};
-    const terminalFailure = new Promise((_, reject) => {
+  #waitForConnected(signal) {
+    throwIfAborted(signal);
+    let unsubscribe;
+    let settled = false;
+    const operation = new Promise((resolve, reject) => {
+      const finish = (callback, value) => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener('abort', abort);
+        unsubscribe?.();
+        callback(value);
+      };
+      const abort = () => finish(reject, createAbortError('Waiting for W3Booster to reconnect was cancelled.'));
+      signal?.addEventListener('abort', abort, { once: true });
       unsubscribe = this.#lifecycle.subscribe(snapshot => {
-        if (snapshot.status !== 'error') return;
-        const error = snapshot.error ?? new ConnectionError(
-          'W3Booster stopped before frontend state was ready.', [], 'UNAVAILABLE'
-        );
-        reject(error);
-        controller.abort(error);
+        if (snapshot.status === 'connected') finish(resolve, this);
+        else if (snapshot.status === 'error') finish(reject, snapshot.error ?? new ConnectionError(
+          'W3Booster could not reconnect.', [], 'UNAVAILABLE'
+        ));
+        else if (snapshot.status === 'closed') finish(reject, createAbortError(
+          'W3Booster disconnected while waiting to reconnect.'
+        ));
       });
+      if (settled) unsubscribe();
     });
-    const readiness = until === 'ready'
-      ? this.whenReady({ timeout, signal: controller.signal })
-      : this.whenSynchronized({ timeout, signal: controller.signal });
-    try {
-      await Promise.race([readiness, terminalFailure]);
-    } finally {
-      unsubscribe();
-      controller.abort();
-      signal?.removeEventListener('abort', abort);
-    }
+    return operation;
   }
 
   async #openConnectionWithRetry(generation, signal) {
@@ -251,7 +275,7 @@ export class W3BoosterClient {
         if (!retry || !isRetryableConnectionError(error) || attempt >= retry.maxAttempts) throw error;
         const delay = retryBackoff.nextDelay();
         attempt += 1;
-        this.#setStatus('reconnecting');
+        this.#setStatus('connecting');
         await waitForDelay(delay, signal);
       }
     }
@@ -282,6 +306,7 @@ export class W3BoosterClient {
       try {
         await abortable(transport.open({
           clientId: this.#runtime.options.clientId,
+          applicationRevision: this.#runtime.options.applicationRevision,
           scopes: [...this.#runtime.options.scopes],
           protocolVersions: SUPPORTED_PROTOCOL_VERSIONS,
           signal,
@@ -318,7 +343,8 @@ export class W3BoosterClient {
     const lastError = errors[errors.length - 1];
     if (lastError instanceof PermissionRequiredError) throw lastError;
     if (lastError instanceof ProtocolError && !isRecoverableStreamProtocolError(lastError)) throw lastError;
-    if (lastError instanceof ConnectionError && lastError.code === 'CONFIGURATION') throw lastError;
+    if (lastError instanceof ConnectionError &&
+        (lastError.code === 'CONFIGURATION' || lastError.code === 'APPLICATION_DEFINITION_MISMATCH')) throw lastError;
     throw new ConnectionError('W3Booster is unavailable.', errors, 'UNAVAILABLE');
   }
 
@@ -339,6 +365,60 @@ export class W3BoosterClient {
     })); }
     catch (error) { this.#reportIssue(error, { source: 'listener', severity: 'error', recoverable: true }); }
     return unsubscribe;
+  }
+
+  /** Observe the current active match immediately and all later match lifecycle transitions. */
+  subscribeMatchLifecycle(listener, options = {}) {
+    if (typeof listener !== 'function') throw new TypeError('listener must be a function');
+    options = normalizeSubscriptionOptions(options);
+    if (options.signal?.aborted) return () => {};
+    const notify = observation => {
+      try { handleListenerResult(listener(deepFreeze(observation)), error => this.#reportIssue(error, {
+        source: 'listener', severity: 'error', recoverable: true
+      })); }
+      catch (error) { this.#reportIssue(error, { source: 'listener', severity: 'error', recoverable: true }); }
+    };
+    let previousState = null;
+    const unsubscribeState = this.state.subscribe(state => {
+      if (!state) {
+        previousState = null;
+        return;
+      }
+      const previous = previousState;
+      previousState = state;
+      const currentActive = isActiveMatch(state.match);
+      if (!previous) {
+        if (currentActive) notify({
+          match: state.match,
+          state,
+          observedAt: new Date().toISOString(),
+          phase: 'started',
+          initial: true
+        });
+        return;
+      }
+      const previousActive = isActiveMatch(previous.match);
+      const sameMatch = previous.match.id === state.match.id;
+      const observedAt = new Date().toISOString();
+      if (previousActive && (!currentActive || !sameMatch)) notify({
+        match: sameMatch ? state.match : previous.match,
+        previousMatch: previous.match,
+        nextMatch: state.match,
+        state,
+        observedAt,
+        phase: 'ended',
+        initial: false
+      });
+      if (currentActive && (!previousActive || !sameMatch)) notify({
+        match: state.match,
+        previousMatch: previous.match,
+        state,
+        observedAt,
+        phase: 'started',
+        initial: false
+      });
+    }, options);
+    return unsubscribeState;
   }
 
   once(type, listener, options) { return this.#events.once(type, listener, options); }
@@ -607,14 +687,14 @@ function createHostFacade(host) {
     get capabilityStatus() { return host.capabilityStatus; },
     supports: capability => host.supports(capability),
     can: capability => host.can(capability),
-    refreshCapabilities: () => host.refreshCapabilities(),
+    refreshCapabilities: options => host.refreshCapabilities(options),
     subscribeCapabilities: (listener, options) => host.subscribeCapabilities(listener, options),
-    openWindow: options => host.openWindow(options),
-    closeWindow: () => host.closeWindow(),
-    changeMatchScore: (side, delta) => host.changeMatchScore(side, delta),
-    resetMatchScore: () => host.resetMatchScore(),
-    command: (command, payload) => host.command(command, payload),
-    setSetting: (path, value) => host.setSetting(path, value),
+    openWindow: (windowOptions, actionOptions) => host.openWindow(windowOptions, actionOptions),
+    closeWindow: options => host.closeWindow(options),
+    changeMatchScore: (side, delta, options) => host.changeMatchScore(side, delta, options),
+    resetMatchScore: options => host.resetMatchScore(options),
+    command: (command, payload, options) => host.command(command, payload, options),
+    setSetting: (path, value, options) => host.setSetting(path, value, options),
     startAutoResize: () => host.startAutoResize(),
     stopAutoResize: () => host.stopAutoResize()
   });
@@ -654,6 +734,10 @@ function normalizeConnectOptions(value) {
   if (options.tokenProvider !== undefined && typeof options.tokenProvider !== 'function') {
     throw new TypeError('tokenProvider must be a function');
   }
+  if (options.applicationRevision !== undefined &&
+      (typeof options.applicationRevision !== 'string' || !options.applicationRevision.trim() || options.applicationRevision.length > 160)) {
+    throw new TypeError('applicationRevision must be a non-empty string of at most 160 characters');
+  }
   for (const optionName of ['localRecorder', 'autoResize']) {
     if (options[optionName] !== undefined && typeof options[optionName] !== 'boolean') {
       throw new TypeError(`${optionName} must be a boolean`);
@@ -670,9 +754,6 @@ function normalizeConnectOptions(value) {
   }
   const retry = normalizeRetryOptions(options.retry);
   const reconnect = normalizeReconnectOptions(options.reconnect);
-  if (retry?.maxAttempts === Infinity && !options.signal) {
-    throw new TypeError('An AbortSignal is required for an unlimited retry policy');
-  }
   return {
     ...options,
     clientId,
@@ -757,7 +838,7 @@ function isRecoverableStreamProtocolError(error) {
 function publicApplicationState(state) {
   const overlay = state?.overlay;
   if (!overlay) return state;
-  const platformRuntime = overlay.misc || {};
+  const platformRuntime = overlay.misc ?? overlay.runtime ?? {};
   const publicRuntime = { ...platformRuntime };
   const wins = Number(publicRuntime.matchscoreWins);
   const losses = Number(publicRuntime.matchscoreLosses);
@@ -770,7 +851,9 @@ function publicApplicationState(state) {
       losses: Number.isFinite(losses) ? losses : 0
     });
   }
-  const publicOverlay = { runtime: publicRuntime };
+  const publicOverlay = { ...overlay, runtime: publicRuntime };
+  delete publicOverlay.misc;
+  delete publicOverlay.settings;
   return { ...state, overlay: publicOverlay };
 }
 

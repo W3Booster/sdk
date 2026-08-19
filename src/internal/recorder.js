@@ -342,7 +342,7 @@ function applyLocalHeroUpdate(player, update) {
           id: `A${String(player.id)}${name}`,
           name,
           level: LOCAL_UTILITY_ABILITIES.has(name) ? 0 : Number(ability.level) || 0,
-          lastActivation: Number(ability.lastActivation) || 0
+          ...(Number(ability.lastActivation) > 0 ? { lastActivation: Number(ability.lastActivation) } : {})
         };
       })
     : (previousHero?.abilities || []);

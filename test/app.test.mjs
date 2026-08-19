@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { defineApplication } from '../src/app.js';
+import { createSelectorStore } from '../src/store.js';
+import { createDemoState } from '../src/testing.js';
 
 const definition = {
   clientId: 'app_test',
@@ -51,6 +53,17 @@ test('application bindings validate metadata and prevent broader runtime scopes'
   const app = defineApplication(definition);
   assert.throws(() => app.createClient(null), /options must be an object/);
   assert.throws(() => app.createClient({ scopes: ['players:read'] }), /not configured/);
+});
+
+test('generated application bindings send their exact definition revision to transports', async () => {
+  let context;
+  const app = defineApplication(definition);
+  const client = app.createClient({
+    transport: { name: 'revision-test', open(value) { context = value; }, close() {} }
+  });
+  await client.open();
+  assert.equal(context.applicationRevision, definition.revision);
+  await client.disconnect();
 });
 
 test('application startup keeps lifetime and startup cancellation independent', async () => {
@@ -106,6 +119,71 @@ test('managed application runtime start and stop are single-flight operations', 
   assert.equal(runtime.client.status, 'closed');
 });
 
+test('managed application runtime keeps concurrent startup milestones independent', async () => {
+  let context;
+  const app = defineApplication(definition);
+  const runtime = app.createRuntime({
+    transport: {
+      name: 'delayed-state',
+      open(value) {
+        context = value;
+        value.onStatus('connected');
+      },
+      close() {}
+    }
+  });
+  const connected = runtime.start({ until: 'connected' });
+  const synchronized = runtime.start();
+
+  await connected;
+  assert.equal(runtime.lifecycle.get().isSynchronized, false);
+  let synchronizedResolved = false;
+  synchronized.then(() => { synchronizedResolved = true; });
+  await Promise.resolve();
+  assert.equal(synchronizedResolved, false);
+
+  context.onMessage({
+    version: '1.0',
+    sequence: 1,
+    type: 'state.snapshot',
+    data: createDemoState({ clientId: definition.clientId, settings: definition.settingsDefaults })
+  });
+  await synchronized;
+  assert.equal(runtime.lifecycle.get().isSynchronized, true);
+  await runtime.stop();
+});
+
+test('managed application runtime cancellation is scoped to one startup caller', async () => {
+  let context;
+  const app = defineApplication(definition);
+  const runtime = app.createRuntime({
+    transport: {
+      name: 'delayed-state',
+      open(value) {
+        context = value;
+        value.onStatus('connected');
+      },
+      close() {}
+    }
+  });
+  await runtime.start({ until: 'connected' });
+  const cancellation = new AbortController();
+  const cancelled = runtime.start({ signal: cancellation.signal });
+  const synchronized = runtime.start();
+  cancellation.abort();
+  await assert.rejects(cancelled, error => error?.name === 'AbortError');
+  assert.equal(runtime.lifecycle.get().status, 'connected');
+
+  context.onMessage({
+    version: '1.0',
+    sequence: 1,
+    type: 'state.snapshot',
+    data: createDemoState({ clientId: definition.clientId, settings: definition.settingsDefaults })
+  });
+  await synchronized;
+  await runtime.stop();
+});
+
 test('managed application runtime listener failures use the client issue channel', async () => {
   const app = defineApplication(definition);
   const runtime = app.createRuntime({ demo: { interval: 0 } });
@@ -118,5 +196,19 @@ test('managed application runtime listener failures use the client issue channel
   assert.equal(issues[0].recoverable, true);
   assert.equal(issues[0].error.message, 'runtime consumer failed');
   assert.equal(runtime.lifecycle.get().error, null);
+  await runtime.stop();
+});
+
+test('managed application runtime derived-store failures preserve the client issue channel', async () => {
+  const app = defineApplication(definition);
+  const runtime = app.createRuntime({ demo: { interval: 0 } });
+  const issues = [];
+  runtime.client.on('issue', issue => issues.push(issue));
+  const status = createSelectorStore(runtime.lifecycle, snapshot => snapshot.status);
+  status.subscribe(() => { throw new Error('derived consumer failed'); });
+
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].source, 'listener');
+  assert.equal(issues[0].error.message, 'derived consumer failed');
   await runtime.stop();
 });

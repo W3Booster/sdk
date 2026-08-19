@@ -13,7 +13,9 @@ test('standard-game object namespace exposes optional shipped metadata and asset
   assert.equal(standardGameObjects.abilityIconUrl({ name: 'AHbz' }), standardGameObjects.iconUrl('AHbz'));
   assert.equal(standardGameObjects.upgradeIconUrl({ name: 'Rhme' }), standardGameObjects.iconUrl('Rhme'));
   assert.equal(standardGameObjects.itemIconUrl('ratf'), standardGameObjects.iconUrl('ratf'));
-  assert.equal(standardGameObjects.iconUrl('btnblood&ghostkey', { graphics: 'classic', baseUrl: 'http://localhost:8080/assets/' }), 'http://localhost:8080/assets/wc3/standard-game/v1/classic/icons/btnblood%26ghostkey.png');
+  assert.equal(standardGameObjects.iconUrl('ZZZZ'), undefined);
+  assert.equal(standardGameObjects.heroIconUrl({ id: 'ZZZZ' }), undefined);
+  assert.equal(standardGameObjects.iconFilenameUrl('btnblood&ghostkey', { graphics: 'classic', baseUrl: 'http://localhost:8080/assets/' }), 'http://localhost:8080/assets/wc3/standard-game/v1/classic/icons/btnblood%26ghostkey.png');
   assert.equal(standardGameObjects.iconUrl('../secret'), undefined);
   assert.equal(standardGameObjects.assetManifestUrl(), 'https://static.w3booster.com/assets/wc3/standard-game/v1/manifest.json');
   assert.equal(standardGameObjects.getAbilityCooldown('AHbz', 2), 6);
@@ -25,8 +27,10 @@ test('standard-game object namespace exposes optional shipped metadata and asset
 test('standard-game helpers normalize melee modes, races, colors, and hero progression', () => {
   assert.equal(standardGame.normalizeMode('1v1'), 'gm-1v1');
   assert.equal(standardGame.isMode('gm-4v4', '4v4'), true);
-  assert.equal(standardGame.raceName('night-elf'), 'Night Elf');
-  assert.equal(standardGame.raceShortName('human'), 'HU');
+  assert.equal(standardGame.races['night-elf'].localizationKey, 'race.night-elf');
+  assert.equal(standardGame.races.human.shortLocalizationKey, 'race.human.short');
+  assert.equal(standardGame.raceInfo('night_elf'), standardGame.races['night-elf']);
+  assert.equal(standardGame.raceInfo(undefined), standardGame.races.random);
   assert.equal(standardGame.playerColor(1), '#0042ff');
   assert.deepEqual(standardGame.heroExperienceState(350), {
     level: 2,
@@ -42,6 +46,12 @@ test('standard-game helpers normalize melee modes, races, colors, and hero progr
   assert.equal(standardGame.valuePoolRatio({ current: -5, max: 100 }), 0);
   assert.equal(standardGame.valuePoolRatio({ current: 150, max: 100 }, { clamp: false }), 1.5);
   assert.equal(standardGame.isValuePoolDepleted({ current: 0 }), true);
+  assert.equal(standardGame.upkeepState(50), 'none');
+  assert.equal(standardGame.upkeepState(51), 'low');
+  assert.equal(standardGame.upkeepState(80), 'low');
+  assert.equal(standardGame.upkeepState(81), 'high');
+  assert.equal(standardGame.upkeepState(null), undefined);
+  assert.equal(standardGame.upkeepState(undefined), undefined);
   const west = { id: 'west', startPosition: { x: -100, y: 0 } };
   const east = { id: 'east', startPosition: { x: 100, y: 0 } };
   assert.deepEqual(standardGame.orderHeadToHeadPlayers([east, west]), [west, east]);
@@ -52,6 +62,33 @@ test('standard-game helpers normalize melee modes, races, colors, and hero progr
 test('standard-game metadata is immutable shared data', () => {
   assert.equal(Object.isFrozen(standardGameObjects.objects), true);
   assert.equal(Object.isFrozen(standardGameObjects.getObject('Hamg')), true);
+});
+
+test('allocating standard-game order selectors preserve identity for immutable player collections', () => {
+  const players = Object.freeze([
+    Object.freeze({ id: 'east', team: 1, startPosition: Object.freeze({ x: 100, y: 0 }) }),
+    Object.freeze({ id: 'west', team: 0, startPosition: Object.freeze({ x: -100, y: 0 }) })
+  ]);
+  assert.equal(standardGame.orderHeadToHeadPlayers(players), standardGame.orderHeadToHeadPlayers(players));
+  assert.equal(
+    standardGame.orderMatchTeams(players, { isObserver: true, broadcasterPlayerId: 'east' }),
+    standardGame.orderMatchTeams(players, { isObserver: true, broadcasterPlayerId: 'east' })
+  );
+});
+
+test('standard-game order selectors recompute for mutable frontend-owned collections', () => {
+  const players = [
+    { id: 'east', team: 1, startPosition: { x: 100, y: 0 } },
+    { id: 'west', team: 0, startPosition: { x: -100, y: 0 } }
+  ];
+  assert.deepEqual(standardGame.orderHeadToHeadPlayers(players).map(player => player.id), ['west', 'east']);
+  players[0].startPosition.x = -200;
+  assert.deepEqual(standardGame.orderHeadToHeadPlayers(players).map(player => player.id), ['east', 'west']);
+  players.push({ id: 'third', team: 2, startPosition: { x: 0, y: 0 } });
+  assert.deepEqual(
+    standardGame.orderMatchTeams(players, { isObserver: true }).map(team => team.teamId),
+    [1, 0, 2]
+  );
 });
 
 test('specialized standard-game entry points preserve the combined API values', () => {
@@ -138,6 +175,14 @@ test('standard-game owns cooldown timestamp and day/night clock semantics', () =
     12
   ), { total: 6, elapsed: 2, remaining: 4, progress: 1 / 3, active: true });
   assert.equal(standardGameObjects.abilityCooldown({ id: 'AHbz', name: 'AHbz', level: 1 }, 12), undefined);
+  assert.equal(standardGameObjects.abilityCooldown(
+    { id: 'AHbz', name: 'AHbz', level: 1, lastActivation: 0 },
+    0
+  ), undefined);
+  assert.deepEqual(standardGameObjects.abilityCooldown(
+    { id: 'AHbz', name: 'AHbz', level: 1, lastActivation: 10_500 },
+    12
+  ), { total: 6, elapsed: 1.5, remaining: 4.5, progress: 0.25, active: true });
   const state = {
     match: { id: 'match', status: 'running', gameTime: 12, mode: '1v1' },
     capabilities: ['match', 'players', 'heroes'],
@@ -145,9 +190,31 @@ test('standard-game owns cooldown timestamp and day/night clock semantics', () =
       { id: 'AHbz', name: 'AHbz', level: 1, lastActivation: 10_000 }
     ] }] }]
   };
+  const cooldowns = standardGameObjects.abilityCooldownsForState(state);
+  const cooldown = cooldowns.get(state.players[0].heroes[0].abilities[0]);
   assert.deepEqual(
-    standardGameObjects.abilityCooldownsForState(state).get(state.players[0].heroes[0].abilities[0]),
+    cooldown,
     { total: 6, elapsed: 2, remaining: 4, progress: 1 / 3, active: true }
+  );
+  assert.equal(Object.isFrozen(cooldown), true);
+  assert.equal(Object.isFrozen(cooldowns), true);
+  assert.equal(cooldowns instanceof Map, true);
+  assert.throws(() => cooldowns.set(state.players[0].heroes[0].abilities[0], cooldown), /immutable/);
+
+  const immutableAbility = Object.freeze({ id: 'AHbz', name: 'AHbz', level: 1, lastActivation: 10_000 });
+  const immutableState = Object.freeze({
+    match: Object.freeze({ id: 'match', status: 'running', gameTime: 12, mode: '1v1' }),
+    capabilities: Object.freeze(['match', 'players', 'heroes']),
+    players: Object.freeze([Object.freeze({
+      id: '0',
+      heroes: Object.freeze([Object.freeze({
+        id: 'Hamg', name: 'Archmage', level: 1, abilities: Object.freeze([immutableAbility])
+      })])
+    })])
+  });
+  assert.equal(
+    standardGameObjects.abilityCooldownsForState(immutableState),
+    standardGameObjects.abilityCooldownsForState(immutableState)
   );
 
   assert.deepEqual(standardGame.dayNightState(0), {
