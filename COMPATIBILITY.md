@@ -1,6 +1,6 @@
 # Compatibility policy
 
-`@w3booster/sdk` uses Semantic Versioning for its public JavaScript and TypeScript API. The published 1.x line is the first stable consumer contract. SDK 2 intentionally tightens untrusted host-command results and introduces the generated/checkable public API architecture described in the changelog. Applications may continue to support published SDK 1 with explicit compatibility branches while separately testing SDK HEAD; a local workspace link is never treated as a published release.
+`@w3booster/sdk` uses Semantic Versioning for its public JavaScript and TypeScript API. The published 1.x line is the stable consumer contract. SDK 1.0.2 adds the generated/checkable public API architecture and safer parser-backed host-command results while retaining the deprecated generic typed-command overload for source compatibility. Applications consume published registry artifacts; a local workspace link is never treated as a published release.
 
 Existing methods are deprecated before removal and remain available for at least one documented major-version transition. A breaking change requires an explicit migration path and release note; it is not hidden in a feature or patch release. Additive model fields and events do not require an SDK major release.
 
@@ -8,7 +8,7 @@ The realtime protocol is versioned separately. Protocol `1.x` is additive: exist
 
 Application code should import the public model from `@w3booster/sdk`, avoid matching on unknown fields exhaustively, and treat delivered state as immutable. The backend producer and first-party applications compile against the same declarations.
 
-Settings and overlay-extension generics describe protocol JSON, not arbitrary JavaScript objects. Client creation rejects non-JSON-compatible models at compile time, and ingress validation applies the same boundary at runtime.
+Settings and overlay-extension generics describe protocol JSON, not arbitrary JavaScript objects. Client creation rejects non-JSON-compatible models at compile time, and ingress validation applies the same boundary at runtime. Overlay extension models must enumerate their public branches; unrestricted string index signatures are rejected because they cannot exclude the SDK-owned `runtime`, `misc`, and `settings` names.
 
 Pure derived-state conveniences are exposed from `@w3booster/sdk/selectors`. Selectors never mutate delivered state. Additions are backwards compatible; existing selector meanings follow the same deprecation policy as the main entry point.
 

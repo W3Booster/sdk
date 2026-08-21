@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { dirname, extname, resolve } from 'node:path';
 import { generateSettingsBinding } from '../src/settings.js';
 
 const values = process.argv.slice(2);
@@ -12,6 +12,7 @@ const usage = [
   '  w3booster-settings [clientId] [--output <file>] [--check]',
   '',
   `The default output is ${defaultOutput}.`,
+  'Outputs ending in .js, .mjs, or .jsx are generated as plain ESM; other outputs use TypeScript.',
   'init binds the project and adds explicit sync/check scripts.',
   '--install-hooks additionally wires synchronization into install/dev/start/build.',
   'W3BOOSTER_SETTINGS_URL can select the endpoint in connected CI.',
@@ -119,7 +120,9 @@ async function synchronize({ requestedClientId, output: requestedOutput, check, 
 
   const definition = result;
   if (definition.clientId !== clientId) throw new Error(`Application definition belongs to ${definition.clientId}, not ${clientId}.`);
-  const binding = generateSettingsBinding(definition);
+  const extension = extname(outputPath).toLowerCase();
+  const format = ['.js', '.mjs', '.jsx'].includes(extension) ? 'javascript' : 'typescript';
+  const binding = generateSettingsBinding(definition, { format });
   if (check) {
     if (current !== binding) throw new Error(`Generated W3Booster settings are stale: ${outputPath}`);
     console.log(`W3Booster settings are current at revision ${definition.revision}.`);

@@ -16,6 +16,7 @@ import {
 } from '../src/index.js';
 import { getOverlayComposition, watchOverlayComposition } from '../src/compositor.js';
 import { applyLocalRecorderUpdates } from '../src/internal/recorder.js';
+import { createDemoState } from '../src/testing.js';
 
 const waitForRecorderFrame = () => new Promise(resolve => setTimeout(resolve, 25));
 const waitForDeferredModule = async predicate => {
@@ -109,9 +110,38 @@ test('startup signals own unlimited initial retry waits without becoming client 
   await client.disconnect();
 });
 
+test('aborting a pending transport normalizes premature connected status to closed', async () => {
+  let context;
+  let closes = 0;
+  const client = createClient({
+    clientId: 'app',
+    transport: {
+      name: 'premature-connected',
+      open(value) {
+        context = value;
+        return new Promise(() => {});
+      },
+      close() { closes += 1; }
+    }
+  });
+  const startup = new AbortController();
+  const opening = client.open({ signal: startup.signal });
+  await Promise.resolve();
+  context.onStatus('connected');
+  assert.equal(client.status, 'connected');
+  startup.abort();
+  await assert.rejects(opening, error => error?.name === 'AbortError');
+  assert.equal(closes, 1);
+  assert.equal(client.status, 'closed');
+  assert.equal(client.lifecycle.get().status, 'closed');
+  assert.equal(client.state.get(), null);
+});
+
 test('initial connection retries remain connecting rather than claiming a reconnection', async () => {
   let attempts = 0;
   const statuses = [];
+  const lifecycle = [];
+  const transientFailure = new ConnectionError('offline');
   const client = createClient({
     clientId: 'app',
     retry: { maxAttempts: 2, initialDelay: 0, maxDelay: 0 },
@@ -119,15 +149,20 @@ test('initial connection retries remain connecting rather than claiming a reconn
       name: 'retry-once',
       open() {
         attempts += 1;
-        if (attempts === 1) throw new ConnectionError('offline');
+        if (attempts === 1) throw transientFailure;
       },
       close() {}
     }
   });
   client.subscribeStatus(status => statuses.push(status));
+  client.lifecycle.subscribe(snapshot => lifecycle.push(snapshot));
   await client.open();
   assert.equal(attempts, 2);
   assert.equal(statuses.includes('reconnecting'), false);
+  assert.equal(lifecycle.some(snapshot => snapshot.status === 'connecting' &&
+    snapshot.retry?.attempt === 2 && snapshot.retry.maxAttempts === 2 &&
+    snapshot.retry.nextDelay === 0 && snapshot.retry.lastError instanceof ConnectionError), true);
+  assert.equal(client.lifecycle.get().retry, null);
   assert.equal(client.status, 'connected');
   await client.disconnect();
 });
@@ -680,6 +715,15 @@ test('demo transport gives developers hydrated state', async () => {
   await client.disconnect();
 });
 
+test('demo overlay extensions reject SDK-owned branches at runtime', () => {
+  for (const key of ['runtime', 'misc', 'settings']) {
+    assert.throws(
+      () => createDemoState({ overlayExtensions: { [key]: { custom: true } } }),
+      new RegExp(`SDK-owned ${key} branch`)
+    );
+  }
+});
+
 test('demo transport safely animates valid custom states without player resources', async () => {
   const client = await connect({
     clientId: 'demo_custom',
@@ -827,12 +871,14 @@ test('modern overlay runtime values override coexisting legacy platform metadata
     overlay: {
       misc: {
         localServerUrls: [],
+        futureControlToken: 'private-platform-value',
         hudScale: 1,
         teamColors: false,
         matchscoreWins: 9,
         matchscoreLosses: 8
       },
       runtime: {
+        futureRuntimeControl: 'private-platform-value',
         hudScale: 0.75,
         teamColors: true,
         matchScore: { wins: 3, losses: 2 }
@@ -844,6 +890,8 @@ test('modern overlay runtime values override coexisting legacy platform metadata
     teamColors: true,
     matchScore: { wins: 3, losses: 2 }
   });
+  assert.equal('futureControlToken' in client.state.get().overlay.runtime, false);
+  assert.equal('futureRuntimeControl' in client.state.get().overlay.runtime, false);
   await client.disconnect();
 });
 
@@ -1055,6 +1103,44 @@ test('the initial snapshot establishes a baseline before domain transition event
   assert.equal(observations.at(-1).phase, 'ended');
   assert.equal(observations.at(-1).match.endedAt, '2026-08-19T00:31:00.000Z');
   assert.equal(observations.at(-1).previousMatch.status, 'running');
+  await client.disconnect();
+});
+
+test('match lifecycle can opt into the current finished match without changing its default', async () => {
+  let context;
+  const client = createClient({
+    clientId: 'test_app',
+    transport: { name: 'test', async open(value) { context = value; } }
+  });
+  const defaultObservations = [];
+  const terminalObservations = [];
+  client.subscribeMatchLifecycle(event => defaultObservations.push(event));
+  client.subscribeMatchLifecycle(event => terminalObservations.push(event), { includeCurrentFinished: true });
+  await client.connect();
+
+  context.onMessage({
+    version: PROTOCOL_VERSION,
+    sequence: 1,
+    type: 'state.snapshot',
+    data: {
+      match: {
+        id: 'completed-before-hydration', status: 'finished', gameTime: 60, mode: '1v1',
+        endedAt: '2026-08-19T00:31:00.000Z'
+      },
+      players: []
+    }
+  });
+
+  assert.deepEqual(defaultObservations, []);
+  assert.deepEqual(terminalObservations.map(event => [event.phase, event.initial, event.match.id]), [
+    ['ended', true, 'completed-before-hydration']
+  ]);
+  assert.equal(terminalObservations[0].match.endedAt, '2026-08-19T00:31:00.000Z');
+  assert.equal(terminalObservations[0].previousMatch, undefined);
+  assert.throws(
+    () => client.subscribeMatchLifecycle(() => {}, { includeCurrentFinished: 'yes' }),
+    /includeCurrentFinished must be a boolean/
+  );
   await client.disconnect();
 });
 
@@ -2532,6 +2618,34 @@ test('compositor options and successful responses are validated at runtime', asy
       getOverlayComposition({ backend: 'local', tokenProvider: () => 'session' }),
       error => error instanceof ProtocolError
     );
+  } finally {
+    if (originalFetch === undefined) delete globalThis.fetch; else globalThis.fetch = originalFetch;
+  }
+});
+
+test('compositor app launches reject credentialed and insecure remote URLs', async () => {
+  const originalFetch = globalThis.fetch;
+  let appUrl = 'http://remote.example/overlay#w3session=secret';
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    async json() { return { apps: [{ appId: 'one', clientId: 'child', name: 'Child', url: appUrl }] }; }
+  });
+  try {
+    for (const rejectedUrl of [
+      'http://remote.example/overlay#w3session=secret',
+      'https://user:password@remote.example/overlay#w3session=secret'
+    ]) {
+      appUrl = rejectedUrl;
+      await assert.rejects(
+        getOverlayComposition({ backend: 'local', tokenProvider: () => 'session' }),
+        error => error instanceof ProtocolError && error.code === 'INVALID_RESPONSE'
+      );
+    }
+
+    appUrl = 'http://127.0.0.1:8082/overlay#w3session=secret';
+    const apps = await getOverlayComposition({ backend: 'local', tokenProvider: () => 'session' });
+    assert.equal(apps[0]?.url, appUrl);
   } finally {
     if (originalFetch === undefined) delete globalThis.fetch; else globalThis.fetch = originalFetch;
   }

@@ -129,7 +129,7 @@ export class StateStore {
 
 export class ClientLifecycleStore {
   constructor(onListenerError = reportListenerError) {
-    this.snapshot = Object.freeze({ status: 'idle', state: null, isSynchronized: false, error: null });
+    this.snapshot = Object.freeze({ status: 'idle', state: null, isSynchronized: false, error: null, retry: null });
     this.subscribers = new Set();
     this.onListenerError = onListenerError;
   }
@@ -150,7 +150,8 @@ export class ClientLifecycleStore {
   update(patch) {
     const next = Object.freeze({ ...this.snapshot, ...patch });
     if (next.status === this.snapshot.status && next.state === this.snapshot.state &&
-        next.isSynchronized === this.snapshot.isSynchronized && next.error === this.snapshot.error) return;
+        next.isSynchronized === this.snapshot.isSynchronized && next.error === this.snapshot.error &&
+        next.retry === this.snapshot.retry) return;
     this.snapshot = next;
     [...this.subscribers].forEach(listener => this.notify(listener));
   }

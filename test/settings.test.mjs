@@ -66,3 +66,21 @@ test('database definitions generate deterministic typed frontend bindings', () =
   assert.match(binding, /export const w3boosterApp = defineApplication/);
   assert.doesNotMatch(binding, /WeakMap|client\.start|client\.disconnect|connectW3BoosterApp/);
 });
+
+test('database definitions generate a canonical plain ESM binding for JavaScript frontends', () => {
+  const binding = generateSettingsBinding(
+    { clientId: 'app_test', revision: 'revision-1', scopes: ['match:read'], settingsSchema: schema },
+    { format: 'javascript' }
+  );
+  assert.match(binding, /import \{ defineApplication \} from '@w3booster\/sdk\/app'/);
+  assert.match(binding, /export const w3boosterApp = defineApplication\(w3boosterAppDefinition\)/);
+  assert.match(binding, /settingsDefaults: \{/);
+  assert.doesNotMatch(binding, /import type|interface W3BoosterApp| as const|defineApplication</);
+  assert.throws(
+    () => generateSettingsBinding(
+      { clientId: 'app_test', revision: 'revision-1', scopes: ['match:read'], settingsSchema: schema },
+      { format: 'coffee' }
+    ),
+    /format must be typescript or javascript/
+  );
+});

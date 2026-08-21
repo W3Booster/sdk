@@ -1,5 +1,5 @@
 import type { Hero, Match, OverlayRuntimeState, Player, PlayerStats, Race, ValuePool } from './index.js';
-import type { PlayerTeam } from './selectors.js';
+import type { PlayerTeam, TeamAssignable } from './selectors.js';
 
 export interface StandardGameRaceMetadata {
   readonly localizationKey: `race.${Race}`;
@@ -60,9 +60,9 @@ export function orderHeadToHeadPlayers<TPlayer extends Pick<Player, 'startPositi
   players: readonly TPlayer[],
   options?: { readonly reverse?: boolean }
 ): readonly TPlayer[];
-export function orderMatchTeams<TPlayer extends Pick<Player, 'id' | 'team' | 'startPosition'>>(
+export function orderMatchTeams<TPlayer extends TeamAssignable & Pick<Player, 'id' | 'startPosition'>>(
   players: readonly TPlayer[],
-  match: Pick<Match, 'isObserver' | 'isReplay' | 'broadcasterPlayerId'> | null | undefined,
+  match: Pick<Match, 'mode' | 'isObserver' | 'isReplay' | 'broadcasterPlayerId'> | null | undefined,
   options?: { readonly reverse?: boolean }
 ): readonly PlayerTeam<TPlayer>[];
 export function presentationPlayerColor(

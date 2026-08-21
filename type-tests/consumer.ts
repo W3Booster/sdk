@@ -34,7 +34,11 @@ interface ExampleSettings {
 interface ExampleOverlayExtensions {
   readonly tournament: { readonly round: number };
 }
-interface HistoryPlayer { readonly team?: number; readonly name: string }
+interface HistoryPlayer { readonly team?: number | null; readonly name: string }
+interface OrderedHistoryPlayer extends HistoryPlayer {
+  readonly id: string;
+  readonly startPosition?: Player['startPosition'];
+}
 
 async function useSdk() {
   // @ts-expect-error Public clients must go through connect/createClient so setup stays normalized.
@@ -66,7 +70,7 @@ async function useSdk() {
   const presentationTeams: readonly PlayerTeam[] = standardGame.orderMatchTeams(state.players, state.match);
   const classified = classifyW3BoosterError(new ConnectionError('offline'));
   if (classified.kind === 'connection') {
-    const classifiedCode: 'UNAVAILABLE' | 'CONFIGURATION' | 'APPLICATION_DEFINITION_MISMATCH' | 'MISSING_BROWSER_API' | 'BROKER_TIMEOUT' | 'STATE_TIMEOUT' | 'HOST_UNAVAILABLE' | 'HOST_TIMEOUT' = classified.code;
+    const classifiedCode: 'UNAVAILABLE' | 'CONFIGURATION' | 'APPLICATION_DEFINITION_MISMATCH' | 'MISSING_BROWSER_API' | 'BROKER_TIMEOUT' | 'STARTUP_TIMEOUT' | 'STATE_TIMEOUT' | 'HOST_UNAVAILABLE' | 'HOST_TIMEOUT' = classified.code;
     const classifiedStatus: number | undefined = classified.error.status;
     console.log(classifiedCode, classifiedStatus);
   } else if (classified.kind === 'permission') {
@@ -116,7 +120,11 @@ async function useSdk() {
   client.state.watch(current => ({ id: current?.match.id ?? null }), value => console.log(value), { equals: (left, right) => left.id === right.id });
   client.subscribeStatus(status => console.log(status), { signal: abortController.signal });
   client.subscribeMatchLifecycle(event => console.log(event.phase, event.initial, event.observedAt), { signal: abortController.signal });
-  client.lifecycle.subscribe(snapshot => console.log(snapshot.status, snapshot.isSynchronized, snapshot.state, snapshot.error));
+  client.subscribeMatchLifecycle(event => console.log(event.match.id), { includeCurrentFinished: true });
+  client.lifecycle.subscribe(snapshot => console.log(
+    snapshot.status, snapshot.isSynchronized, snapshot.state, snapshot.error,
+    snapshot.retry?.attempt, snapshot.retry?.maxAttempts, snapshot.retry?.nextDelay, snapshot.retry?.lastError
+  ));
   client.on('hero.changed', async event => {
     console.log(event.player.id, event.hero.level, event.changedFields);
     // @ts-expect-error Event payloads are immutable for every listener.
@@ -143,8 +151,12 @@ async function useSdk() {
   });
   const unknownCommandResult: unknown = await client.host.command('example.command');
   void unknownCommandResult;
-  // @ts-expect-error Typed acknowledgements require a runtime parser.
-  client.host.command<{ accepted: boolean }>('example.command', { enabled: true });
+  // SDK 1 retains this deprecated source-compatible overload; new code should
+  // use the parser-backed call above so the acknowledgement is validated.
+  const legacyTypedCommandResult: { accepted: boolean } = await client.host.command<{ accepted: boolean }>(
+    'example.command', { enabled: true }
+  );
+  void legacyTypedCommandResult;
   const hostCapabilities = await client.host.refreshCapabilities({ signal: hostActionLifetime.signal });
   const canOpenWindow: boolean = client.host.can('window:open');
   const hostCapabilityStatus: 'unavailable' | 'pending' | 'known' | 'legacy' = client.host.capabilityStatus;
@@ -175,6 +187,22 @@ async function useSdk() {
   createClient<{ readonly loadedAt: Date }>({ clientId: 'invalid_settings' });
   // @ts-expect-error Extension models must be recursively JSON-compatible.
   createClient<ExampleSettings, { readonly cache: Map<string, string> }>({ clientId: 'invalid_extension' });
+  // @ts-expect-error SDK-owned overlay branches cannot be declared as extension input.
+  createClient<ExampleSettings, { readonly runtime: { readonly custom: boolean } }>({ clientId: 'reserved_extension' });
+  // @ts-expect-error Broad string indexes can contain SDK-owned overlay branch names.
+  createClient<ExampleSettings, Record<string, string>>({ clientId: 'indexed_extension' });
+  // @ts-expect-error Settings are root records; arrays are valid only as nested JSON values.
+  createClient<string[]>({ clientId: 'array_settings' });
+  // @ts-expect-error Overlay extensions are root records, not arrays.
+  createClient<ExampleSettings, string[]>({ clientId: 'array_extensions' });
+  // @ts-expect-error Testing settings must be recursively JSON-compatible.
+  createDemoState<{ readonly loadedAt: Date }>();
+  // @ts-expect-error Testing overlay extensions cannot shadow normalization-owned branches.
+  createDemoTransport<ExampleSettings, { readonly settings: { readonly custom: boolean } }>();
+  // @ts-expect-error Testing overlay extensions cannot use an unrestricted string index.
+  createDemoState<ExampleSettings, Record<string, string>>();
+  // @ts-expect-error Demo settings use the same non-array root-record contract.
+  createDemoState<string[]>();
   const extensionRound: number | undefined = extensionClient.state.get()?.overlay?.tournament.round;
   const extensionState = extensionClient.state.get();
   if (extensionState?.overlay) {
@@ -186,8 +214,11 @@ async function useSdk() {
   const invalidOverlay: InvalidOverlay = { runtime: { custom: true } };
   extensionClient.on('state.changed', event => console.log(event.state.overlay?.tournament.round));
   const groupedHistory: readonly PlayerTeam<HistoryPlayer>[] = groupPlayersByTeam<HistoryPlayer>([
-    { team: 0, name: 'One' }, { team: 1, name: 'Two' }
+    { team: null, name: 'Unknown side' }, { team: 1, name: 'Two' }
   ]);
+  const orderedHistory: readonly PlayerTeam<OrderedHistoryPlayer>[] = standardGame.orderMatchTeams<OrderedHistoryPlayer>([
+    { id: 'unknown', team: null, name: 'Unknown side' }, { id: 'two', team: 1, name: 'Two' }
+  ], { mode: '1v1' });
   const memoizedNames = createMemoizedSelector((players: readonly HistoryPlayer[]) => players.map(player => player.name));
   const immutableHistory = Object.freeze([{ team: 0, name: 'One' }] satisfies HistoryPlayer[]);
   const stableNames: string[] = memoizedNames(immutableHistory);
@@ -206,9 +237,17 @@ async function useSdk() {
     scopes: ['match:read'],
     settingsDefaults: { layout: 'compact' }
   });
+  // @ts-expect-error Generated application settings defaults must be a root record.
+  defineApplication<string[], readonly ['match:read']>({
+    clientId: 'array_settings', revision: 'revision', scopes: ['match:read'], settingsDefaults: []
+  });
   // @ts-expect-error Generated application revisions are owned by the binding and cannot be overridden.
   application.createClient({ applicationRevision: 'ignored' });
   const applicationRuntime = application.createRuntime<ExampleOverlayExtensions>({ demo: { interval: 0 } });
+  // @ts-expect-error Generated runtimes reject non-JSON extension models even without an options argument.
+  application.createRuntime<{ readonly cache: Map<string, string> }>();
+  // @ts-expect-error Generated clients reject SDK-owned overlay extension branches.
+  application.createClient<{ readonly misc: { readonly custom: boolean } }>();
   const runtimeSignal: AbortSignal = applicationRuntime.signal;
   applicationRuntime.client.on('issue', event => console.log(event), { signal: runtimeSignal });
   applicationRuntime.lifecycle.subscribe(snapshot => {

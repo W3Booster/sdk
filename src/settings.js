@@ -76,9 +76,14 @@ export function resolveSettings(defaults, settings = {}) {
   return freeze(mergeObjects(defaults, settings));
 }
 
-/** Generate a deterministic TypeScript binding from a database application definition. */
-export function generateSettingsBinding(definition) {
+/** Generate a deterministic TypeScript or plain-JavaScript binding from a database application definition. */
+export function generateSettingsBinding(definition, options = {}) {
   assertObject(definition, 'application definition');
+  assertObject(options, 'binding options');
+  const format = options.format ?? 'typescript';
+  if (format !== 'typescript' && format !== 'javascript') {
+    fail('binding format must be typescript or javascript');
+  }
   assertString(definition.clientId, 'clientId');
   assertString(definition.revision, 'revision');
   if (!Array.isArray(definition.scopes) || definition.scopes.some(scope => !isKnownScope(scope))) {
@@ -86,11 +91,33 @@ export function generateSettingsBinding(definition) {
   }
   if (new Set(definition.scopes).size !== definition.scopes.length) fail('scopes must not contain duplicates');
   const schema = validateSettingsSchema(definition.settingsSchema || { version: 1, sections: [] });
-  return [
+  const header = [
     '/* Generated from the W3Booster application database. Do not edit directly. */',
     `// @w3booster-client-id ${definition.clientId}`,
     `// @w3booster-revision ${definition.revision}`,
-    '',
+    ''
+  ];
+  const definitionLines = [
+    'const w3boosterAppDefinition = {',
+    `  clientId: ${JSON.stringify(definition.clientId)},`,
+    `  revision: ${JSON.stringify(definition.revision)},`,
+    `  scopes: ${JSON.stringify(definition.scopes)},`,
+    `  settingsDefaults: ${indentJson(settingsDefaults(schema), 2)}`,
+    format === 'typescript' ? '} as const;' : '};'
+  ];
+  if (format === 'javascript') {
+    return [
+      ...header,
+      "import { defineApplication } from '@w3booster/sdk/app';",
+      '',
+      ...definitionLines,
+      '',
+      'export const w3boosterApp = defineApplication(w3boosterAppDefinition);',
+      ''
+    ].join('\n');
+  }
+  return [
+    ...header,
     "import type { W3BoosterClient } from '@w3booster/sdk';",
     "import { defineApplication, type ApplicationConnectOptions, type ApplicationRuntime, type ApplicationRuntimeSnapshot } from '@w3booster/sdk/app';",
     "import type { DeepPartial } from '@w3booster/sdk/settings';",
@@ -100,12 +127,7 @@ export function generateSettingsBinding(definition) {
     'export type W3BoosterAppClient<TOverlayExtensions extends object = object> = W3BoosterClient<W3BoosterAppDeliveredSettings, TOverlayExtensions>;',
     'export type W3BoosterAppRuntime<TOverlayExtensions extends object = object> = ApplicationRuntime<W3BoosterAppSettings, TOverlayExtensions>;',
     'export type W3BoosterAppRuntimeSnapshot<TOverlayExtensions extends object = object> = ApplicationRuntimeSnapshot<W3BoosterAppSettings, TOverlayExtensions>;',
-    'const w3boosterAppDefinition = {',
-    `  clientId: ${JSON.stringify(definition.clientId)},`,
-    `  revision: ${JSON.stringify(definition.revision)},`,
-    `  scopes: ${JSON.stringify(definition.scopes)},`,
-    `  settingsDefaults: ${indentJson(settingsDefaults(schema), 2)}`,
-    '} as const;',
+    ...definitionLines,
     '',
     'export const w3boosterApp = defineApplication<',
     '  W3BoosterAppSettings,',

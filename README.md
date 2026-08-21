@@ -164,7 +164,7 @@ await client.whenSynchronized({ signal });
 controller.abort();
 ```
 
-`retry: true` retries transient initial connection failures with capped exponential backoff. An unlimited policy requires either the connection lifetime signal or the signal supplied to `start()` for that incomplete startup. Calling `open()` without either signal rejects before connecting. Authorization, configuration, and protocol failures fail immediately. Initial retries remain in `connecting`; `reconnecting` is reserved for a previously established transport. Use `retry: { maxAttempts: 5, initialDelay: 250, maxDelay: 5000 }` for a bounded policy that does not require a signal. The default remains one initial attempt so command-line tools and explicit error screens fail promptly.
+`retry: true` retries transient initial connection failures with capped exponential backoff. An unlimited policy requires either the connection lifetime signal or the signal supplied to `start()` for that incomplete startup. Calling `open()` without either signal rejects before connecting. Authorization, configuration, and protocol failures fail immediately. Initial retries remain in `connecting`; `reconnecting` is reserved for a previously established transport. During an initial retry, `client.lifecycle.get().retry` exposes its attempt, configured attempt limit (`null` means unlimited), last transient error, and next delay (`null` while the attempt is underway), so a frontend can explain progress without parsing errors. It returns to `null` after success, terminal failure, or cancellation. Use `retry: { maxAttempts: 5, initialDelay: 250, maxDelay: 5000 }` for a bounded policy that does not require a signal. The default remains one initial attempt so command-line tools and explicit error screens fail promptly.
 
 After an established broker socket closes, transient reconnects use their own policy and permanent configuration, authorization, and protocol failures transition to `error`. The default is unlimited capped reconnects. Pass `reconnect: false` to fail immediately or `reconnect: { maxAttempts: 5, initialDelay: 500, maxDelay: 10000 }` for a bounded policy.
 
@@ -294,7 +294,7 @@ Common causes:
 - **Protocol error:** inspect `ProtocolError.code`; recoverable invalid state or patch data requests a resync. Unsupported protocol versions and application mismatches are permanent and close the active transport. A complete forward snapshot is accepted as the new baseline across an ordinary sequence gap.
 - **Missing fields:** verify the application scope, the matching capability, and whether that data exists for the current match.
 
-`ConnectionError.code` is stable for programmatic handling (`UNAVAILABLE`, `CONFIGURATION`, `APPLICATION_DEFINITION_MISMATCH`, `MISSING_BROWSER_API`, `BROKER_TIMEOUT`, `STATE_TIMEOUT`, `HOST_UNAVAILABLE`, or `HOST_TIMEOUT`). Configuration and application-definition mismatch failures are never retried; their optional `status` carries the HTTP status. `isAbortError()` recognizes lifecycle cancellation, and `isW3BoosterError()` recognizes every SDK error class. `HostActionError` represents an acknowledged platform rejection rather than a transport failure.
+`ConnectionError.code` is stable for programmatic handling (`UNAVAILABLE`, `CONFIGURATION`, `APPLICATION_DEFINITION_MISMATCH`, `MISSING_BROWSER_API`, `BROKER_TIMEOUT`, `STARTUP_TIMEOUT`, `STATE_TIMEOUT`, `HOST_UNAVAILABLE`, or `HOST_TIMEOUT`). `STARTUP_TIMEOUT` means a managed runtime did not reach its requested lifecycle milestone within the caller's whole-startup deadline; `STATE_TIMEOUT` means an established client did not receive the requested state in time. Configuration and application-definition mismatch failures are never retried; their optional `status` carries the HTTP status. `isAbortError()` recognizes lifecycle cancellation, and `isW3BoosterError()` recognizes every SDK error class. `HostActionError` represents an acknowledged platform rejection rather than a transport failure.
 
 Frontends that prefer one discriminated branch can use `classifyW3BoosterError(error)`. It returns a stable `kind`, `code`, and original `error`, plus `status` or `authorizeUrl` when available, without imposing application-specific user-facing copy.
 
@@ -319,7 +319,7 @@ Recorder bursts are deduplicated and published at most once per display frame. R
 
 `match.started` and `match.ended` events include `observedAt`, an ISO-8601 client observation time. It is explicit receipt/transition timing, not an authoritative match timestamp; prefer `match.startedAt` and `match.endedAt` when the platform supplies them. When an active match with the same ID becomes `finished`, an ended event exposes that completed snapshot as `event.match`, so `event.match.endedAt` is directly available; `previousMatch` retains the active snapshot.
 
-Use `client.subscribeMatchLifecycle()` when a feature needs both the match that is already active at hydration and later transitions. It reports `{ phase, initial, observedAt, match, state }`; `initial` distinguishes hydration/re-hydration from a later semantic start event.
+Use `client.subscribeMatchLifecycle()` when a feature needs both the match that is already active at hydration and later transitions. It reports `{ phase, initial, observedAt, match, state }`; `initial` distinguishes hydration/re-hydration from a later semantic transition. By default, a finished match in the first snapshot remains a baseline rather than a new event. History and audit consumers can pass `{ includeCurrentFinished: true }` to receive it once as `{ phase: 'ended', initial: true }`.
 
 Only loopback and private-network socket addresses are accepted. Capabilities still control all exposed fields. Set `localRecorder: false` only when an application deliberately needs to disable this behavior. `client.diagnostics.localTransport` is `recorder-local` while it is active.
 
@@ -390,7 +390,7 @@ import * as standardGameCooldowns from '@w3booster/sdk/standard-game/cooldowns';
 
 const icon = standardGameIcons.iconUrl('Hamg', { graphics: 'reforged' });
 const cooldown = standardGameCooldowns.abilityCooldown(ability, state.match.gameTime);
-const cooldowns = standardGameCooldowns.abilityCooldownsForState(state); // branded native, immutable Map
+const cooldowns = standardGameCooldowns.abilityCooldownsForState(state); // frozen ReadonlyMap facade
 const selectedCooldown = cooldowns.get(ability); // keyed by the hydrated ability object
 // cooldowns and selectedCooldown are immutable; the facade has no set/delete methods
 const progress = standardGame.heroExperienceState(heroState.experience);
@@ -411,7 +411,7 @@ const countryFlag = assets.countryFlag(player.mainAccount?.country);
 
 Rawcode and typed entity helpers are strict: missing shipped metadata returns `undefined` rather than guessing a filename. Tooling that intentionally owns a catalog filename can opt into `iconFilenameUrl(filename)` explicitly.
 
-The lightweight namespace includes upgrade classification, locale-neutral race identifiers and localization keys, player colors, melee modes, preferred statistics selection, game-time formatting, the day/night clock, hero progression, safe current/max ratios, standard upkeep classification, canonical observer/replay team ordering, and native or simplified presentation colors. Applications own translated race copy; the SDK does not choose a display language. The icon namespace adds Classic/Reforged URLs and a match-aware resolver; the cooldown namespace adds immutable individual and whole-state cooldown derivation. Custom maps can replace these objects and rules; live recorder values remain authoritative.
+The lightweight namespace includes upgrade classification, locale-neutral race identifiers and localization keys, player colors, melee modes, preferred statistics selection, game-time formatting, the day/night clock, hero progression, safe current/max ratios, standard upkeep classification, canonical mode-aware team ordering, and native or simplified presentation colors. Team ordering keeps the broadcaster first on player and team-observer surfaces, uses map positions for 1v1 observers/replays, and preserves FFA team order; explicit match mode prevents incomplete scoped state from being misclassified. Applications own translated race copy; the SDK does not choose a display language. The icon namespace adds Classic/Reforged URLs and a match-aware resolver; the cooldown namespace adds immutable individual and whole-state cooldown derivation. Custom maps can replace these objects and rules; live recorder values remain authoritative.
 
 The trusted W3Booster server masks W3Champions four-player FFA opponent identities before issuing the scoped application stream. The current broadcaster remains identifiable; other players arrive with positional labels, random race, and no main-account metadata. Applications and the consumer-controlled SDK do not implement or enforce this privacy boundary.
 
@@ -463,7 +463,7 @@ feature.abort(); // cancels any later pending feature actions
 
 ## Settings definitions
 
-Applications and their settings are configured in W3Booster. Their client IDs, settings schemas, defaults, and requested scopes are public app metadata. The SDK generates a TypeScript module containing exact settings types and immutable metadata. Versioned connection, startup, and settings-resolution behavior stays in `@w3booster/sdk/app` behind the generated `w3boosterApp` binding.
+Applications and their settings are configured in W3Booster. Their client IDs, settings schemas, defaults, and requested scopes are public app metadata. The SDK generates either a TypeScript module containing exact settings types or a plain JavaScript ESM module containing the same immutable runtime metadata. Versioned connection, startup, and settings-resolution behavior stays in `@w3booster/sdk/app` behind the generated `w3boosterApp` binding.
 
 Install the SDK once:
 
@@ -479,7 +479,15 @@ npx w3booster-settings init app_your_id
 
 This creates `src/w3booster.generated.ts`, stores the public app binding in `package.json`, and adds explicit `w3booster:sync` and `w3booster:check` scripts. This keeps ordinary installs, starts, and builds deterministic and offline-friendly. Pass `--install-hooks` only when a project deliberately wants synchronization after dependency installation and before its existing `dev`, `start`, and `build` scripts. Existing lifecycle commands are preserved and run after synchronization. Installed hooks invoke `w3booster-settings` directly from the lifecycle `PATH`, so they do not assume npm, pnpm, Yarn, or Bun.
 
-Use `--output` only when the generated file should live somewhere else. `--endpoint` is persisted in the project binding for non-default platform environments; connected CI can instead provide `W3BOOSTER_SETTINGS_URL`. Synchronization does not rewrite an unchanged file. During ordinary development, a checked-in binding remains usable when the public endpoint is temporarily unavailable; `npm run w3booster:check` remains deliberately strict for CI.
+Plain-JavaScript applications use the same canonical binding by selecting a JavaScript output:
+
+```sh
+npx w3booster-settings init app_your_id --output src/w3booster.generated.js
+```
+
+`.js`, `.mjs`, and `.jsx` outputs contain parseable plain ESM with no TypeScript-only syntax. TypeScript remains the default because it also generates exact settings aliases.
+
+Use `--output` when the generated file should live somewhere else or to select the plain-JavaScript format by extension. `--endpoint` is persisted in the project binding for non-default platform environments; connected CI can instead provide `W3BOOSTER_SETTINGS_URL`. Synchronization does not rewrite an unchanged file. During ordinary development, a checked-in binding remains usable when the public endpoint is temporarily unavailable; `npm run w3booster:check` remains deliberately strict for CI.
 
 Use the generated helper in the frontend. The managed runtime completes partial delivered settings over the database defaults and publishes them atomically with state and host capability changes. Generated `W3BoosterAppClient`, `W3BoosterAppRuntime`, and `W3BoosterAppRuntimeSnapshot` aliases preserve the delivered-versus-resolved settings distinction without consumer-side generic reconstruction:
 
@@ -560,7 +568,7 @@ const lifecycle$ = new Observable(subscriber => {
 - `@w3booster/sdk/standard-game/objects` contains the optional shipped object table, icon URLs, and ability-cooldown lookup.
 - `@w3booster/sdk/standard-game/icons` contains only standard-game icon metadata and URL resolvers.
 - `@w3booster/sdk/standard-game/cooldowns` contains only standard-game ability cooldown metadata and derivation.
-- `@w3booster/sdk/compositor` contains browser-source composition APIs used by W3Booster's platform compositor. Its watcher renews expired browser-source sessions and reauthorizes reconnects automatically. Ordinary applications do not import it.
+- `@w3booster/sdk/compositor` contains browser-source composition APIs used by W3Booster's platform compositor. Its watcher renews expired browser-source sessions and reauthorizes reconnects automatically. Returned child launch URLs require HTTPS except for exact loopback development hosts and may not contain URL user information, because their fragments can carry launch credentials. Ordinary applications do not import it.
 - `@w3booster/sdk/settings` contains settings-schema types, validation, default derivation, and database-definition code generation.
 - `@w3booster/sdk/testing` contains `createDemoTransport` and custom transport types for SDK and integration tests. Application demo mode normally uses `startClient({ demo: true })` instead.
 - `@w3booster/sdk/react` adapts immediately-publishing SDK stores to React's complete `useSyncExternalStore` contract without adding React as a package dependency.

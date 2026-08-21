@@ -1,5 +1,6 @@
 import { createClient, openClient } from './index.js';
-import { abortable, isPlainObject, validateAbortSignal } from './internal/network.js';
+import { createAbortError, isPlainObject, validateAbortSignal } from './internal/network.js';
+import { ConnectionError } from './internal/errors.js';
 import { isKnownScope } from './internal/scopes.js';
 import { normalizeStartupOptions, waitForStartupState } from './internal/startup.js';
 import { resolveSettings } from './settings.js';
@@ -135,6 +136,7 @@ function createApplicationRuntime(application, options) {
         if (typeof listener !== 'function') throw new TypeError('listener must be a function');
         if (!isPlainObject(subscriptionOptions)) throw new TypeError('subscription options must be an object');
         validateAbortSignal(subscriptionOptions.signal);
+        if (stopped) throw new Error('This W3Booster application runtime has been stopped.');
         if (subscriptionOptions.signal?.aborted) return () => {};
         subscribers.add(listener);
         const unsubscribe = () => {
@@ -182,15 +184,44 @@ function makeRuntimeSnapshot(application, client, lifecycle, host) {
 
 async function startRuntimeClient(client, options) {
   const { until, timeout, signal } = normalizeStartupOptions(options);
-  await abortable(client.open(), signal);
+  const startedAt = Date.now();
+  await waitForRuntimeOpen(client.open(), timeout, signal);
   if (until === 'connected') return client;
-  await waitForStartupState(client, client.lifecycle, until, timeout, signal);
+  const remainingTimeout = timeout === 0 ? 0 : timeout - (Date.now() - startedAt);
+  if (remainingTimeout <= 0 && timeout > 0) throw runtimeStartupTimeout();
+  await waitForStartupState(client, client.lifecycle, until, remainingTimeout, signal);
   return client;
+}
+
+function waitForRuntimeOpen(operation, timeout, signal) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timer;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      signal?.removeEventListener('abort', cancel);
+      callback(value);
+    };
+    const cancel = () => finish(reject, createAbortError('W3Booster startup was cancelled.'));
+    signal?.addEventListener('abort', cancel, { once: true });
+    if (signal?.aborted) cancel();
+    if (!settled && timeout > 0) timer = setTimeout(() => finish(reject, runtimeStartupTimeout()), timeout);
+    Promise.resolve(operation).then(
+      value => finish(resolve, value),
+      error => finish(reject, error)
+    );
+  });
+}
+
+function runtimeStartupTimeout() {
+  return new ConnectionError('W3Booster application runtime did not start in time.', [], 'STARTUP_TIMEOUT');
 }
 
 function sameRuntimeSnapshot(left, right) {
   return left.client === right.client && left.status === right.status && left.state === right.state &&
-    left.isSynchronized === right.isSynchronized && left.error === right.error &&
+    left.isSynchronized === right.isSynchronized && left.error === right.error && left.retry === right.retry &&
     left.settings === right.settings && left.host === right.host;
 }
 

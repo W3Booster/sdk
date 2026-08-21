@@ -36,12 +36,29 @@ const selectHeadToHeadPlayers = createImmutableSelector((players, reverse) => {
   if (reverse) ordered.reverse();
   return Object.freeze(ordered);
 });
-const selectMatchTeams = createImmutableSelector((players, observerOrReplay, broadcasterPlayerId, reverse) => {
+const selectMatchTeams = createImmutableSelector((players, observerOrReplay, broadcasterPlayerId, modeKind, reverse) => {
+  if (modeKind === 'head-to-head' && players.length === 2) {
+    const ordered = observerOrReplay
+      ? orderHeadToHeadPlayers(players, { reverse })
+      : orderBroadcasterFirstPlayers(players, broadcasterPlayerId, reverse);
+    return Object.freeze(ordered.map(player => Object.freeze({
+      teamId: Number.isFinite(player?.team) ? Number(player.team) : null,
+      players: Object.freeze([player])
+    })));
+  }
+  if (modeKind === 'ffa') {
+    const ordered = reverse ? [...players].reverse() : players;
+    return Object.freeze(ordered.map(player => Object.freeze({
+      teamId: Number.isFinite(player?.team) ? Number(player.team) : null,
+      players: Object.freeze([player])
+    })));
+  }
   const teams = groupPlayersByTeam(players);
-  if (!observerOrReplay) return teams;
+  if (!observerOrReplay) return broadcasterFirstTeams(players, { broadcasterPlayerId }, { reverse });
+  if (modeKind === 'team') return broadcasterFirstTeams(players, { broadcasterPlayerId }, { reverse });
   if (teams.length !== 2) return reverse ? Object.freeze([...teams].reverse()) : teams;
   const playerCount = teams.reduce((count, team) => count + team.players.length, 0);
-  if (playerCount === 2) {
+  if (modeKind === 'head-to-head' || (modeKind === undefined && playerCount === 2)) {
     const ordered = orderHeadToHeadPlayers(teams.map(team => team.players[0]), { reverse });
     const orderedTeams = ordered.map(player => teams.find(team =>
       /** @type {any} */ (team.players[0])?.id === player?.id));
@@ -49,6 +66,16 @@ const selectMatchTeams = createImmutableSelector((players, observerOrReplay, bro
   }
   return broadcasterFirstTeams(players, { broadcasterPlayerId }, { reverse });
 });
+
+function orderBroadcasterFirstPlayers(players, broadcasterPlayerId, reverse) {
+  const ordered = [...players];
+  const broadcasterIndex = broadcasterPlayerId
+    ? ordered.findIndex(player => String(player?.id) === broadcasterPlayerId)
+    : -1;
+  if (broadcasterIndex > 0) ordered.unshift(...ordered.splice(broadcasterIndex, 1));
+  if (reverse) ordered.reverse();
+  return Object.freeze(ordered);
+}
 const MELEE_MODES = Object.freeze({
   '1v1': Object.freeze({ id: '1v1', kind: 'head-to-head', playerCount: 2, teamSize: 1, stats: 'solo' }),
   '2v2': Object.freeze({ id: '2v2', kind: 'team', playerCount: 4, teamSize: 2, stats: 'team' }),
@@ -187,12 +214,13 @@ export function orderHeadToHeadPlayers(players, options = {}) {
   return selectHeadToHeadPlayers(players, options.reverse === true);
 }
 
-/** Apply W3Booster's canonical observer/replay team presentation order. */
+/** Apply W3Booster's canonical mode-aware team presentation order. */
 export function orderMatchTeams(players, match, options = {}) {
   return selectMatchTeams(
     players,
     isObserverOrReplayMatch(match),
     typeof match?.broadcasterPlayerId === 'string' ? match.broadcasterPlayerId : '',
+    modeInfo(match?.mode)?.kind,
     options.reverse === true
   );
 }

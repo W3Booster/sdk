@@ -2,6 +2,8 @@ import type {
   ConnectOptions,
   DeepReadonly,
   JsonCompatible,
+  JsonObjectInput,
+  OverlayExtensionsInput,
   HostLifecycleSnapshot,
   ClientLifecycleSnapshot,
   Scope,
@@ -34,19 +36,28 @@ export type ApplicationConnectOptions<
   readonly scopes?: readonly TScopes[number][] | 'configured';
 };
 
+type ApplicationConnectArguments<
+  TSettings extends object,
+  TScopes extends readonly Scope[],
+  TOverlayExtensions extends object
+> = TOverlayExtensions extends OverlayExtensionsInput<TOverlayExtensions>
+  ? [options?: ApplicationConnectOptions<TSettings, TScopes, TOverlayExtensions>]
+  : [options: never];
+
 export interface DefinedApplication<
   TSettings extends object,
   TScopes extends readonly Scope[]
 > extends ApplicationDefinition<TSettings, TScopes> {
-  open<TOverlayExtensions extends object = object>(options?: ApplicationConnectOptions<TSettings, TScopes, TOverlayExtensions>): Promise<W3BoosterClient<DeepPartial<TSettings>, TOverlayExtensions>>;
+  open<TOverlayExtensions extends object = object>(...args: ApplicationConnectArguments<TSettings, TScopes, TOverlayExtensions>): Promise<W3BoosterClient<DeepPartial<TSettings>, TOverlayExtensions>>;
   /** @deprecated Use `open()` for transport-only startup or `start()` for synchronized state. */
-  connect<TOverlayExtensions extends object = object>(options?: ApplicationConnectOptions<TSettings, TScopes, TOverlayExtensions>): Promise<W3BoosterClient<DeepPartial<TSettings>, TOverlayExtensions>>;
-  createClient<TOverlayExtensions extends object = object>(options?: ApplicationConnectOptions<TSettings, TScopes, TOverlayExtensions>): W3BoosterClient<DeepPartial<TSettings>, TOverlayExtensions>;
+  connect<TOverlayExtensions extends object = object>(...args: ApplicationConnectArguments<TSettings, TScopes, TOverlayExtensions>): Promise<W3BoosterClient<DeepPartial<TSettings>, TOverlayExtensions>>;
+  createClient<TOverlayExtensions extends object = object>(...args: ApplicationConnectArguments<TSettings, TScopes, TOverlayExtensions>): W3BoosterClient<DeepPartial<TSettings>, TOverlayExtensions>;
   start<TOverlayExtensions extends object = object>(
-    options?: ApplicationConnectOptions<TSettings, TScopes, TOverlayExtensions>,
-    startup?: StartupOptions
+    ...args: TOverlayExtensions extends OverlayExtensionsInput<TOverlayExtensions>
+      ? [options?: ApplicationConnectOptions<TSettings, TScopes, TOverlayExtensions>, startup?: StartupOptions]
+      : [options: never, startup?: never]
   ): Promise<W3BoosterClient<DeepPartial<TSettings>, TOverlayExtensions>>;
-  createRuntime<TOverlayExtensions extends object = object>(options?: ApplicationConnectOptions<TSettings, TScopes, TOverlayExtensions>): ApplicationRuntime<TSettings, TOverlayExtensions>;
+  createRuntime<TOverlayExtensions extends object = object>(...args: ApplicationConnectArguments<TSettings, TScopes, TOverlayExtensions>): ApplicationRuntime<TSettings, TOverlayExtensions>;
   resolveSettings(settings?: DeepPartial<TSettings>): DeepReadonly<TSettings>;
   settingsFor(
     state: Pick<MatchState<DeepPartial<TSettings>>, 'application'> | null | undefined
@@ -89,6 +100,6 @@ export interface ApplicationRuntimeStartOptions {
 export function defineApplication<
   TSettings extends object,
   const TScopes extends readonly Scope[]
->(definition: TSettings extends JsonCompatible<TSettings>
+>(definition: TSettings extends JsonObjectInput<TSettings>
   ? ApplicationDefinition<TSettings, TScopes>
   : never): DefinedApplication<TSettings, TScopes>;

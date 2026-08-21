@@ -22,6 +22,7 @@ export interface AppSettingsSection<TSettings extends object = Record<string, Js
 export interface AppSettingsSchema<TSettings extends object = Record<string, JsonValue>> { readonly version: 1; readonly sections: readonly AppSettingsSection<TSettings>[] }
 export interface ApplicationSettingsDefinition<TSettings extends object = Record<string, JsonValue>> { readonly clientId: string; readonly revision: string; readonly scopes: readonly Scope[]; readonly settingsSchema?: AppSettingsSchema<TSettings> }
 export type DeepPartial<T> = T extends readonly unknown[] ? T : T extends object ? { readonly [TKey in keyof T]?: DeepPartial<T[TKey]> } : T;
+export interface GenerateSettingsBindingOptions { readonly format?: 'typescript' | 'javascript' }
 
 export function validateSettingsSchema<TSettings extends object>(schema: AppSettingsSchema<TSettings>): DeepReadonly<AppSettingsSchema<TSettings>>;
 export function validateSettingsSchema<TSettings extends object = Record<string, JsonValue>>(schema: unknown): DeepReadonly<AppSettingsSchema<TSettings>>;
@@ -35,4 +36,4 @@ export function resolveSettings<TSettings extends object>(
   defaults: DeepPartial<TSettings>,
   settings?: DeepPartial<TSettings>
 ): DeepReadonly<DeepPartial<TSettings>>;
-export function generateSettingsBinding(definition: ApplicationSettingsDefinition): string;
+export function generateSettingsBinding(definition: ApplicationSettingsDefinition, options?: GenerateSettingsBindingOptions): string;

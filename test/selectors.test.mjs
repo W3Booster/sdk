@@ -58,12 +58,24 @@ test('selectors expose common match and player derivations', () => {
     broadcasterFirstTeams(players, { broadcasterPlayerId: 'opponent' }, { reverse: true }).map(team => team.teamId),
     [1, 0]
   );
+  assert.deepEqual(
+    broadcasterFirstTeams(
+      [{ id: 'opponent', team: 1 }, { id: 'broadcaster' }],
+      { broadcasterPlayerId: 'broadcaster' }
+    ).map(team => team.teamId),
+    [null, 1]
+  );
   assert.equal(playerRelationship(players[0], { broadcasterPlayerId: 'broadcaster' }, players), 'ally');
   assert.equal(playerRelationship(players[1], { broadcasterPlayerId: 'broadcaster' }, players), 'opponent');
   assert.equal(playerRelationship(players[2], { broadcasterPlayerId: 'broadcaster' }, players), 'self');
   assert.equal(playerRelationship(players[0], {}, players), 'unknown');
   assert.equal(playerRelationship({ id: 'unknown' }, { broadcasterPlayerId: 'broadcaster' }, [...players, { id: 'unknown' }]), 'unknown');
   assert.equal(groupPlayersByTeam([{ id: 'unknown' }])[0].teamId, null);
+  assert.deepEqual(
+    groupPlayersByTeam([{ name: 'persisted unknown', team: null }, { name: 'known', team: 0 }])
+      .map(team => team.teamId),
+    [null, 0]
+  );
   assert.deepEqual(playerDisplayIdentity({
     id: 'player', name: 'InGame', mainAccount: { name: 'Account' }
   }), {

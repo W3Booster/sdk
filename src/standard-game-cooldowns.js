@@ -2,12 +2,26 @@ import { finiteNonNegative } from './internal/numbers.js';
 import { createImmutableSelector } from './internal/immutable-selector.js';
 import { cooldowns } from './standard-game-cooldown-data.js';
 
-class ImmutableMap extends Map {
+class ImmutableMapFacade {
+  #map;
+
   constructor(entries) {
-    super();
-    if (entries) for (const [key, value] of entries) Map.prototype.set.call(this, key, value);
+    this.#map = new Map(entries);
     Object.freeze(this);
   }
+
+  get size() { return this.#map.size; }
+  get(key) { return this.#map.get(key); }
+  has(key) { return this.#map.has(key); }
+  entries() { return this.#map.entries(); }
+  keys() { return this.#map.keys(); }
+  values() { return this.#map.values(); }
+  forEach(callback, thisArg) {
+    if (typeof callback !== 'function') throw new TypeError('callback must be a function');
+    this.#map.forEach((value, key) => callback.call(thisArg, value, key, this));
+  }
+  [Symbol.iterator]() { return this.#map[Symbol.iterator](); }
+  get [Symbol.toStringTag]() { return 'ReadonlyMap'; }
 
   /** @returns {this} */
   set(_key, _value) { throw new TypeError('Cooldown maps are immutable.'); }
@@ -15,10 +29,11 @@ class ImmutableMap extends Map {
   delete(_key) { throw new TypeError('Cooldown maps are immutable.'); }
   clear() { throw new TypeError('Cooldown maps are immutable.'); }
 }
+Object.freeze(ImmutableMapFacade.prototype);
 
 for (const values of Object.values(cooldowns)) Object.freeze(values);
 Object.freeze(cooldowns);
-const EMPTY_COOLDOWNS = new ImmutableMap();
+const EMPTY_COOLDOWNS = new ImmutableMapFacade();
 const selectAbilityCooldowns = createImmutableSelector(state => {
   const result = new Map();
   if (!Number.isFinite(state?.match?.gameTime) || state.match.gameTime < 0 ||
@@ -32,7 +47,7 @@ const selectAbilityCooldowns = createImmutableSelector(state => {
       }
     }
   }
-  return result.size > 0 ? new ImmutableMap(result) : EMPTY_COOLDOWNS;
+  return result.size > 0 ? new ImmutableMapFacade(result) : EMPTY_COOLDOWNS;
 });
 
 export function getAbilityCooldown(rawcode, level = 1) {

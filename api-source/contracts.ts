@@ -7,6 +7,10 @@ export type JsonCompatible<T> =
   T extends readonly (infer TValue)[] ? readonly JsonCompatible<TValue>[] :
   T extends object ? { [TKey in keyof T]: JsonCompatible<T[TKey]> } :
   never;
+/** Call-site constraint for JSON-compatible root records. Nested arrays remain valid JSON values. */
+export type JsonObjectInput<T extends object> =
+  T extends readonly unknown[] ? never :
+  T extends JsonCompatible<T> ? T : never;
 export type DeepReadonly<T> =
   T extends JsonPrimitive ? T :
   T extends readonly (infer TValue)[] ? readonly DeepReadonly<TValue>[] :
@@ -29,7 +33,7 @@ export type AppSurface = 'application' | 'streamOverlay' | 'ingameOverlay';
 export type OverlaySurface = Exclude<AppSurface, 'application'>;
 export type MatchStatus = 'starting' | 'running' | 'finished' | 'none';
 export type Race = 'random' | 'human' | 'orc' | 'undead' | 'night-elf';
-export type ConnectionErrorCode = 'UNAVAILABLE' | 'CONFIGURATION' | 'APPLICATION_DEFINITION_MISMATCH' | 'MISSING_BROWSER_API' | 'BROKER_TIMEOUT' | 'STATE_TIMEOUT' | 'HOST_UNAVAILABLE' | 'HOST_TIMEOUT';
+export type ConnectionErrorCode = 'UNAVAILABLE' | 'CONFIGURATION' | 'APPLICATION_DEFINITION_MISMATCH' | 'MISSING_BROWSER_API' | 'BROKER_TIMEOUT' | 'STARTUP_TIMEOUT' | 'STATE_TIMEOUT' | 'HOST_UNAVAILABLE' | 'HOST_TIMEOUT';
 export type W3BoosterErrorKind = 'abort' | 'permission' | 'connection' | 'protocol' | 'host-action' | 'unknown';
 export interface AbortError { readonly name: 'AbortError'; readonly message?: string }
 export type W3BoosterErrorInfo =
@@ -70,6 +74,10 @@ export interface StartupOptions {
 export interface SubscriptionOptions {
   /** Automatically unsubscribes when aborted. */
   signal?: AbortSignal;
+}
+export interface MatchLifecycleSubscriptionOptions extends SubscriptionOptions {
+  /** Also report the current finished match as an initial ended observation. Defaults to false. */
+  includeCurrentFinished?: boolean;
 }
 export interface WatchOptions<T> extends SubscriptionOptions {
   /** Equality for suppressing unchanged selections. Defaults to Object.is. */
@@ -133,12 +141,17 @@ export interface MatchScore {
   readonly losses: number;
 }
 export type OverlayExtensionReservedKey = 'runtime' | 'misc' | 'settings';
+/** Call-site constraint for JSON-compatible overlay extensions that cannot shadow SDK-owned branches. */
+export type OverlayExtensionsInput<TOverlayExtensions extends object> =
+  TOverlayExtensions extends JsonObjectInput<TOverlayExtensions>
+    ? Extract<OverlayExtensionReservedKey, keyof TOverlayExtensions> extends never
+      ? TOverlayExtensions
+      : never
+    : never;
 /** Extension branches are deeply immutable; normalization-owned overlay keys cannot be extensions. */
 export type OverlayState<TOverlayExtensions extends object = object> =
-  TOverlayExtensions extends JsonCompatible<TOverlayExtensions>
-    ? Extract<keyof TOverlayExtensions, OverlayExtensionReservedKey> extends never
-      ? DeepReadonly<TOverlayExtensions> & { readonly runtime: OverlayRuntimeState }
-      : never
+  TOverlayExtensions extends OverlayExtensionsInput<TOverlayExtensions>
+    ? DeepReadonly<TOverlayExtensions> & { readonly runtime: OverlayRuntimeState }
     : never;
 export interface MatchState<
   TSettings extends object = JsonObject,
@@ -266,7 +279,7 @@ export interface MatchLifecycleEvent<TSettings extends object = JsonObject, TOve
   /** Client observation time; this is not an authoritative match timestamp. */
   readonly observedAt: string;
 }
-export interface MatchLifecycleObservationEvent<TSettings extends object = JsonObject, TOverlayExtensions extends object = object> extends MatchLifecycleEvent<TSettings, TOverlayExtensions> { readonly phase: 'started' | 'ended'; /** True when subscription observes a match that was already active. */ readonly initial: boolean }
+export interface MatchLifecycleObservationEvent<TSettings extends object = JsonObject, TOverlayExtensions extends object = object> extends MatchLifecycleEvent<TSettings, TOverlayExtensions> { readonly phase: 'started' | 'ended'; /** True when subscription observes the current match during hydration. */ readonly initial: boolean }
 export interface PlayerEvent<TSettings extends object = JsonObject, TOverlayExtensions extends object = object> { readonly playerId: string; readonly player: Player; readonly previousPlayer?: Player; readonly state: MatchState<TSettings, TOverlayExtensions> }
 export interface PlayerChangedEvent<TSettings extends object = JsonObject, TOverlayExtensions extends object = object> extends PlayerEvent<TSettings, TOverlayExtensions> { readonly changedFields: readonly string[] }
 export interface HeroEvent<TSettings extends object = JsonObject, TOverlayExtensions extends object = object> extends PlayerEvent<TSettings, TOverlayExtensions> { readonly heroId: string; readonly hero: Hero; readonly previousHero?: Hero }
@@ -338,12 +351,24 @@ export interface Diagnostics {
   readonly transport: string | null;
   readonly localTransport: 'recorder-local' | null;
 }
+export interface ConnectionRetrySnapshot {
+  /** The retry attempt that is waiting or currently in progress. The first connection attempt is 1. */
+  readonly attempt: number;
+  /** Configured total attempt limit, or null for an unlimited policy. */
+  readonly maxAttempts: number | null;
+  /** Milliseconds before this attempt starts, or null while the attempt is in progress. */
+  readonly nextDelay: number | null;
+  /** The transient failure that caused this retry. */
+  readonly lastError: unknown;
+}
 export interface ClientLifecycleSnapshot<TSettings extends object = JsonObject, TOverlayExtensions extends object = object> {
   readonly status: ConnectionStatus;
   readonly state: MatchState<TSettings, TOverlayExtensions> | null;
   readonly isSynchronized: boolean;
   /** The current connection or state-synchronization error. Non-fatal recorder and listener issues stay on the issue event. */
   readonly error: unknown | null;
+  /** Initial-connection retry detail. Status remains `connecting`; null when no initial retry is active. */
+  readonly retry: ConnectionRetrySnapshot | null;
 }
 export type W3BoosterIssueSource = 'connection' | 'protocol' | 'recorder' | 'listener';
 export type W3BoosterIssueSeverity = 'warning' | 'error';
@@ -380,8 +405,8 @@ export interface W3BoosterClient<TSettings extends object = JsonObject, TOverlay
   whenSynchronized(options?: ReadyOptions): Promise<MatchState<TSettings, TOverlayExtensions>>;
   /** Runs immediately with the current status and after every later transition. */
   subscribeStatus(listener: (status: ConnectionStatus) => void | Promise<void>, options?: SubscriptionOptions): () => void;
-  /** Reports an already-active match immediately, then all later start/end transitions. */
-  subscribeMatchLifecycle(listener: (event: MatchLifecycleObservationEvent<TSettings, TOverlayExtensions>) => void | Promise<void>, options?: SubscriptionOptions): () => void;
+  /** Reports an already-active match immediately, optionally the current finished match, then all later transitions. */
+  subscribeMatchLifecycle(listener: (event: MatchLifecycleObservationEvent<TSettings, TOverlayExtensions>) => void | Promise<void>, options?: MatchLifecycleSubscriptionOptions): () => void;
   on<K extends keyof W3BoosterEventMap<TSettings, TOverlayExtensions>>(type: K, listener: (data: W3BoosterEventMap<TSettings, TOverlayExtensions>[K]) => void | Promise<void>, options?: SubscriptionOptions): () => void;
   on(type: '*', listener: (event: W3BoosterEvent<TSettings, TOverlayExtensions>) => void | Promise<void>, options?: SubscriptionOptions): () => void;
   onUnknown(type: string, listener: (data: unknown) => void | Promise<void>, options?: SubscriptionOptions): () => void;
@@ -459,6 +484,8 @@ export interface W3BoosterHost<TSettings extends object = JsonObject> {
   changeMatchScore(side: MatchScoreSide, delta: 1 | -1, options?: HostActionOptions): Promise<void>;
   resetMatchScore(options?: HostActionOptions): Promise<void>;
   command<TResult>(command: string, payload: JsonValue | undefined, options: HostCommandOptions<TResult>): Promise<TResult>;
+  /** @deprecated Supply `options.parse` to validate a typed acknowledgement. Retained for SDK 1 source compatibility. */
+  command<TResult>(command: string, payload?: JsonValue, options?: HostActionOptions): Promise<TResult>;
   command(command: string, payload?: JsonValue, options?: HostActionOptions): Promise<unknown>;
   /** Persist a setting and resolve only after the host confirms the saved settings. */
   setSetting<TPath extends SettingsPath<TSettings>>(path: TPath, value: SettingsPathValue<TSettings, TPath>, options?: HostActionOptions): Promise<DeepReadonly<TSettings>>;
@@ -482,8 +509,8 @@ export interface HostActionError extends Error {
   readonly code: string;
 }
 export type ClientOptionsInput<TSettings extends object, TOverlayExtensions extends object> =
-  TSettings extends JsonCompatible<TSettings>
-    ? TOverlayExtensions extends JsonCompatible<TOverlayExtensions>
+  TSettings extends JsonObjectInput<TSettings>
+    ? TOverlayExtensions extends OverlayExtensionsInput<TOverlayExtensions>
       ? ConnectOptions<TSettings, TOverlayExtensions> | string
       : never
     : never;

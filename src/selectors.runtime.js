@@ -32,8 +32,9 @@ const selectBroadcasterFirstTeams = createImmutableSelector((players, broadcaste
     ? players.find(player => String(player.id) === broadcasterId)
     : undefined;
   if (broadcaster) {
+    const broadcasterTeam = Number.isFinite(broadcaster.team) ? Number(broadcaster.team) : null;
     teams.sort((left, right) =>
-      Number(right.teamId === broadcaster.team) - Number(left.teamId === broadcaster.team));
+      Number(right.teamId === broadcasterTeam) - Number(left.teamId === broadcasterTeam));
   }
   if (reverse) teams.reverse();
   return Object.freeze(teams);

@@ -1,4 +1,5 @@
 import { PROTOCOL_VERSION } from './version.js';
+import { isPlainObject } from './internal/network.js';
 import { structuredCloneSafe as clone } from './internal/values.js';
 
 /** Create a deterministic in-browser data source for SDK and application tests. */
@@ -39,16 +40,25 @@ export function createDemoTransport(options = {}) {
 /** Create a complete deterministic state for application unit tests and demos. */
 export function createDemoState(options = {}) {
   const observedAt = 1_700_000_000_000;
+  const overlayExtensions = options.overlayExtensions ?? {};
+  if (!isPlainObject(overlayExtensions)) {
+    throw new TypeError('demo overlayExtensions must be a plain object');
+  }
+  for (const key of ['runtime', 'misc', 'settings']) {
+    if (Object.prototype.hasOwnProperty.call(overlayExtensions, key)) {
+      throw new TypeError(`demo overlayExtensions cannot contain the SDK-owned ${key} branch`);
+    }
+  }
   const state = {
     capabilities: ['match', 'players', 'stats', 'heroes', 'upgrades', 'resources', 'controlgroups', 'overlay'],
     match: {
-      id: 'demo-match', status: 'running', gameTime: 0, mode: '1v1', map: 'Echo Isles', realm: 'W3Champions',
+      id: 'demo-match', status: /** @type {import('./index.js').MatchStatus} */ ('running'), gameTime: 0, mode: '1v1', map: 'Echo Isles', realm: 'W3Champions',
       broadcasterPlayerId: '0', realBroadcasterPlayerId: '0', isObserver: false, isReplay: false, isReforged: true
     },
     players: [
       {
-        id: '0', name: 'Northwind#1234', race: 'human', team: 0, colorId: 0, startPosition: { x: -3200, y: 800 },
-        mainAccount: { name: 'Northwind', country: 'DE', mainRace: 'human' },
+        id: '0', name: 'Northwind#1234', race: /** @type {import('./index.js').Race} */ ('human'), team: 0, colorId: 0, startPosition: { x: -3200, y: 800 },
+        mainAccount: { name: 'Northwind', country: 'DE', mainRace: /** @type {import('./index.js').Race} */ ('human') },
         stats: { solo: { wins: 42, losses: 18, winRate: 70, rank: 120, league: 'Grandmaster', level: 35 } },
         resources: { gold: 520, lumber: 185, supply: 34, supplyCap: 50, workerSupply: 20 },
         controlgroups: { 1: { frontunit: 'hfoo', size: 8 } },
@@ -63,8 +73,8 @@ export function createDemoState(options = {}) {
         }
       },
       {
-        id: '1', name: 'Ironclaw#5678', race: 'orc', team: 1, colorId: 1, startPosition: { x: 3200, y: -800 },
-        mainAccount: { name: 'Ironclaw', country: 'SE', mainRace: 'orc' },
+        id: '1', name: 'Ironclaw#5678', race: /** @type {import('./index.js').Race} */ ('orc'), team: 1, colorId: 1, startPosition: { x: 3200, y: -800 },
+        mainAccount: { name: 'Ironclaw', country: 'SE', mainRace: /** @type {import('./index.js').Race} */ ('orc') },
         stats: { solo: { wins: 38, losses: 22, winRate: 63.3, rank: 180, league: 'Master', level: 32 } },
         resources: { gold: 470, lumber: 210, supply: 38, supplyCap: 50, workerSupply: 19 },
         controlgroups: { 1: { frontunit: 'ogru', size: 6 } },
@@ -77,7 +87,7 @@ export function createDemoState(options = {}) {
       }
     ],
     overlay: {
-      ...clone(options.overlayExtensions || {}),
+      ...clone(overlayExtensions),
       runtime: { hudScale: 1, chatbarOpen: false, matchScore: { wins: 0, losses: 0 }, teamColors: true }
     }
   };

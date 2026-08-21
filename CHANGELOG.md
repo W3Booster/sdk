@@ -1,7 +1,20 @@
 # Changelog
 
-## 2.0.0 - 2026-08-19
+## 1.0.2 - 2026-08-21
 
+- Made each managed-runtime startup timeout cover transport opening, retry backoff, and readiness without cancelling shared startup, and report `STARTUP_TIMEOUT` instead of the readiness-only `STATE_TIMEOUT` code.
+- Accepted nullable-team lightweight records in mode-aware `orderMatchTeams()` declarations, matching runtime behavior and the team-grouping API.
+- Rejected lifecycle subscriptions created after a managed runtime has stopped.
+- Added an opt-in lifecycle observation for a finished match present in the initial hydrated snapshot.
+- Exposed initial retry attempt, limit, delay, and last failure through the atomic lifecycle snapshot.
+- Rejected insecure remote and credential-bearing compositor child URLs.
+- Preserved one reversible presentation side per player for explicit FFA modes with missing team IDs.
+- Kept explicit team-mode observer ordering broadcaster-first even with an unexpected visible group count.
+- Added inferred implementation-to-declaration assignability checks for every directly authored public entry point.
+- Corrected standard-game object metadata declarations to include shipped numeric fields.
+- Rejected array root models at typed client, generated-application, and testing call sites while retaining nested JSON arrays.
+- Accepted normalized `team: null` records in public team-grouping declarations.
+- Closed selector-store subscription teardown when an abort occurs during a synchronous source startup update.
 - Added a launch-aware standard-game asset resolver that binds Warcraft icons and country flags to one validated asset origin.
 - Replaced parallel JavaScript/declaration surfaces for the root API and core frontend subpaths with generated TypeScript facades and generated version declarations.
 - Made optional settings lifecycle hooks package-manager neutral by invoking the installed SDK CLI directly.
@@ -10,10 +23,15 @@
 - Made reverse observer ordering apply consistently to multi-team and free-for-all matches.
 - Added compile-time assignability checks between private runtime modules and their generated public value contracts.
 - Serialized all host setting writes so overlapping parent and child paths preserve request order.
-- **Breaking:** generic host commands now return `unknown` unless a runtime parser validates and transforms the acknowledgement.
+- Added parser-validated generic host acknowledgements while retaining the deprecated SDK 1 typed overload for source compatibility.
 - Made the release gate fail when committed generated API files are stale.
 - Enabled checked-JavaScript validation over the public runtime graph in addition to public-contract assignability checks.
 - Made BattleTag-discriminator stripping apply consistently to account and in-game display names.
+- Made presentation-team ordering mode-aware across player, observer/replay, team, FFA, and incomplete scoped snapshots.
+- Added plain-ESM generated application bindings for `.js`, `.mjs`, and `.jsx` settings outputs.
+- Rejected unrestricted overlay-extension index signatures and SDK-owned demo extension branches.
+- Replaced subclass-based cooldown maps with frozen read-only facades whose private backing maps cannot be mutated through `Map.prototype`.
+- Preserved broadcaster-first and explicit head-to-head ordering when scoped player records omit optional team IDs.
 
 ## 1.0.1 - 2026-08-19
 

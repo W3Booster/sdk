@@ -144,7 +144,7 @@ test('standard-game derives upgrade categories and statistics without applicatio
 test('standard-game provides canonical frontend team ordering and presentation values', () => {
   const west = { id: 'west', team: 0, colorId: 5, startPosition: { x: -100, y: 0 } };
   const east = { id: 'east', team: 1, colorId: 4, startPosition: { x: 100, y: 0 } };
-  const observerMatch = { isObserver: true, broadcasterPlayerId: 'east' };
+  const observerMatch = { mode: '1v1', isObserver: true, broadcasterPlayerId: 'east' };
 
   assert.deepEqual(
     standardGame.orderMatchTeams([east, west], observerMatch).map(team => team.players[0]?.id),
@@ -162,21 +162,87 @@ test('standard-game provides canonical frontend team ordering and presentation v
     { id: 'opponent-ally', team: 1 }
   ];
   assert.deepEqual(
-    standardGame.orderMatchTeams(teamPlayers, { isObserver: true, broadcasterPlayerId: 'me' })
+    standardGame.orderMatchTeams(teamPlayers, { mode: '2v2', isObserver: true, broadcasterPlayerId: 'me' })
       .map(team => team.players.map(player => player.id)),
     [['me', 'ally'], ['opponent', 'opponent-ally']]
   );
 
+  const incompleteTeamPlayers = [
+    { id: 'opponent', team: 1, startPosition: { x: -100, y: 0 } },
+    { id: 'me', team: 0, startPosition: { x: 100, y: 0 } }
+  ];
+  assert.deepEqual(
+    standardGame.orderMatchTeams(incompleteTeamPlayers, {
+      mode: '2v2', isObserver: true, broadcasterPlayerId: 'me'
+    }).map(team => team.players[0]?.id),
+    ['me', 'opponent']
+  );
+  const unexpectedThirdTeam = [
+    { id: 'opponent', team: 1 },
+    { id: 'me', team: 0 },
+    { id: 'stray', team: 2 }
+  ];
+  assert.deepEqual(
+    standardGame.orderMatchTeams(unexpectedThirdTeam, {
+      mode: '2v2', isObserver: true, broadcasterPlayerId: 'me'
+    }).map(team => team.teamId),
+    [0, 1, 2]
+  );
+  assert.deepEqual(
+    standardGame.orderMatchTeams(unexpectedThirdTeam, {
+      mode: '2v2', isObserver: true, broadcasterPlayerId: 'me'
+    }, { reverse: true }).map(team => team.teamId),
+    [2, 1, 0]
+  );
+
+  const teamlessHeadToHead = [
+    { id: 'east', startPosition: { x: 100, y: 0 } },
+    { id: 'west', startPosition: { x: -100, y: 0 } }
+  ];
+  const observerTeamlessTeams = standardGame.orderMatchTeams(teamlessHeadToHead, {
+    mode: '1v1', isObserver: true, broadcasterPlayerId: 'east'
+  });
+  assert.deepEqual(observerTeamlessTeams.map(team => team.players[0]?.id), ['west', 'east']);
+  assert.deepEqual(observerTeamlessTeams.map(team => team.teamId), [null, null]);
+  assert.deepEqual(
+    standardGame.orderMatchTeams(teamlessHeadToHead, {
+      mode: '1v1', isObserver: false, broadcasterPlayerId: 'east'
+    }).map(team => team.players[0]?.id),
+    ['east', 'west']
+  );
+  assert.deepEqual(
+    standardGame.orderMatchTeams(incompleteTeamPlayers, {
+      mode: '2v2', isObserver: false, broadcasterPlayerId: 'me'
+    }).map(team => team.players[0]?.id),
+    ['me', 'opponent']
+  );
+
   const freeForAllPlayers = [0, 1, 2, 3].map(team => ({ id: `ffa-${team}`, team }));
   assert.deepEqual(
-    standardGame.orderMatchTeams(freeForAllPlayers, { isObserver: true })
+    standardGame.orderMatchTeams(freeForAllPlayers, { mode: '4ffa', isObserver: true })
       .map(team => team.teamId),
     [0, 1, 2, 3]
   );
   assert.deepEqual(
-    standardGame.orderMatchTeams(freeForAllPlayers, { isObserver: true }, { reverse: true })
+    standardGame.orderMatchTeams(freeForAllPlayers, { mode: '4ffa', isObserver: true }, { reverse: true })
       .map(team => team.teamId),
     [3, 2, 1, 0]
+  );
+  const teamlessFreeForAll = [0, 1, 2, 3].map(index => ({ id: `teamless-ffa-${index}` }));
+  assert.deepEqual(
+    standardGame.orderMatchTeams(teamlessFreeForAll, { mode: '4ffa', isObserver: true })
+      .map(team => team.players[0]?.id),
+    ['teamless-ffa-0', 'teamless-ffa-1', 'teamless-ffa-2', 'teamless-ffa-3']
+  );
+  assert.deepEqual(
+    standardGame.orderMatchTeams(teamlessFreeForAll, { mode: '4ffa', isObserver: false }, { reverse: true })
+      .map(team => team.players[0]?.id),
+    ['teamless-ffa-3', 'teamless-ffa-2', 'teamless-ffa-1', 'teamless-ffa-0']
+  );
+  assert.deepEqual(
+    standardGame.orderMatchTeams(teamlessFreeForAll, { mode: '4ffa', isObserver: true })
+      .map(team => team.teamId),
+    [null, null, null, null]
   );
 
   const colorPlayers = [
@@ -225,8 +291,14 @@ test('standard-game owns cooldown timestamp and day/night clock semantics', () =
   );
   assert.equal(Object.isFrozen(cooldown), true);
   assert.equal(Object.isFrozen(cooldowns), true);
-  assert.equal(cooldowns instanceof Map, true);
+  assert.equal(cooldowns instanceof Map, false);
   assert.throws(() => cooldowns.set(state.players[0].heroes[0].abilities[0], cooldown), /immutable/);
+  assert.throws(
+    () => Map.prototype.set.call(cooldowns, state.players[0].heroes[0].abilities[0], cooldown),
+    /incompatible receiver|incompatible|Map/
+  );
+  assert.equal(cooldowns.size, 1);
+  assert.equal(standardGameObjects.abilityCooldownsForState(state).size, 1);
 
   const immutableAbility = Object.freeze({ id: 'AHbz', name: 'AHbz', level: 1, lastActivation: 10_000 });
   const immutableState = Object.freeze({

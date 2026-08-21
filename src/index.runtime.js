@@ -203,11 +203,11 @@ export class W3BoosterClient {
       return await attempt;
     } catch (error) {
       if (isAbortError(error)) {
-        if (generation === this.#runtime.connectionGeneration && this.status === 'connecting') {
+        if (generation === this.#runtime.connectionGeneration) {
           this.#runtime.sequence = 0;
           this.#runtime.awaitingSnapshot = false;
           this.#runtime.platformState = null;
-          this.#state.reset(error, { publish: false });
+          this.#state.reset(createAbortError('W3Booster connection startup was cancelled.'), { publish: false });
           this.#setStatus('closed');
         }
       } else {
@@ -270,6 +270,7 @@ export class W3BoosterClient {
 
   async #openConnectionWithRetry(generation, signal) {
     let attempt = 1;
+    this.#setRetry(null);
     const retryBackoff = this.#runtime.options.retry ? createReconnectBackoff({
       ...this.#runtime.options.retry,
       maxAttempts: this.#runtime.options.retry.maxAttempts - 1
@@ -285,7 +286,15 @@ export class W3BoosterClient {
         if (delay === null || delay === undefined) throw error;
         attempt += 1;
         this.#setStatus('connecting');
+        const retrySnapshot = Object.freeze({
+          attempt,
+          maxAttempts: retry.maxAttempts === Infinity ? null : retry.maxAttempts,
+          nextDelay: delay,
+          lastError: error
+        });
+        this.#setRetry(retrySnapshot);
         await waitForDelay(delay, signal);
+        this.#setRetry(Object.freeze({ ...retrySnapshot, nextDelay: null }));
       }
     }
   }
@@ -376,10 +385,13 @@ export class W3BoosterClient {
     return unsubscribe;
   }
 
-  /** Observe the current active match immediately and all later match lifecycle transitions. */
+  /** Observe the current active match, optionally the current finished match, and later lifecycle transitions. */
   subscribeMatchLifecycle(listener, options = {}) {
     if (typeof listener !== 'function') throw new TypeError('listener must be a function');
     options = normalizeSubscriptionOptions(options);
+    if (options.includeCurrentFinished !== undefined && typeof options.includeCurrentFinished !== 'boolean') {
+      throw new TypeError('includeCurrentFinished must be a boolean');
+    }
     if (options.signal?.aborted) return () => {};
     const notify = observation => {
       try { handleListenerResult(listener(deepFreeze(observation)), error => this.#reportIssue(error, {
@@ -402,6 +414,13 @@ export class W3BoosterClient {
           state,
           observedAt: new Date().toISOString(),
           phase: 'started',
+          initial: true
+        });
+        else if (options.includeCurrentFinished && state.match.status === 'finished') notify({
+          match: state.match,
+          state,
+          observedAt: new Date().toISOString(),
+          phase: 'ended',
           initial: true
         });
         return;
@@ -644,15 +663,25 @@ export class W3BoosterClient {
     const nextError = status === 'connecting' || status === 'connected'
       ? null
       : (arguments.length > 1 ? error : this.#lifecycle.get().error);
-    if (this.#runtime._status === status && !freshnessChanged && this.#lifecycle.get().error === nextError) return;
+    const nextRetry = status === 'connected' || status === 'closed' || status === 'error'
+      ? null
+      : this.#lifecycle.get().retry;
+    if (this.#runtime._status === status && !freshnessChanged &&
+        this.#lifecycle.get().error === nextError && this.#lifecycle.get().retry === nextRetry) return;
     this.#runtime._status = status;
     this.#lifecycle.update({
       status,
       state: this.#state.get(),
       isSynchronized: this.#state.isSynchronized,
-      error: nextError
+      error: nextError,
+      retry: nextRetry
     });
     this.#emit('status', status);
+  }
+
+  #setRetry(retry) {
+    if (this.#lifecycle.get().retry === retry) return;
+    this.#lifecycle.update({ retry });
   }
 }
 
@@ -850,17 +879,24 @@ function publicApplicationState(state) {
   if (!overlay) return state;
   const legacyRuntime = overlay.misc ?? {};
   const modernRuntime = overlay.runtime ?? {};
-  const publicRuntime = { ...legacyRuntime, ...modernRuntime };
-  const wins = Number(publicRuntime.matchscoreWins);
-  const losses = Number(publicRuntime.matchscoreLosses);
-  delete publicRuntime.localServerUrls;
-  delete publicRuntime.matchscoreWins;
-  delete publicRuntime.matchscoreLosses;
-  if (modernRuntime.matchScore === undefined && (Number.isFinite(wins) || Number.isFinite(losses))) {
+  const runtimeValue = key => modernRuntime[key] === undefined ? legacyRuntime[key] : modernRuntime[key];
+  const publicRuntime = {};
+  for (const key of ['chatbarOpen', 'hudScale', 'teamColors']) {
+    const value = runtimeValue(key);
+    if (value !== undefined) publicRuntime[key] = value;
+  }
+  const matchScore = runtimeValue('matchScore');
+  if (matchScore !== undefined) {
+    publicRuntime.matchScore = matchScore;
+  } else {
+    const wins = Number(runtimeValue('matchscoreWins'));
+    const losses = Number(runtimeValue('matchscoreLosses'));
+    if (Number.isFinite(wins) || Number.isFinite(losses)) {
     publicRuntime.matchScore = Object.freeze({
       wins: Number.isFinite(wins) ? wins : 0,
       losses: Number.isFinite(losses) ? losses : 0
     });
+    }
   }
   const publicOverlay = { ...overlay, runtime: publicRuntime };
   delete publicOverlay.misc;

@@ -121,16 +121,10 @@ export function createSelectorStore(source, selector, options = {}) {
       listeners.add(listener);
       let notifiedDuringStart = false;
       let startedSource = false;
-      try {
-        if (!unsubscribeSource) {
-          startedSource = true;
-          notifiedDuringStart = start();
-        }
-      } catch (error) {
-        listeners.delete(listener);
-        throw error;
-      }
+      let unsubscribed = false;
       const unsubscribe = () => {
+        if (unsubscribed) return;
+        unsubscribed = true;
         listeners.delete(listener);
         subscriptionOptions.signal?.removeEventListener('abort', unsubscribe);
         if (listeners.size > 0 || !unsubscribeSource) return;
@@ -138,8 +132,24 @@ export function createSelectorStore(source, selector, options = {}) {
         unsubscribeSource = null;
       };
       subscriptionOptions.signal?.addEventListener('abort', unsubscribe, { once: true });
+      try {
+        if (!unsubscribeSource) {
+          startedSource = true;
+          notifiedDuringStart = start();
+        }
+      } catch (error) {
+        unsubscribe();
+        throw error;
+      }
+      // A synchronous source update may let this listener abort before
+      // source.subscribe() has returned its teardown function.
+      if (unsubscribed && listeners.size === 0 && unsubscribeSource) {
+        unsubscribeSource();
+        unsubscribeSource = null;
+      }
       // A lazy store may have missed same-identity freshness publications
       // while idle. Re-derive once whenever its source subscription restarts.
+      if (unsubscribed) return unsubscribe;
       read(startedSource);
       if (!notifiedDuringStart) notify(listener);
       return unsubscribe;

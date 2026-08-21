@@ -106,6 +106,37 @@ test('selector stores deliver a synchronous subscription update exactly once', (
   assert.equal(store.get(), 'connected');
 });
 
+test('selector stores honor aborts triggered by a synchronous startup update', () => {
+  let value = 0;
+  const sourceListeners = new Set();
+  const source = {
+    get: () => value,
+    subscribe(listener) {
+      sourceListeners.add(listener);
+      listener(value);
+      value = 1;
+      listener(value);
+      return () => sourceListeners.delete(listener);
+    },
+    set(next) {
+      value = next;
+      for (const listener of sourceListeners) listener(value);
+    }
+  };
+  const lifetime = new AbortController();
+  const values = [];
+  const store = createSelectorStore(source, snapshot => snapshot);
+
+  store.subscribe(snapshot => {
+    values.push(snapshot);
+    lifetime.abort();
+  }, { signal: lifetime.signal });
+  source.set(2);
+
+  assert.deepEqual(values, [1]);
+  assert.equal(sourceListeners.size, 0);
+});
+
 test('selector stores rederive when source metadata changes without replacing the snapshot', () => {
   const snapshot = Object.freeze({ matchId: 'same-match' });
   let synchronized = false;

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { defineApplication } from '../src/app.js';
+import { ConnectionError } from '../src/index.js';
 import { createSelectorStore } from '../src/store.js';
 import { createDemoState } from '../src/testing.js';
 
@@ -110,6 +111,31 @@ test('managed application runtimes publish client, resolved settings, host state
   assert.equal(runtime.lifecycle.get().status, 'closed');
   assert.equal(runtime.lifecycle.get().state, null);
   await assert.rejects(runtime.start(), /has been stopped/);
+  assert.throws(() => runtime.lifecycle.subscribe(() => {}), /has been stopped/);
+});
+
+test('managed application runtimes publish initial retry progress', async () => {
+  let attempts = 0;
+  const app = defineApplication(definition);
+  const runtime = app.createRuntime({
+    retry: { maxAttempts: 2, initialDelay: 0, maxDelay: 0 },
+    transport: {
+      name: 'runtime-retry-test',
+      open() {
+        attempts += 1;
+        if (attempts === 1) throw new ConnectionError('offline');
+      },
+      close() {}
+    }
+  });
+  const snapshots = [];
+  runtime.lifecycle.subscribe(snapshot => snapshots.push(snapshot));
+
+  await runtime.start({ until: 'connected' });
+
+  assert.equal(snapshots.some(snapshot => snapshot.retry?.attempt === 2 && snapshot.retry.nextDelay === 0), true);
+  assert.equal(runtime.lifecycle.get().retry, null);
+  await runtime.stop();
 });
 
 test('managed runtime teardown never publishes a half-updated client and host aggregate', async () => {
@@ -214,6 +240,59 @@ test('managed application runtime keeps concurrent startup milestones independen
   });
   await synchronized;
   assert.equal(runtime.lifecycle.get().isSynchronized, true);
+  await runtime.stop();
+});
+
+test('managed application runtime timeout bounds transport opening without cancelling shared startup', async () => {
+  let releaseOpen;
+  const app = defineApplication(definition);
+  const runtime = app.createRuntime({
+    transport: {
+      name: 'delayed-open',
+      open(context) {
+        return new Promise(resolve => {
+          releaseOpen = () => {
+            context.onStatus('connected');
+            resolve();
+          };
+        });
+      },
+      close() {}
+    }
+  });
+  const bounded = runtime.start({ until: 'connected', timeout: 5 });
+  const shared = runtime.start({ until: 'connected' });
+
+  await assert.rejects(bounded, error => error?.code === 'STARTUP_TIMEOUT');
+  assert.equal(runtime.lifecycle.get().status, 'connecting');
+  releaseOpen();
+  assert.equal(await shared, runtime.client);
+  assert.equal(runtime.lifecycle.get().status, 'connected');
+  await runtime.stop();
+});
+
+test('managed application runtime timeout includes initial retry backoff', async () => {
+  let attempts = 0;
+  const app = defineApplication(definition);
+  const runtime = app.createRuntime({
+    retry: { maxAttempts: 2, initialDelay: 25, maxDelay: 25 },
+    transport: {
+      name: 'delayed-retry',
+      open(context) {
+        attempts += 1;
+        if (attempts === 1) throw new ConnectionError('temporarily unavailable');
+        context.onStatus('connected');
+      },
+      close() {}
+    }
+  });
+  const bounded = runtime.start({ until: 'connected', timeout: 5 });
+  const shared = runtime.start({ until: 'connected' });
+
+  await assert.rejects(bounded, error => error?.code === 'STARTUP_TIMEOUT');
+  assert.equal(runtime.lifecycle.get().retry?.attempt, 2);
+  assert.equal(await shared, runtime.client);
+  assert.equal(attempts, 2);
   await runtime.stop();
 });
 

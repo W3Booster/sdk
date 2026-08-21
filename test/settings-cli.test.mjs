@@ -56,6 +56,24 @@ test('settings CLI accepts the documented CI endpoint environment variable', asy
   }
 });
 
+test('settings CLI infers a parseable plain ESM binding from a JavaScript output extension', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'w3booster-settings-js-'));
+  const outputPath = join(directory, 'generated.js');
+  const server = definitionServer();
+  try {
+    const endpoint = await listen(server);
+    await run(process.execPath, [cli, 'app_cli', '--endpoint', endpoint, '--output', outputPath]);
+    const generated = await readFile(outputPath, 'utf8');
+    assert.match(generated, /export const w3boosterApp = defineApplication/);
+    assert.doesNotMatch(generated, /import type|interface W3BoosterApp| as const/);
+    await run(process.execPath, ['--check', outputPath]);
+    await run(process.execPath, [cli, '--endpoint', endpoint, '--output', outputPath, '--check']);
+  } finally {
+    await close(server);
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('settings CLI init persists its endpoint without mutating project lifecycle scripts by default', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'w3booster-settings-init-'));
   const server = definitionServer();

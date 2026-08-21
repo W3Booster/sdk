@@ -1,6 +1,6 @@
 {
   "name": "@w3booster/sdk",
-  "version": "2.0.0",
+  "version": "1.0.2",
   "description": "One SDK for realtime W3Booster match data in overlays and web apps.",
   "type": "module",
   "main": "./src/index.js",
@@ -76,7 +76,7 @@
   "scripts": {
     "build:api": "node scripts/generate-api-facades.mjs && tsc -p tsconfig.build.json && node scripts/publish-generated-api.mjs",
     "check:api": "node scripts/generate-api-facades.mjs --check && tsc -p tsconfig.build.json && node scripts/publish-generated-api.mjs --check",
-    "check:runtime": "tsc -p tsconfig.runtime.json",
+    "check:runtime": "tsc -p tsconfig.runtime.json && node scripts/check-direct-runtime-contracts.mjs",
     "test": "node --test",
     "test:browser": "node scripts/browser-smoke.mjs",
     "test:compat": "eslint \"src/**/*.js\"",

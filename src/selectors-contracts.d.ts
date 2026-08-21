@@ -11,15 +11,16 @@ export function broadcasterPlayer<TPlayer extends Pick<Player, 'id'>>(
 export function headToHeadPair<TPlayer>(
   players: readonly TPlayer[]
 ): readonly [TPlayer, TPlayer] | null;
-export interface PlayerTeam<TPlayer extends Pick<Player, 'team'> = Player> {
+export interface TeamAssignable { readonly team?: number | null }
+export interface PlayerTeam<TPlayer extends TeamAssignable = Player> {
   readonly teamId: number | null;
   readonly players: readonly TPlayer[];
 }
 export type PlayerRelationship = 'self' | 'ally' | 'opponent' | 'unknown';
-export function groupPlayersByTeam<TPlayer extends Pick<Player, 'team'>>(
+export function groupPlayersByTeam<TPlayer extends TeamAssignable>(
   players: readonly TPlayer[]
 ): readonly PlayerTeam<TPlayer>[];
-export function broadcasterFirstTeams<TPlayer extends Pick<Player, 'id' | 'team'>>(
+export function broadcasterFirstTeams<TPlayer extends TeamAssignable & Pick<Player, 'id'>>(
   players: readonly TPlayer[],
   match: Pick<Match, 'broadcasterPlayerId'> | null | undefined,
   options?: { readonly reverse?: boolean }
