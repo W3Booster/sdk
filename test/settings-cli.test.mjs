@@ -62,6 +62,7 @@ test('settings CLI infers a parseable plain ESM binding from a JavaScript output
   const server = definitionServer();
   try {
     const endpoint = await listen(server);
+    await writeFile(join(directory, 'package.json'), JSON.stringify({ type: 'module' }));
     await run(process.execPath, [cli, 'app_cli', '--endpoint', endpoint, '--output', outputPath]);
     const generated = await readFile(outputPath, 'utf8');
     assert.match(generated, /export const w3boosterApp = defineApplication/);
