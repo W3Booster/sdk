@@ -4,16 +4,16 @@ Browser SDK for realtime W3Booster match data in applications and overlays. It h
 
 ## Quick start
 
-New project? Start with the [runnable TypeScript starter](https://github.com/W3Booster/app-examples) and [first-app tutorial](https://website.w3booster.com/developer/first-app/). It renders a dashboard immediately with demo data; no registered app or Warcraft III installation is needed.
+New project? Start with the [runnable TypeScript starter](https://github.com/W3Booster/app-starter) and [first-app tutorial](https://website.w3booster.com/developer/first-app/). It renders a dashboard immediately with demo data; no registered app or Warcraft III installation is needed.
 
 ```sh
-npx --yes --package=github:W3Booster/app-examples w3booster-create my-app
+npx --yes --package=github:W3Booster/app-starter w3booster-create my-app
 cd my-app
-npm install
+npm ci
 npm run dev
 ```
 
-Open `http://localhost:5173/`. The starter includes a transparent overlay, resources, settings, compact windows, and demo scenarios for missing data and no active match. Its source shows complete rendering and cleanup rather than placeholder functions.
+Open `http://localhost:5173/`. The minimal starter contains one dashboard, complete lifecycle cleanup, and demo scenarios for missing data and no active match. [Independent example apps](https://website.w3booster.com/developer/examples/) cover resources, transparent overlays, and SDK-synced settings. For a complete Angular starting point, [fork Match Vision](https://website.w3booster.com/developer/match-vision/).
 
 **Adding the SDK to an existing app:** create a private application in W3Booster, copy its public client ID, then run these commands from your project directory:
 
