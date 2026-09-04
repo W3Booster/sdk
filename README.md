@@ -4,9 +4,22 @@ Browser SDK for realtime W3Booster match data in applications and overlays. It h
 
 ## Quick start
 
+New project? Start with the [runnable TypeScript starter](https://github.com/W3Booster/app-examples) and [first-app tutorial](https://website.w3booster.com/developer/first-app/). It renders a dashboard immediately with demo data; no registered app or Warcraft III installation is needed.
+
+```sh
+npx --yes --package=github:W3Booster/app-examples w3booster-create my-app
+cd my-app
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173/`. The starter includes a transparent overlay, resources, settings, compact windows, and demo scenarios for missing data and no active match. Its source shows complete rendering and cleanup rather than placeholder functions.
+
+**Adding the SDK to an existing app:** create a private application in W3Booster, copy its public client ID, then run these commands from your project directory:
+
 ```sh
 npm install @w3booster/sdk
-npx w3booster-settings init app_your_id
+npx w3booster-settings init app_your_id --endpoint https://api.w3booster.com
 ```
 
 ```ts
@@ -45,6 +58,8 @@ const client = await startClient<Settings>({
 Set `interval: 0` for a static deterministic fixture, or pass `state` to replace the complete demo state.
 
 For real data during development, run the app on localhost and use **Apps → Developer → My apps → Test locally**. The temporary session supplies real credentials and replaces only your app surfaces. Application code remains unchanged.
+
+See the [guides](https://website.w3booster.com/developer/guides/), [searchable API reference](https://website.w3booster.com/developer/api/), and [troubleshooting guide](https://website.w3booster.com/developer/troubleshooting/). Documentation is hosted at `website.w3booster.com` during prerelease.
 
 W3Booster reserves the URL fragment for its short-lived launch credential; opening a client consumes it and cleans the visible address. Use normal History API paths or query parameters for application routing instead of hash routing.
 
@@ -474,7 +489,7 @@ npm install @w3booster/sdk
 Bind the project once with the client ID shown in the Application tab:
 
 ```sh
-npx w3booster-settings init app_your_id
+npx w3booster-settings init app_your_id --endpoint https://api.w3booster.com
 ```
 
 This creates `src/w3booster.generated.ts`, stores the public app binding in `package.json`, and adds explicit `w3booster:sync` and `w3booster:check` scripts. This keeps ordinary installs, starts, and builds deterministic and offline-friendly. Pass `--install-hooks` only when a project deliberately wants synchronization after dependency installation and before its existing `dev`, `start`, and `build` scripts. Existing lifecycle commands are preserved and run after synchronization. Installed hooks invoke `w3booster-settings` directly from the lifecycle `PATH`, so they do not assume npm, pnpm, Yarn, or Bun.
@@ -482,7 +497,7 @@ This creates `src/w3booster.generated.ts`, stores the public app binding in `pac
 Plain-JavaScript applications use the same canonical binding by selecting a JavaScript output:
 
 ```sh
-npx w3booster-settings init app_your_id --output src/w3booster.generated.js
+npx w3booster-settings init app_your_id --endpoint https://api.w3booster.com --output src/w3booster.generated.js
 ```
 
 `.js`, `.mjs`, and `.jsx` outputs contain parseable plain ESM with no TypeScript-only syntax. TypeScript remains the default because it also generates exact settings aliases.

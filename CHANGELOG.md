@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Added a runnable public starter and first-app/tutorial/reference links on the prerelease documentation host.
+- Bound settings-definition fetches to ten seconds and added actionable connection errors and initialization next steps.
+- Aligned the settings CLI's default definition endpoint with the runtime's `api.w3booster.com` API origin.
+
 ## 1.0.2 - 2026-08-21
 
 - Made each managed-runtime startup timeout cover transport opening, retry backoff, and readiness without cancelling shared startup, and report `STARTUP_TIMEOUT` instead of the readiness-only `STATE_TIMEOUT` code.
