@@ -5,7 +5,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
 const run = promisify(execFile);
@@ -15,6 +15,22 @@ const definition = {
   clientId: 'app_cli', revision: 'revision-cli', scopes: ['match:read'],
   settingsSchema: { version: 1, sections: [] }
 };
+
+test('settings CLI defaults to the same API origin as the browser runtime', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'w3booster-settings-default-'));
+  try {
+    await run(process.execPath, ['--input-type=module', '--eval', `
+      globalThis.fetch = async url => {
+        if (url !== 'https://api.w3booster.com/stream/v1/app-definitions/app_cli') throw new Error('Wrong default endpoint: ' + url);
+        return { ok: true, json: async () => (${JSON.stringify(definition)}) };
+      };
+      delete process.env.W3BOOSTER_SETTINGS_URL;
+      process.argv = ['node', ${JSON.stringify(cli)}, 'app_cli', '--output', ${JSON.stringify(join(directory, 'generated.ts'))}];
+      await import(${JSON.stringify(pathToFileURL(cli).href)});
+    `], { cwd: directory });
+    assert.match(await readFile(join(directory, 'generated.ts'), 'utf8'), /w3boosterApp/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
 
 test('settings CLI fetches a public definition and later infers identity from its generated file', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'w3booster-settings-'));
@@ -144,7 +160,7 @@ test('ordinary development uses a checked-in binding while offline but strict ch
     assert.match(fallback.stderr, /Using the checked-in binding/);
     await assert.rejects(
       run(process.execPath, ['bin/sync-settings.js', '--endpoint', endpoint, '--output', outputPath, '--check']),
-      /fetch failed|Unable to fetch/
+      /Could not reach the app definition endpoint/
     );
   } finally {
     await close(server);

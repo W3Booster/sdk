@@ -2,6 +2,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, extname, resolve } from 'node:path';
 import { generateSettingsBinding } from '../src/settings.js';
+import { DEFAULT_CLOUD_API } from '../src/internal/network.js';
 
 const values = process.argv.slice(2);
 const defaultOutput = 'src/w3booster.generated.ts';
@@ -82,6 +83,8 @@ async function initializeProject(arguments_) {
       ? 'Bound this project and enabled automatic W3Booster settings synchronization.'
       : 'Bound this project and added W3Booster settings sync/check scripts.');
   }
+  console.log(`Next: import w3boosterApp from ${output}; call createRuntime(), subscribe to lifecycle, then await runtime.start().`);
+  console.log('Launch real data through W3Booster → Apps → Developer → Test locally. Guide: https://website.w3booster.com/developer/first-app/');
 
   function addLifecycleScript(name) {
     // Package lifecycle scripts already receive node_modules/.bin on PATH, so
@@ -204,9 +207,17 @@ function generatedMetadata(source) {
 }
 
 async function fetchDefinition(clientId, endpoint) {
-  const baseUrl = String(endpoint || 'https://app.w3booster.com').replace(/\/$/, '');
+  const baseUrl = String(endpoint || DEFAULT_CLOUD_API).replace(/\/$/, '');
   const headers = { accept: 'application/json' };
-  const response = await fetch(`${baseUrl}/stream/v1/app-definitions/${encodeURIComponent(clientId)}`, { headers });
+  let response;
+  try {
+    response = await fetch(`${baseUrl}/stream/v1/app-definitions/${encodeURIComponent(clientId)}`, {
+      headers, signal: AbortSignal.timeout(10000)
+    });
+  } catch (error) {
+    if (error?.name === 'TimeoutError') throw new Error('Fetching the app definition timed out after 10 seconds. Check the platform address and connection, then retry.');
+    throw new Error('Could not reach the app definition endpoint. Check your connection and --endpoint configuration.', { cause: error });
+  }
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
     throw new Error(payload.error || `Unable to fetch application settings (${response.status}).`);

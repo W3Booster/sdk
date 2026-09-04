@@ -1,6 +1,6 @@
 {
   "name": "@w3booster/sdk",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "One SDK for realtime W3Booster match data in overlays and web apps.",
   "type": "module",
   "main": "./src/index.js",
@@ -100,7 +100,7 @@
     "type": "git",
     "url": "git+https://github.com/W3Booster/sdk.git"
   },
-  "homepage": "https://w3booster.com/developer/",
+  "homepage": "https://website.w3booster.com/developer/",
   "bugs": {
     "url": "https://github.com/W3Booster/sdk/issues"
   },
