@@ -70,11 +70,13 @@ jobs:
             app/package-lock.json
       - run: npm ci
         working-directory: sdk
-      - run: npm ci
-        working-directory: app
       - run: mkdir -p ../app/.sdk-pack && npm pack --pack-destination ../app/.sdk-pack
         working-directory: sdk
-      - run: npm install --no-save --package-lock=false ./.sdk-pack/*.tgz
+      # Resolve the packed dependency before installing the consumer tree. Replacing
+      # it after npm ci triggers npm's edgesOut failure with the Angular peer graph.
+      - run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund ./.sdk-pack/*.tgz
+        working-directory: app
+      - run: npm ci
         working-directory: app
       - run: npm run check
         working-directory: app

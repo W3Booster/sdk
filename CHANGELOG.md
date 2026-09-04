@@ -5,6 +5,7 @@
 - Added a runnable public starter and first-app/tutorial/reference links on the prerelease documentation host.
 - Bound settings-definition fetches to ten seconds and added actionable connection errors and initialization next steps.
 - Aligned the settings CLI's default definition endpoint with the runtime's `api.w3booster.com` API origin.
+- Resolve the packed SDK dependency before installing the Match Vision CI consumer to avoid npm's dependency-tree replacement failure.
 
 ## 1.0.2 - 2026-08-21
 
