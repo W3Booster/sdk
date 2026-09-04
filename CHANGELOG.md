@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.3 - 2026-09-04
 
 - Added a runnable public starter and first-app/tutorial/reference links on the prerelease documentation host.
 - Bound settings-definition fetches to ten seconds and added actionable connection errors and initialization next steps.
