@@ -213,7 +213,7 @@ actual granted live-data scopes, not an overlay permission.
 Match Vision's wins/losses counter lives in `state.application.data.matchScore`.
 The API delivers it only to Match Vision, regardless of scopes. It is separate
 from `state.application.settings` and is not a score reported by Warcraft.
-The old score alias is retained only for released Match Vision versions;
+There is no score alias in the current platform snapshot;
 third-party apps cannot obtain that counter by requesting `overlay:read`.
 
 Observer resources require only `match:read`, `players:read`, and `resources:read`.
