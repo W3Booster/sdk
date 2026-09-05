@@ -63,10 +63,10 @@ test('the packed package resolves every public entry point for TypeScript consum
       include: ['consumer.ts']
     }, null, 2));
     await writeFile(join(consumerDirectory, 'consumer.ts'), `
-import { connect, openClient, startClient, type MatchState } from '@w3booster/sdk';
+import { openClient, startClient, type MatchState } from '@w3booster/sdk';
 import { broadcasterPlayer } from '@w3booster/sdk/selectors';
 import { heroExperienceState } from '@w3booster/sdk/standard-game';
-import { iconUrl } from '@w3booster/sdk/standard-game/objects';
+import { iconUrl } from '@w3booster/sdk/standard-game/icons';
 import { heroIconUrl } from '@w3booster/sdk/standard-game/icons';
 import { getAbilityCooldown } from '@w3booster/sdk/standard-game/cooldowns';
 import { countryFlagUrl } from '@w3booster/sdk/assets';
@@ -90,7 +90,7 @@ const options: TestingConnectOptions<Settings> = {
   clientId: 'package_consumer',
   transport: createDemoTransport<Settings>()
 };
-const clientPromise = connect(options);
+const clientPromise = openClient(options);
 const externalStore = createReactStore({ get: () => 1, subscribe: listener => { listener(1); return () => undefined; } });
 const selectedStore = createSelectorStore({ get: () => 1, subscribe: listener => { listener(1); return () => undefined; } }, value => String(value));
 const openedClient = openClient(options);
@@ -108,7 +108,7 @@ const app = defineApplication<Settings, readonly ['match:read']>({
   clientId: 'package_consumer', revision: 'package-test', scopes: ['match:read'], settingsDefaults: { layout: 'wide' }
 });
 const generatedSettings: W3BoosterAppSettings = { display: { layout: 'compact' } };
-const generatedClient = w3boosterApp.connect({ demo: { settings: generatedSettings } });
+const generatedClient = w3boosterApp.open({ demo: { settings: generatedSettings } });
 const generatedLifecycleClient = w3boosterApp.createClient({ demo: { settings: generatedSettings } });
 interface OverlayExtensions { broadcast: { label: string } }
 declare const typedGeneratedClient: W3BoosterAppClient<OverlayExtensions>;
@@ -126,7 +126,6 @@ await Promise.all([
   '@w3booster/sdk',
   '@w3booster/sdk/selectors',
   '@w3booster/sdk/standard-game',
-  '@w3booster/sdk/standard-game/objects',
   '@w3booster/sdk/standard-game/icons',
   '@w3booster/sdk/standard-game/cooldowns',
   '@w3booster/sdk/assets',

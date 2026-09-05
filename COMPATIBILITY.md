@@ -1,25 +1,43 @@
-# Compatibility policy
+# Release and compatibility policy
 
-`@w3booster/sdk` uses Semantic Versioning for its public JavaScript and TypeScript API. The published 1.x line is the stable consumer contract. SDK 1.0.2 adds the generated/checkable public API architecture and safer parser-backed host-command results while retaining the deprecated generic typed-command overload for source compatibility. Applications consume published registry artifacts; a local workspace link is never treated as a published release.
+W3Booster v2.0 supports one current application contract. SDK 2.0 uses protocol
+2.0; it does not negotiate the retired protocol 1 or preserve development SDK
+aliases. Publish the SDK and update the platform, generated bindings, and apps as
+a coordinated release. Applications consume registry artifacts; packed SDK HEAD
+is the development verification lane.
 
-Existing methods are deprecated before removal and remain available for at least one documented major-version transition. A breaking change requires an explicit migration path and release note; it is not hidden in a feature or patch release. Additive model fields and events do not require an SDK major release.
+The hydrated state always contains `gameContext.hudScale`; the producer uses 1
+when no measurement exists. Optional `chatbarOpen` and `teamColors` are delivered
+when known. None requires a scope. Scores are application-owned data.
+`overlay:read`, `overlay.runtime`, `overlay.misc`, and `overlay.settings` are
+removed. Recorder discovery travels in private `transport.recorderUrls`; the SDK
+consumes it before stripping the transport branch from public state.
 
-SDK 1.1.0 adds `state.gameContext` and `gameContext(state)` without requiring a scope. The runtime always supplies a valid HUD scale (default `1`); optional chat visibility and team-color mode remain absent until known. The field stays optional in `MatchState` so older protocol fixtures remain valid. `overlay:read`, `overlay.runtime`, and its selectors remain deprecated compatibility surfaces. Match Vision's score moves to its own `application.data.matchScore`; the current server supplies scores only in Match Vision’s application data, without a legacy score alias. Consumers of the published SDK can read the additive fields at runtime, but must keep an explicit local compatibility type until adopting an SDK release that declares them.
+Use `openClient` / `client.open` / `app.open` for transport readiness and
+`startClient` / `client.start` / `app.start` for synchronized startup. The old
+`connect` aliases and unstructured `error` event are removed. Observe `issue` and
+the lifecycle store. Configure origins through `backend` and `backendUrl`.
+Host actions require explicit capability discovery; an unsupported or malformed
+response never enables controls. Typed `host.command` results require `parse`;
+unparsed acknowledgements return `unknown`. Match Vision score commands and
+capabilities are no longer SDK primitives.
 
-The realtime protocol is versioned separately. Protocol `1.x` is additive: existing field meanings do not change, unknown fields and events may be added, and compatible SDKs preserve them at runtime. Unknown fields are deliberately not exposed through catch-all TypeScript index signatures because those signatures hide consumer spelling mistakes. Applications that adopt an overlay extension supply it as the second `MatchState` or `W3BoosterClient` generic; the deeply read-only type propagates through stores, lifecycle snapshots, events, testing transports, and generated-application runtimes. `runtime`, `misc`, and `settings` remain normalization-owned overlay keys and cannot be extension names. A future protocol major must be negotiated during stream-ticket creation; the server never silently selects an unsupported major.
+Use `/standard-game/icons` and `/standard-game/cooldowns` for optional datasets.
+The combined `/standard-game/objects` entry is removed. SDK data can evolve with
+supported Warcraft patches; map-specific custom data is outside that contract.
 
-Application code should import the public model from `@w3booster/sdk`, avoid matching on unknown fields exhaustively, and treat delivered state as immutable. The backend producer and first-party applications compile against the same declarations.
+The prerelease cleanup does not remove migration of pre-v2 production data.
+Database settings, grants, orders, entitlements, and other persisted user data
+must retain explicit, tested migration paths. Seeding, catalog preparation,
+release checks, and immutable hosted artwork/release URLs remain supported.
 
-Settings and overlay-extension generics describe protocol JSON, not arbitrary JavaScript objects. Client creation rejects non-JSON-compatible models at compile time, and ingress validation applies the same boundary at runtime. Overlay extension models must enumerate their public branches; unrestricted string index signatures are rejected because they cannot exclude the SDK-owned `runtime`, `misc`, and `settings` names.
+Future breaking public changes require a documented version transition. Within
+a protocol major, unknown additive fields are preserved. Public TypeScript models
+retain spelling safety; JSON overlay extensions enumerate their branches and
+cannot reuse the retired reserved names `runtime`, `misc`, or `settings`.
+Delivered state is deeply immutable. Error recovery, resynchronization, and the
+supported browser matrix remain part of the current contract.
 
-Pure derived-state conveniences are exposed from `@w3booster/sdk/selectors`. Selectors never mutate delivered state. Additions are backwards compatible; existing selector meanings follow the same deprecation policy as the main entry point.
-
-Static Warcraft III standard-game knowledge is versioned with the SDK. Lightweight rules are exposed from `@w3booster/sdk/standard-game`; icon and cooldown metadata are independently available from `@w3booster/sdk/standard-game/icons` and `@w3booster/sdk/standard-game/cooldowns`. The combined `@w3booster/sdk/standard-game/objects` entry point remains for compatibility. This is additive API, but its values may change in a minor release when W3Booster updates its supported dataset for a Warcraft III patch. Map-specific custom object data is outside those namespaces' contract.
-
-Hosted artwork has its own immutable catalog version in the URL, for example `wc3/standard-game/v1` or `country-flags/v1`. Existing files inside a released catalog are never replaced with different artwork or meaning. A new incompatible catalog uses a new URL version independently of the npm package version. Applications may replace the asset base URL without changing identifiers or catalog paths.
-
-The root `@w3booster/sdk` export provides the runtime foundation with `client.state`, the `StateStore` TypeScript interface, `get()`, and `player()`; generated applications normally enter through their typed `/app` binding. Client construction internals, mutable stores, event emission, host authentication, and transport ownership are runtime-private; consumers receive frozen client facades. Public database settings definitions are consumed by `/settings` tooling and bound to runtime behavior through `/app`; platform compositor infrastructure, framework-neutral derived stores, React adapters, and testing transports use `/compositor`, `/store`, `/react`, and `/testing`. Generated settings bindings negotiate their content revision with the broker so stale bundles fail before state delivery, while protocol envelopes require an explicit negotiated version and public state uses one representation for each field.
-
-The browser runtime floor is Chrome/Chromium 92, Edge 92, Firefox 90, and Safari 15.4. These versions must provide native ESM, `fetch`, `WebSocket`, `AbortController`, and standard URL APIs; the package is shipped as ESM and is not transpiled for older engines. OBS browser sources are supported when their embedded Chromium meets that floor. The SDK avoids requiring `structuredClone` and `URLSearchParams.size` for embedded-browser compatibility. Compatibility linting checks used browser APIs against the declared Browserslist floor, while Playwright smoke tests exercise the application entry point in Chromium, Firefox, and WebKit. CI also verifies the packed package and types in a Node 18 LTS lane and the primary development Node version. Realtime Node consumers must still provide a WebSocket implementation; Node support is primarily for tooling and tests.
-
-The declaration compiler floor is TypeScript 5.0.4. Public declarations use TypeScript 5 syntax such as `export type *` and const type parameters. CI compiles a public consumer fixture with exactly 5.0.4 in addition to the current development compiler; supporting an older compiler would require a separately emitted declaration target rather than silently raising or lowering syntax requirements.
+The SDK remains framework-neutral and supports the browser versions declared in
+`package.json`. Test runtime contracts, declarations, packed consumers, and browser
+execution before publishing. A local link is not evidence of a registry release.

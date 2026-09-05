@@ -22,8 +22,6 @@ export const HostActionError: typeof Contract.HostActionError = runtime.HostActi
 export const W3BoosterClient: typeof Contract.W3BoosterClient = runtime.W3BoosterClient;
 /** Open a W3Booster transport without waiting for hydrated state. */
 export const openClient: typeof Contract.openClient = runtime.openClient;
-/** @deprecated Use openClient() for transport-only startup or startClient() for synchronized state. */
-export const connect: typeof Contract.connect = runtime.connect;
 /** Create a client and wait for the frontend lifecycle milestone requested by startup options. */
 export const startClient: typeof Contract.startClient = runtime.startClient;
 /** Create a client synchronously so lifecycle listeners can be attached before connecting. */

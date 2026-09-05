@@ -45,9 +45,6 @@ export const defineApplication = definition => {
     open(options = {}) {
       return openClient(bindOptions(options, metadata));
     },
-    connect(options = {}) {
-      return application.open(options);
-    },
     createClient(options = {}) {
       return createClient(bindOptions(options, metadata));
     },

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
   classifyW3BoosterError,
-  connect,
+  openClient,
   ConnectionError,
   createClient,
   PermissionRequiredError,
@@ -76,7 +76,7 @@ test('frontend errors have one stable discriminated classification', () => {
 
 test('credentials cannot be sent to an insecure remote backend', async () => {
   const client = createClient({ clientId: 'safe_app', backendUrl: 'http://example.com' });
-  await assert.rejects(client.connect(), /must use HTTPS unless it targets localhost/);
+  await assert.rejects(client.open(), /must use HTTPS unless it targets localhost/);
   assert.equal(client.status, 'error');
 });
 
@@ -201,7 +201,7 @@ test('retry fails promptly when required browser transport APIs are unavailable'
   delete globalThis.WebSocket;
   try {
     const client = createClient({ clientId: 'safe_app', retry: true, signal: new AbortController().signal });
-    await assert.rejects(client.connect(), /must provide fetch and WebSocket/);
+    await assert.rejects(client.open(), /must provide fetch and WebSocket/);
     assert.equal(client.status, 'error');
     await client.disconnect();
   } finally {
@@ -228,7 +228,7 @@ test('permanent broker responses expose configuration errors without retrying', 
     const lifecycle = [];
     client.on('issue', issue => issues.push(issue));
     client.lifecycle.subscribe(snapshot => lifecycle.push(snapshot));
-    await assert.rejects(client.connect(), error => error?.code === 'CONFIGURATION' && error?.status === 404);
+    await assert.rejects(client.open(), error => error?.code === 'CONFIGURATION' && error?.status === 404);
     assert.equal(requests, 1);
     assert.equal(client.lifecycle.get().error?.code, 'CONFIGURATION');
     assert.equal(issues.at(-1)?.source, 'connection');
@@ -284,12 +284,12 @@ test('one failing state listener cannot block other consumers', async () => {
   const reported = [];
   const issues = [];
   const client = createClient({ clientId: 'safe_app', demo: true });
-  client.on('error', error => reported.push(error));
+  client.on('issue', ({ error }) => reported.push(error));
   client.on('issue', issue => issues.push(issue));
   client.state.subscribe(state => { if (state) throw new Error('consumer failed'); });
   let delivered = false;
   client.state.subscribe(() => { delivered = true; });
-  await client.connect();
+  await client.open();
   assert.equal(delivered, true);
   assert.equal(reported[0]?.message, 'consumer failed');
   assert.equal(issues[0]?.source, 'listener');
@@ -301,12 +301,12 @@ test('one failing state listener cannot block other consumers', async () => {
 test('rejected async listeners are forwarded without becoming unhandled rejections', async () => {
   const reported = [];
   const client = createClient({ clientId: 'safe_app', demo: true });
-  client.on('error', error => reported.push(error));
+  client.on('issue', ({ error }) => reported.push(error));
   client.state.subscribe(async state => { if (state) throw new Error('async state listener failed'); });
   client.on('status', async status => {
     if (status === 'connected') throw new Error('async event listener failed');
   });
-  await client.connect();
+  await client.open();
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.deepEqual(reported.map(error => error.message), [
     'async state listener failed',
@@ -325,14 +325,14 @@ test('custom transports cannot inject non-JSON state values', async () => {
           version: PROTOCOL_VERSION,
           sequence: 1,
           type: 'state.snapshot',
-          data: { capabilities: [], match: { id: '', status: 'none', gameTime: 0, mode: 'none' }, players: [], extension: new Date() }
+          data: { capabilities: [], gameContext: { hudScale: 1 }, match: { id: '', status: 'none', gameTime: 0, mode: 'none' }, players: [], extension: new Date() }
         });
       }
     }
   });
   const errors = [];
-  client.on('error', error => errors.push(error));
-  await client.connect();
+  client.on('issue', ({ error }) => errors.push(error));
+  await client.open();
   assert.equal(client.state.get(), null);
   assert.equal(errors[0]?.code, 'INVALID_MESSAGE');
 });
@@ -368,7 +368,7 @@ test('host bridge opens app-owned windows after an authenticated platform connec
     assert.equal(client.host.lifecycle.get().available, false);
     assert.equal(client.host.capabilityStatus, 'unavailable');
     assert.equal(client.host.can('window:open'), false);
-    await client.connect();
+    await client.open();
     assert.equal(client.host.available, true);
     assert.equal(client.host.capabilityStatus, 'pending');
     assert.equal(client.host.lifecycle.get().capabilityStatus, 'pending');
@@ -471,10 +471,9 @@ test('host bridge opens app-owned windows after an authenticated platform connec
     });
     assert.equal(await acknowledge(parsedCommand, { accepted: true }), true);
 
-    await acknowledge(client.host.changeMatchScore('wins', 1));
-    await acknowledge(client.host.resetMatchScore());
+    await acknowledge(client.host.command('example.command', { enabled: true }));
+    await acknowledge(client.host.command('example.reset'));
     await acknowledge(client.host.closeWindow());
-    assert.equal(await acknowledge(client.host.changeMatchScore('losses', -1)), undefined);
     const capabilities = client.host.refreshCapabilities();
     const capabilityMessage = messages.at(-1).message;
     for (const listener of listeners) listener({
@@ -543,7 +542,7 @@ test('host bridge opens app-owned windows after an authenticated platform connec
 
     globalThis.location.hash = '';
     const reloaded = createClient({ clientId: 'test_app', transport: { name: 'reload-test', open() {} } });
-    await reloaded.connect();
+    await reloaded.open();
     assert.equal(reloaded.host.available, true);
     await Promise.resolve();
     const legacyCapabilities = messages.at(-1).message;
@@ -558,12 +557,12 @@ test('host bridge opens app-owned windows after an authenticated platform connec
     });
     await Promise.resolve();
     await Promise.resolve();
-    assert.equal(reloaded.host.capabilityStatus, 'legacy');
-    assert.equal(reloaded.host.can('window:open'), true);
+    assert.equal(reloaded.host.capabilityStatus, 'unavailable');
+    assert.equal(reloaded.host.can('window:open'), false);
     await reloaded.disconnect();
 
     const unavailable = createClient({ clientId: 'test_app', transport: { name: 'unavailable-host-test', open() {} } });
-    await unavailable.connect();
+    await unavailable.open();
     await Promise.resolve();
     const failedCapabilities = messages.at(-1).message;
     for (const listener of listeners) listener({
@@ -583,7 +582,7 @@ test('host bridge opens app-owned windows after an authenticated platform connec
 
     globalThis.document.referrer = 'https://attacker.test/frame';
     const moved = createClient({ clientId: 'test_app', transport: { name: 'moved-test', open() {} } });
-    await moved.connect();
+    await moved.open();
     assert.equal(moved.host.available, false);
     await moved.disconnect();
   } finally {
@@ -600,7 +599,7 @@ test('unrelated parent windows are not reported as the W3Booster host', async ()
   globalThis.location = { search: '', hash: '' };
   try {
     const client = createClient({ clientId: 'test_app', transport: { name: 'test', open() {} } });
-    await client.connect();
+    await client.open();
     assert.equal(client.host.available, false);
     await assert.rejects(client.host.command('review'), error => error?.code === 'HOST_UNAVAILABLE');
     assert.deepEqual(messages, []);
@@ -640,7 +639,7 @@ test('embedded apps report their document height to the W3Booster host', async (
   };
   try {
     const client = createClient({ clientId: 'test_app', transport: { name: 'authenticated-test', open() {} } });
-    await client.connect();
+    await client.open();
     const resize = messages.find(entry => entry.message.type === 'host.resize');
     assert.equal(resize.message.height, 720);
     assert.equal(resize.origin, 'https://app.w3booster.com');
@@ -651,7 +650,7 @@ test('embedded apps report their document height to the W3Booster host', async (
       autoResize: false,
       transport: { name: 'authenticated-test', open() {} }
     });
-    await fixedHeightClient.connect();
+    await fixedHeightClient.open();
     assert.equal(messages.some(entry => entry.message.type === 'host.resize'), false);
     await fixedHeightClient.disconnect();
   } finally {
@@ -684,7 +683,7 @@ test('stopping auto resize cancels deferred DOM setup', async () => {
   };
   try {
     const client = createClient({ clientId: 'test_app', transport: { name: 'authenticated-test', open() {} } });
-    await client.connect();
+    await client.open();
     assert.equal(listeners.size, 1);
     const deferredSetup = [...listeners][0];
     client.host.stopAutoResize();
@@ -700,15 +699,13 @@ test('stopping auto resize cancels deferred DOM setup', async () => {
 });
 
 test('demo transport gives developers hydrated state', async () => {
-  const client = await connect({ clientId: 'test_app', demo: { interval: 10, settings: { layout: 'wide' } } });
+  const client = await openClient({ clientId: 'test_app', demo: { interval: 10, settings: { layout: 'wide' } } });
   assert.equal(client.status, 'connected');
   assert.equal(client.diagnostics.transport, 'demo');
   assert.equal(client.state.get().match.status, 'running');
   assert.equal(client.state.get().application.clientId, 'test_app');
   assert.equal(client.state.get().application.settings.layout, 'wide');
-  assert.equal(client.state.get().overlay.runtime.hudScale, 1);
-  assert.deepEqual(client.state.get().overlay.runtime.matchScore, { wins: 0, losses: 0 });
-  assert.equal(client.state.get().overlay.runtime.matchscoreWins, undefined);
+  assert.equal(client.state.get().gameContext.hudScale, 1);
   assert.ok(client.state.get().capabilities.includes('controlgroups'));
   await new Promise(resolve => setTimeout(resolve, 15));
   assert.ok(client.state.get().match.gameTime >= 1);
@@ -725,13 +722,13 @@ test('demo overlay extensions reject SDK-owned branches at runtime', () => {
 });
 
 test('demo transport safely animates valid custom states without player resources', async () => {
-  const client = await connect({
+  const client = await openClient({
     clientId: 'demo_custom',
     demo: {
       interval: 1,
       state: {
         capabilities: ['match'],
-        match: { id: 'custom', status: 'running', gameTime: 0, mode: 'custom' },
+        gameContext: { hudScale: 1 }, match: { id: 'custom', status: 'running', gameTime: 0, mode: 'custom' },
         players: []
       }
     }
@@ -752,13 +749,13 @@ test('demo transport safely animates valid custom states without player resource
 });
 
 test('a zero demo interval provides a static deterministic frontend fixture', async () => {
-  const client = await connect({ clientId: 'demo_static', demo: { interval: 0 } });
+  const client = await openClient({ clientId: 'demo_static', demo: { interval: 0 } });
   const initial = client.state.get();
   await new Promise(resolve => setTimeout(resolve, 5));
   assert.equal(client.state.get(), initial);
   assert.equal(client.state.get().match.gameTime, 0);
   await client.disconnect();
-  await assert.rejects(connect({ clientId: 'demo_invalid', demo: { interval: -1 } }), /non-negative/);
+  await assert.rejects(openClient({ clientId: 'demo_invalid', demo: { interval: -1 } }), /non-negative/);
 });
 
 test('the simplest client uses configured scopes and exposes the canonical state API', async () => {
@@ -771,13 +768,13 @@ test('the simplest client uses configured scopes and exposes the canonical state
         version: PROTOCOL_VERSION,
         sequence: 1,
         type: 'state.snapshot',
-        data: { match: { id: '', status: 'none', gameTime: 0, mode: 'undefined' }, players: [] }
+        data: {capabilities: [],  gameContext: { hudScale: 1 }, match: { id: '', status: 'none', gameTime: 0, mode: 'undefined' }, players: [] }
       }));
     },
     close() {}
   };
   const client = createClient({ clientId: 'test_app', transport });
-  await client.connect();
+  await client.open();
   const state = await client.whenReady();
   assert.equal(state.match.status, 'none');
   assert.deepEqual(request.scopes, []);
@@ -794,23 +791,18 @@ test('patches are applied inside the SDK', async () => {
   const client = createClient({ clientId: 'test_app', transport });
   let publications = 0;
   client.state.subscribe(() => { publications += 1; });
-  await client.connect();
-  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {
-    match: { gameTime: 4 },
+  await client.open();
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {capabilities: [],
+    gameContext: { hudScale: 1 }, match: {id: '', status: 'none', mode: 'undefined',  gameTime: 4 },
     players: [{ id: '0', name: 'Stable' }],
-    overlay: { settings: { legacy: true }, futureExtension: { layout: 'wide' }, misc: {
-      hudScale: 1, matchscoreWins: 2, matchscoreLosses: 1,
-      localServerUrls: ['ws://127.0.0.1:48123']
-    } },
+    overlay: { futureExtension: { layout: 'wide' } },
+    transport: { recorderUrls: ['ws://127.0.0.1:48123'] },
     extension: { stable: true }
   } });
   const previous = client.state.get();
   assert.equal(previous.overlay.settings, undefined);
   assert.deepEqual(previous.overlay.futureExtension, { layout: 'wide' });
   assert.equal(Object.isFrozen(previous.overlay.futureExtension), true);
-  assert.equal(previous.overlay.runtime.localServerUrls, undefined);
-  assert.deepEqual(previous.overlay.runtime.matchScore, { wins: 2, losses: 1 });
-  assert.equal(previous.overlay.runtime.matchscoreWins, undefined);
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 2, type: 'state.patch', data: [{ op: 'replace', path: '/match/gameTime', value: 5 }] });
   const current = client.state.get();
   assert.equal(current.match.gameTime, 5);
@@ -818,7 +810,7 @@ test('patches are applied inside the SDK', async () => {
   assert.equal(current.players, previous.players);
   assert.equal(current.players[0], previous.players[0]);
   assert.equal(current.overlay, previous.overlay);
-  assert.equal(current.overlay.runtime, previous.overlay.runtime);
+  assert.equal(current.gameContext, previous.gameContext);
   assert.equal(current.extension, previous.extension);
   assert.equal(publications, 3);
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 3, type: 'state.patch', data: [{ op: 'replace', path: '/match/gameTime', value: 5 }] });
@@ -826,73 +818,32 @@ test('patches are applied inside the SDK', async () => {
   assert.equal(publications, 3);
 });
 
-test('public overlay runtime snapshots and demo extensions survive normalization', async () => {
+test('public game context and demo extensions remain immutable', async () => {
   let context;
   const client = createClient({
     clientId: 'test_app',
     transport: { name: 'public-shape', open(value) { context = value; }, close() {} }
   });
   await client.open();
-  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {
-    match: { id: '', status: 'none', gameTime: 0, mode: 'undefined' },
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {capabilities: [],  match: { id: '', status: 'none', gameTime: 0, mode: 'undefined' },
     players: [],
-    overlay: { runtime: { hudScale: 0.75, teamColors: true, matchScore: { wins: 3, losses: 2 } } }
+    gameContext: { hudScale: 0.75, teamColors: true }
   } });
-  assert.deepEqual(client.state.get().overlay.runtime, {
-    hudScale: 0.75, teamColors: true, matchScore: { wins: 3, losses: 2 }
-  });
+  assert.deepEqual(client.state.get().gameContext, { hudScale: 0.75, teamColors: true });
   await client.disconnect();
 
-  const demo = createClient({ clientId: 'test_app', demo: { interval: 0, state: {
-    match: { id: '', status: 'none', gameTime: 0, mode: 'undefined' },
+  const demo = createClient({ clientId: 'test_app', demo: { interval: 0, state: { match: { id: '', status: 'none', gameTime: 0, mode: 'undefined' },
     players: [],
     capabilities: [],
+    gameContext: { hudScale: 0.75 },
     overlay: {
-      runtime: { hudScale: 0.75 },
       tournament: { round: 4 }
     }
   } } });
   await demo.start();
-  assert.equal(demo.state.get().overlay.runtime.hudScale, 0.75);
+  assert.equal(demo.state.get().gameContext.hudScale, 0.75);
   assert.deepEqual(demo.state.get().overlay.tournament, { round: 4 });
   await demo.disconnect();
-});
-
-test('modern overlay runtime values override coexisting legacy platform metadata', async () => {
-  let context;
-  const client = createClient({
-    clientId: 'test_app',
-    transport: { name: 'mixed-overlay-runtime', open(value) { context = value; }, close() {} }
-  });
-  await client.open();
-  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {
-    match: { id: '', status: 'none', gameTime: 0, mode: 'undefined' },
-    players: [],
-    overlay: {
-      misc: {
-        localServerUrls: [],
-        futureControlToken: 'private-platform-value',
-        hudScale: 1,
-        teamColors: false,
-        matchscoreWins: 9,
-        matchscoreLosses: 8
-      },
-      runtime: {
-        futureRuntimeControl: 'private-platform-value',
-        hudScale: 0.75,
-        teamColors: true,
-        matchScore: { wins: 3, losses: 2 }
-      }
-    }
-  } });
-  assert.deepEqual(client.state.get().overlay.runtime, {
-    hudScale: 0.75,
-    teamColors: true,
-    matchScore: { wins: 3, losses: 2 }
-  });
-  assert.equal('futureControlToken' in client.state.get().overlay.runtime, false);
-  assert.equal('futureRuntimeControl' in client.state.get().overlay.runtime, false);
-  await client.disconnect();
 });
 
 test('map names are decoded once at snapshot and patch ingress', async () => {
@@ -901,12 +852,12 @@ test('map names are decoded once at snapshot and patch ingress', async () => {
     clientId: 'test_app',
     transport: { name: 'test', open(value) { context = value; }, close() {} }
   });
-  await client.connect();
+  await client.open();
   context.onMessage({
     version: PROTOCOL_VERSION,
     sequence: 1,
     type: 'state.snapshot',
-    data: { match: { map: 'Echo%2520Isles', gameTime: 1 }, players: [] }
+    data: {capabilities: [],  gameContext: { hudScale: 1 }, match: {id: '', status: 'none', mode: 'undefined',  map: 'Echo%2520Isles', gameTime: 1 }, players: [] }
   });
   assert.equal(client.state.get().match.map, 'Echo%20Isles');
 
@@ -935,13 +886,13 @@ test('replace patches require an existing object property', async () => {
     clientId: 'test_app',
     transport: { name: 'test', async open(value) { context = value; }, resync() {} }
   });
-  client.on('error', error => errors.push(error));
-  await client.connect();
+  client.on('issue', ({ error }) => errors.push(error));
+  await client.open();
   context.onMessage({
     version: PROTOCOL_VERSION,
     sequence: 1,
     type: 'state.snapshot',
-    data: { match: { gameTime: 4 }, players: [] }
+    data: {capabilities: [],  gameContext: { hudScale: 1 }, match: {id: '', status: 'none', mode: 'undefined',  gameTime: 4 }, players: [] }
   });
   context.onMessage({
     version: PROTOCOL_VERSION,
@@ -958,7 +909,7 @@ test('hydrated changes emit useful player, hero, inventory, and match events', a
   let context;
   const transport = { name: 'test', async open(value) { context = value; } };
   const client = createClient({ clientId: 'test_app', transport });
-  await client.connect();
+  await client.open();
   const events = [];
   client.on('player.resources.changed', event => events.push(['resources', event]));
   client.on('hero.changed', event => events.push(['hero', event]));
@@ -967,7 +918,7 @@ test('hydrated changes emit useful player, hero, inventory, and match events', a
 
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {
     capabilities: ['match', 'players', 'heroes', 'resources'],
-    match: { id: 'one', status: 'running', gameTime: 10, mode: '1v1' },
+    gameContext: { hudScale: 1 }, match: { id: 'one', status: 'running', gameTime: 10, mode: '1v1' },
     players: [{ id: '0', name: 'Player', resources: { gold: 100, lumber: 0, supply: 0, supplyCap: 0 }, heroes: [{ id: 'Hamg', name: 'Archmage', level: 1, inventory: ['ratf'] }] }]
   } });
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 2, type: 'state.patch', data: [
@@ -1000,9 +951,9 @@ test('event payloads are immutable and cannot be changed for later listeners', a
     assert.throws(() => event.changedFields.push('injected'), TypeError);
   });
   client.on('match.changed', event => observed.push([...event.changedFields]));
-  await client.connect();
-  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {
-    match: { id: 'one', status: 'running', gameTime: 1, mode: '1v1' }, players: []
+  await client.open();
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {capabilities: [],
+    gameContext: { hudScale: 1 }, match: { id: 'one', status: 'running', gameTime: 1, mode: '1v1' }, players: []
   } });
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 2, type: 'state.patch', data: [
     { op: 'replace', path: '/match/gameTime', value: 2 }
@@ -1029,7 +980,7 @@ test('unknown protocol events require an explicit unknown-event subscription', a
   client.onUnknown('status', sharedListener);
   client.onUnknown('extension.notice', data => extensionEvents.push(data));
   client.onUnknown('status', data => extensionEvents.push(data));
-  await client.connect();
+  await client.open();
   wildcardEvents.length = 0;
   statuses.length = 0;
   sharedEvents.length = 0;
@@ -1063,13 +1014,13 @@ test('the initial snapshot establishes a baseline before domain transition event
   client.on('match.started', event => events.push(`started:${event.match.id}`));
   client.on('match.ended', event => events.push(`ended:${event.match.id}`));
   client.subscribeMatchLifecycle(event => observations.push(event));
-  await client.connect();
+  await client.open();
 
   context.onMessage({
     version: PROTOCOL_VERSION,
     sequence: 1,
     type: 'state.snapshot',
-    data: { match: { id: 'existing', status: 'running', gameTime: 10, mode: '1v1' }, players: [] }
+    data: {capabilities: [],  gameContext: { hudScale: 1 }, match: { id: 'existing', status: 'running', gameTime: 10, mode: '1v1' }, players: [] }
   });
   assert.deepEqual(events, ['ready']);
   assert.equal(observations.length, 1);
@@ -1081,7 +1032,7 @@ test('the initial snapshot establishes a baseline before domain transition event
     version: PROTOCOL_VERSION,
     sequence: 2,
     type: 'state.snapshot',
-    data: { match: { id: 'next', status: 'running', gameTime: 0, mode: '1v1' }, players: [] }
+    data: {capabilities: [],  gameContext: { hudScale: 1 }, match: { id: 'next', status: 'running', gameTime: 0, mode: '1v1' }, players: [] }
   });
   assert.deepEqual(observations.slice(1).map(event => [event.phase, event.initial, event.match.id]), [
     ['ended', false, 'existing'], ['started', false, 'next']
@@ -1092,8 +1043,8 @@ test('the initial snapshot establishes a baseline before domain transition event
     version: PROTOCOL_VERSION,
     sequence: 3,
     type: 'state.snapshot',
-    data: {
-      match: {
+    data: {capabilities: [],
+      gameContext: { hudScale: 1 }, match: {
         id: 'next', status: 'finished', gameTime: 60, mode: '1v1',
         endedAt: '2026-08-19T00:31:00.000Z'
       },
@@ -1116,14 +1067,14 @@ test('match lifecycle can opt into the current finished match without changing i
   const terminalObservations = [];
   client.subscribeMatchLifecycle(event => defaultObservations.push(event));
   client.subscribeMatchLifecycle(event => terminalObservations.push(event), { includeCurrentFinished: true });
-  await client.connect();
+  await client.open();
 
   context.onMessage({
     version: PROTOCOL_VERSION,
     sequence: 1,
     type: 'state.snapshot',
-    data: {
-      match: {
+    data: {capabilities: [],
+      gameContext: { hudScale: 1 }, match: {
         id: 'completed-before-hydration', status: 'finished', gameTime: 60, mode: '1v1',
         endedAt: '2026-08-19T00:31:00.000Z'
       },
@@ -1157,13 +1108,13 @@ test('match lifecycle subscriptions created during a state transition report it 
       unsubscribeLifecycle = client.subscribeMatchLifecycle(event => observations.push(event));
     }
   });
-  await client.connect();
+  await client.open();
 
   context.onMessage({
     version: PROTOCOL_VERSION,
     sequence: 1,
     type: 'state.snapshot',
-    data: { match: { id: 'reentrant', status: 'running', gameTime: 0, mode: '1v1' }, players: [] }
+    data: {capabilities: [],  gameContext: { hudScale: 1 }, match: { id: 'reentrant', status: 'running', gameTime: 0, mode: '1v1' }, players: [] }
   });
 
   assert.deepEqual(observations.map(event => [event.phase, event.initial, event.match.id]), [
@@ -1177,9 +1128,9 @@ test('watch publishes unavailable state and only runs when its selected value ch
   const storeChanges = [];
   let context;
   const client = createClient({ clientId: 'test_app', transport: { name: 'test', async open(value) { context = value; } } });
-  await client.connect();
+  await client.open();
   client.state.watch(state => state?.match.map ?? null, (map, previous) => storeChanges.push([map, previous]));
-  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: { match: { map: 'A', gameTime: 1 }, players: [] } });
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {capabilities: [],  gameContext: { hudScale: 1 }, match: {id: '', status: 'none', mode: 'undefined',  map: 'A', gameTime: 1 }, players: [] } });
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 2, type: 'state.patch', data: [{ op: 'replace', path: '/match/gameTime', value: 2 }] });
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 3, type: 'state.patch', data: [{ op: 'replace', path: '/match/map', value: 'B' }] });
   await client.disconnect();
@@ -1190,15 +1141,15 @@ test('watch supports an explicit structural comparator', async () => {
   const storeChanges = [];
   let context;
   const client = createClient({ clientId: 'test_app', transport: { name: 'test', async open(value) { context = value; } } });
-  await client.connect();
+  await client.open();
   client.state.watch(state => state?.application?.settings, settings => storeChanges.push(settings), {
     equals: (left, right) => left?.first === right?.first && left?.second === right?.second
   });
-  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {
-    match: { gameTime: 1 }, players: [], application: { clientId: 'test_app', settings: { first: 1, second: 2 } }
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {capabilities: [],
+    gameContext: { hudScale: 1 }, match: {id: '', status: 'none', mode: 'undefined',  gameTime: 1 }, players: [], application: { clientId: 'test_app', settings: { first: 1, second: 2 } }
   } });
-  context.onMessage({ version: PROTOCOL_VERSION, sequence: 2, type: 'state.snapshot', data: {
-    match: { gameTime: 1 }, players: [], application: { clientId: 'test_app', settings: { second: 2, first: 1 } }
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 2, type: 'state.snapshot', data: {capabilities: [],
+    gameContext: { hudScale: 1 }, match: {id: '', status: 'none', mode: 'undefined',  gameTime: 1 }, players: [], application: { clientId: 'test_app', settings: { second: 2, first: 1 } }
   } });
   assert.deepEqual(storeChanges, [undefined, { first: 1, second: 2 }]);
   await client.disconnect();
@@ -1210,9 +1161,9 @@ test('watch defaults to immutable identity and accepts non-cloneable selections'
   let context;
   const client = createClient({ clientId: 'test_app', transport: { name: 'test', open(value) { context = value; } } });
   client.state.watch(() => selected, value => selections.push(value));
-  await client.connect();
-  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: { match: { gameTime: 1 }, players: [] } });
-  context.onMessage({ version: PROTOCOL_VERSION, sequence: 2, type: 'state.snapshot', data: { match: { gameTime: 2 }, players: [] } });
+  await client.open();
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {capabilities: [],  gameContext: { hudScale: 1 }, match: {id: '', status: 'none', mode: 'undefined',  gameTime: 1 }, players: [] } });
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 2, type: 'state.snapshot', data: {capabilities: [],  gameContext: { hudScale: 1 }, match: {id: '', status: 'none', mode: 'undefined',  gameTime: 2 }, players: [] } });
   assert.deepEqual(selections, [selected]);
   await client.disconnect();
 });
@@ -1220,11 +1171,11 @@ test('watch defaults to immutable identity and accepts non-cloneable selections'
 test('application settings stay in state and emit a domain event', async () => {
   let context;
   const client = createClient({ clientId: 'test_app', transport: { name: 'test', async open(value) { context = value; } } });
-  await client.connect();
+  await client.open();
   let change;
   client.on('application.settings.changed', event => { change = event; });
-  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {
-    match: { id: '', status: 'none', gameTime: 0, mode: 'undefined' }, players: [],
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {capabilities: [],
+    gameContext: { hudScale: 1 }, match: { id: '', status: 'none', gameTime: 0, mode: 'undefined' }, players: [],
     application: { clientId: 'test_app', settings: { layout: 'compact' } }
   } });
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 2, type: 'state.patch', data: [
@@ -1244,9 +1195,9 @@ test('application settings stay in state and emit a domain event', async () => {
 test('canonical upgrade rawcodes and explicit levels are preserved at state ingress', async () => {
   let context;
   const client = createClient({ clientId: 'test_app', transport: { name: 'test', async open(value) { context = value; } } });
-  await client.connect();
-  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {
-    match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' },
+  await client.open();
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {capabilities: [],
+    gameContext: { hudScale: 1 }, match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' },
     players: [{
       id: '0',
       upgrades: {
@@ -1268,14 +1219,14 @@ test('non-canonical hero inventory and upgrade suffixes are rejected', async () 
     clientId: 'test_app',
     transport: { name: 'test', async open(value) { context = value; } }
   });
-  client.on('error', error => errors.push(error));
-  await client.connect();
-  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {
-    match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' },
+  client.on('issue', ({ error }) => errors.push(error));
+  await client.open();
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {capabilities: [],
+    gameContext: { hudScale: 1 }, match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' },
     players: [{ id: '0', heroes: [{ id: 'Hamg', name: 'Archmage', level: 1, items: ['ratf'] }] }]
   } });
-  context.onMessage({ version: PROTOCOL_VERSION, sequence: 2, type: 'state.snapshot', data: {
-    match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' },
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 2, type: 'state.snapshot', data: {capabilities: [],
+    gameContext: { hudScale: 1 }, match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' },
     players: [{ id: '0', upgrades: {
       upgrades: [{ name: 'Rema2', level: 2, gametime: 1 }], active: [], researching: []
     } }]
@@ -1309,10 +1260,10 @@ test('observer and replay sessions use the low-latency recorder transport locall
   let publications = 0;
   client.state.subscribe(() => { publications += 1; });
   try {
-    await client.connect();
+    await client.open();
     const baseline = {
-      capabilities: ['match', 'players', 'heroes', 'upgrades', 'resources', 'controlgroups', 'overlay'],
-      match: {
+      capabilities: ['match', 'players', 'heroes', 'upgrades', 'resources', 'controlgroups'],
+      gameContext: { hudScale: 1 }, match: {
         id: 'observer-match', status: 'running', gameTime: 1, mode: '1v1', isObserver: true,
         broadcasterPlayerId: '0', realBroadcasterPlayerId: '0'
       },
@@ -1327,7 +1278,7 @@ test('observer and replay sessions use the low-latency recorder transport locall
         id: '1', name: 'Unchanged player', heroes: [],
         upgrades: { upgrades: [], active: [], researching: [] }
       }],
-      overlay: { settings: { topBarGameDurationEnabled: false }, misc: { hudScale: 1, localServerUrls: ['ws://127.0.0.1:48123'] } },
+      transport: { recorderUrls: ['ws://127.0.0.1:48123'] },
       application: { clientId: 'match_vision', settings: {} }
     };
     context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: baseline });
@@ -1336,15 +1287,14 @@ test('observer and replay sessions use the low-latency recorder transport locall
     assert.equal(sockets.length, 1);
     assert.equal(sockets[0].url, 'ws://127.0.0.1:48123/');
     const authenticatedState = client.state.get();
-    assert.equal(authenticatedState.overlay.settings, undefined);
-    assert.equal(authenticatedState.overlay.runtime.localServerUrls, undefined);
+    assert.equal(authenticatedState.transport, undefined);
     assert.equal(publicEvents.some(event => event.type === 'state.snapshot' || event.type === 'state.patch'), false);
     assert.equal(JSON.stringify(publicEvents).includes('48123'), false);
     context.onMessage({
       version: PROTOCOL_VERSION,
       sequence: 2,
       type: 'state.patch',
-      data: [{ op: 'replace', path: '/overlay/settings/topBarGameDurationEnabled', value: true }]
+      data: [{ op: 'replace', path: '/transport/recorderUrls', value: ['ws://127.0.0.1:48123'] }]
     });
     assert.equal(publications, 2, 'control-plane-only patches do not republish public state');
     sockets[0].emit('open');
@@ -1372,7 +1322,7 @@ test('observer and replay sessions use the low-latency recorder transport locall
     assert.equal(state.players[0].heroes[0].hitpoints, authenticatedState.players[0].heroes[0].hitpoints);
     assert.equal(client.diagnostics.localTransport, 'recorder-local');
     assert.equal(state.match.gameTime, 12);
-    assert.equal(state.overlay.runtime.hudScale, 0.75);
+    assert.equal(state.gameContext.hudScale, 0.75);
     assert.deepEqual(state.players[0].resources, { gold: 123, lumber: 67, supply: 31, supplyCap: 50, workerSupply: 0 });
     assert.equal(state.players[0].heroes[0].id, 'Edem');
     assert.equal(state.players[0].heroes[0].name, 'Demon Hunter');
@@ -1396,7 +1346,7 @@ test('observer and replay sessions use the low-latency recorder transport locall
     // erase recorder values already received through the local recorder feed.
     context.onMessage({ version: PROTOCOL_VERSION, sequence: 3, type: 'state.snapshot', data: baseline });
     state = client.state.get();
-    assert.equal(state.overlay.runtime.hudScale, 0.75);
+    assert.equal(state.gameContext.hudScale, 0.75);
     assert.equal(state.players[0].resources.gold, 123);
     assert.equal(state.players[0].heroes[0].id, 'Edem');
 
@@ -1444,16 +1394,16 @@ test('the local recorder rotates URLs when a socket never opens', async () => {
     transport: { name: 'cloud-test', async open(value) { stream = value; } }
   });
   try {
-    await client.connect();
+    await client.open();
     stream.onMessage({
       version: PROTOCOL_VERSION,
       sequence: 1,
       type: 'state.snapshot',
       data: {
-        capabilities: ['match', 'players', 'overlay'],
-        match: { id: 'observer-match', status: 'running', gameTime: 1, mode: '1v1', isObserver: true },
+        capabilities: ['match', 'players'],
+        gameContext: { hudScale: 1 }, match: { id: 'observer-match', status: 'running', gameTime: 1, mode: '1v1', isObserver: true },
         players: [],
-        overlay: { settings: {}, misc: { localServerUrls: ['ws://127.0.0.1:48123', 'ws://127.0.0.1:48124'] } },
+        transport: { recorderUrls: ['ws://127.0.0.1:48123', 'ws://127.0.0.1:48124'] },
         application: { clientId: 'test_app', settings: {} }
       }
     });
@@ -1487,12 +1437,12 @@ test('the local recorder feed cannot bypass SDK capabilities', async () => {
     transport: { name: 'cloud-test', async open(value) { context = value; } }
   });
   try {
-    await client.connect();
+    await client.open();
     context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {
-      capabilities: ['match', 'players', 'overlay'],
-      match: { id: 'observer-match', status: 'running', gameTime: 1, mode: '1v1', isReplay: true },
+      capabilities: ['match', 'players'],
+      gameContext: { hudScale: 1 }, match: { id: 'observer-match', status: 'running', gameTime: 1, mode: '1v1', isReplay: true },
       players: [{ id: '0' }],
-      overlay: { settings: {}, misc: { hudScale: 1, localServerUrls: ['ws://localhost:48123'] } },
+      transport: { recorderUrls: ['ws://localhost:48123'] },
       application: { clientId: 'overlay_only', settings: {} }
     } });
     await waitForDeferredModule(() => socket !== undefined);
@@ -1502,7 +1452,7 @@ test('the local recorder feed cannot bypass SDK capabilities', async () => {
       { class: 'W3Resource', slotId: 0, type: 1, value: 9990 }
     ]));
     await waitForRecorderFrame();
-    assert.equal(client.state.get().overlay.runtime.hudScale, 0.75);
+    assert.equal(client.state.get().gameContext.hudScale, 0.75);
     assert.equal(client.state.get().players[0].resources, undefined);
   } finally {
     await client.disconnect();
@@ -1526,14 +1476,14 @@ test('a disconnected local recorder cannot mask newer authenticated snapshots', 
     transport: { name: 'cloud-test', async open(value) { context = value; }, close() {} }
   });
   const snapshot = gold => ({
-    capabilities: ['match', 'players', 'resources', 'overlay'],
-    match: { id: 'observer-match', status: 'running', gameTime: 1, mode: '1v1', isObserver: true },
+    capabilities: ['match', 'players', 'resources'],
+    gameContext: { hudScale: 1 }, match: { id: 'observer-match', status: 'running', gameTime: 1, mode: '1v1', isObserver: true },
     players: [{ id: '0', resources: { gold, lumber: 0, supply: 0, supplyCap: 0 } }],
-    overlay: { settings: {}, misc: { localServerUrls: ['ws://127.0.0.1:48123'] } },
+    transport: { recorderUrls: ['ws://127.0.0.1:48123'] },
     application: { clientId: 'test_app', settings: {} }
   });
   try {
-    await client.connect();
+    await client.open();
     context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: snapshot(100) });
     await waitForDeferredModule(() => socket !== undefined);
     socket.emit('open');
@@ -1567,16 +1517,16 @@ test('invalid local recorder updates are not cached into later platform snapshot
     clientId: 'test_app',
     transport: { name: 'cloud-test', async open(value) { stream = value; } }
   });
-  client.on('error', error => errors.push(error));
+  client.on('issue', ({ error }) => errors.push(error));
   const snapshot = gameTime => ({
-    capabilities: ['match', 'players', 'heroes', 'overlay'],
-    match: { id: 'observer-match', status: 'running', gameTime, mode: '1v1', isObserver: true },
+    capabilities: ['match', 'players', 'heroes'],
+    gameContext: { hudScale: 1 }, match: { id: 'observer-match', status: 'running', gameTime, mode: '1v1', isObserver: true },
     players: [{ id: '0', heroes: [{ id: 'Hamg', name: 'Archmage', level: 1 }] }],
-    overlay: { settings: {}, misc: { localServerUrls: ['ws://127.0.0.1:48123'] } },
+    transport: { recorderUrls: ['ws://127.0.0.1:48123'] },
     application: { clientId: 'test_app', settings: {} }
   });
   try {
-    await client.connect();
+    await client.open();
     stream.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: snapshot(1) });
     await waitForDeferredModule(() => socket !== undefined);
     socket.emit('open');
@@ -1601,14 +1551,14 @@ test('sequence gaps request a resync instead of applying stale data', async () =
   let context; let resyncs = 0;
   const transport = { name: 'test', async open(value) { context = value; }, resync() { resyncs++; } };
   const client = createClient({ clientId: 'test_app', transport });
-  await client.connect();
-  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: { match: { gameTime: 1 }, players: [] } });
+  await client.open();
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {capabilities: [],  gameContext: { hudScale: 1 }, match: {id: '', status: 'none', mode: 'undefined',  gameTime: 1 }, players: [] } });
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 3, type: 'state.patch', data: [{ op: 'replace', path: '/match/gameTime', value: 3 }] });
   assert.equal(resyncs, 1);
   assert.equal(client.state.get().match.gameTime, 1);
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 4, type: 'state.patch', data: [{ op: 'replace', path: '/match/gameTime', value: 4 }] });
   assert.equal(client.state.get().match.gameTime, 1);
-  context.onMessage({ version: PROTOCOL_VERSION, sequence: 5, type: 'state.snapshot', data: { match: { gameTime: 5 }, players: [] } });
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 5, type: 'state.snapshot', data: {capabilities: [],  gameContext: { hudScale: 1 }, match: {id: '', status: 'none', mode: 'undefined',  gameTime: 5 }, players: [] } });
   assert.equal(client.state.get().match.gameTime, 5);
   await client.disconnect();
 });
@@ -1621,12 +1571,12 @@ test('the lifecycle store publishes synchronization-only transitions atomically'
     transport: { name: 'test', open(value) { context = value; }, resync() {} }
   });
   client.lifecycle.subscribe(snapshot => snapshots.push(snapshot));
-  await client.connect();
+  await client.open();
   context.onMessage({
     version: PROTOCOL_VERSION,
     sequence: 1,
     type: 'state.snapshot',
-    data: { match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' }, players: [] }
+    data: {capabilities: [],  gameContext: { hudScale: 1 }, match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' }, players: [] }
   });
   context.onMessage({
     version: PROTOCOL_VERSION,
@@ -1653,12 +1603,12 @@ test('status transitions batch freshness and state changes into one lifecycle sn
     transport: { name: 'test', open(value) { context = value; }, close() {} }
   });
   client.lifecycle.subscribe(snapshot => snapshots.push(snapshot));
-  await client.connect();
+  await client.open();
   context.onMessage({
     version: PROTOCOL_VERSION,
     sequence: 1,
     type: 'state.snapshot',
-    data: { match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' }, players: [] }
+    data: {capabilities: [],  gameContext: { hudScale: 1 }, match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' }, players: [] }
   });
 
   const beforeReconnect = snapshots.length;
@@ -1674,18 +1624,18 @@ test('status transitions batch freshness and state changes into one lifecycle sn
   ]);
 });
 
-test('connect and connected-only startup wait for an active transport during reconnects', async () => {
+test('openClient and connected-only startup wait for an active transport during reconnects', async () => {
   let context;
   const client = createClient({
     clientId: 'test_app',
     transport: { name: 'test', open(value) { context = value; }, close() {} }
   });
-  await client.connect();
+  await client.open();
   context.onStatus('reconnecting');
 
   let connectSettled = false;
   let startupSettled = false;
-  const reconnect = client.connect().finally(() => { connectSettled = true; });
+  const reconnect = client.open().finally(() => { connectSettled = true; });
   const startup = client.start({ until: 'connected' }).finally(() => { startupSettled = true; });
   await Promise.resolve();
   assert.equal(connectSettled, false);
@@ -1703,10 +1653,10 @@ test('waiting for a reconnect supports per-call cancellation', async () => {
     clientId: 'test_app',
     transport: { name: 'test', open(value) { context = value; }, close() {} }
   });
-  await client.connect();
+  await client.open();
   context.onStatus('reconnecting');
   const controller = new AbortController();
-  const reconnect = client.connect({ signal: controller.signal });
+  const reconnect = client.open({ signal: controller.signal });
   controller.abort();
   await assert.rejects(reconnect, error => error?.name === 'AbortError');
   assert.equal(client.status, 'reconnecting');
@@ -1722,9 +1672,9 @@ test('a complete forward snapshot recovers a sequence gap without another resync
     transport: { name: 'test', async open(value) { context = value; }, resync() { resyncs += 1; } }
   });
   client.on('stream.gap', gap => gaps.push(gap));
-  await client.connect();
-  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: { match: { gameTime: 1 }, players: [] } });
-  context.onMessage({ version: PROTOCOL_VERSION, sequence: 3, type: 'state.snapshot', data: { match: { gameTime: 3 }, players: [] } });
+  await client.open();
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {capabilities: [],  gameContext: { hudScale: 1 }, match: {id: '', status: 'none', mode: 'undefined',  gameTime: 1 }, players: [] } });
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 3, type: 'state.snapshot', data: {capabilities: [],  gameContext: { hudScale: 1 }, match: {id: '', status: 'none', mode: 'undefined',  gameTime: 3 }, players: [] } });
   assert.equal(client.state.get().match.gameTime, 3);
   assert.equal(resyncs, 0);
   assert.deepEqual(gaps, [{ expected: 2, received: 3 }]);
@@ -1735,8 +1685,8 @@ test('a reconnect resets sequence tracking for the new snapshot', async () => {
   let context;
   const transport = { name: 'test', async open(value) { context = value; } };
   const client = createClient({ clientId: 'test_app', transport });
-  await client.connect();
-  context.onMessage({ version: PROTOCOL_VERSION, sequence: 20, type: 'state.snapshot', data: { match: { gameTime: 20 }, players: [] } });
+  await client.open();
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 20, type: 'state.snapshot', data: {capabilities: [],  gameContext: { hudScale: 1 }, match: {id: '', status: 'none', mode: 'undefined',  gameTime: 20 }, players: [] } });
   assert.equal(client.state.isSynchronized, true);
   context.onStatus('reconnecting');
   assert.equal(client.state.isSynchronized, false);
@@ -1744,7 +1694,7 @@ test('a reconnect resets sequence tracking for the new snapshot', async () => {
   assert.equal((await client.whenReady()).match.gameTime, 20);
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.patch', data: [{ op: 'replace', path: '/match/gameTime', value: 999 }] });
   assert.equal(client.state.get().match.gameTime, 20);
-  context.onMessage({ version: PROTOCOL_VERSION, sequence: 2, type: 'state.snapshot', data: { match: { gameTime: 21 }, players: [] } });
+  context.onMessage({ version: PROTOCOL_VERSION, sequence: 2, type: 'state.snapshot', data: {capabilities: [],  gameContext: { hudScale: 1 }, match: {id: '', status: 'none', mode: 'undefined',  gameTime: 21 }, players: [] } });
   assert.equal(client.state.get().match.gameTime, 21);
   assert.equal((await synchronized).match.gameTime, 21);
   assert.equal(client.state.isSynchronized, true);
@@ -1763,9 +1713,9 @@ test('freshness-only transitions notify state subscribers without replacing stat
     () => client.state.isSynchronized,
     synchronized => freshness.push(synchronized)
   );
-  await client.connect();
-  const snapshot = {
-    match: { id: 'same', status: 'running', gameTime: 20, mode: '1v1' },
+  await client.open();
+  const snapshot = {capabilities: [],
+    gameContext: { hudScale: 1 }, match: { id: 'same', status: 'running', gameTime: 20, mode: '1v1' },
     players: []
   };
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 20, type: 'state.snapshot', data: snapshot });
@@ -1783,7 +1733,7 @@ test('freshness-only transitions notify state subscribers without replacing stat
   await client.disconnect();
 });
 
-test('explicit disconnect clears state and the same client can connect cleanly again', async () => {
+test('explicit disconnect clears state and the same client can openClient cleanly again', async () => {
   let context;
   let opens = 0;
   const transport = {
@@ -1795,12 +1745,12 @@ test('explicit disconnect clears state and the same client can connect cleanly a
   const snapshots = [];
   client.state.subscribe(state => snapshots.push(state?.match.id ?? null));
 
-  await client.connect();
+  await client.open();
   context.onMessage({
     version: PROTOCOL_VERSION,
     sequence: 1,
     type: 'state.snapshot',
-    data: { match: { id: 'first', status: 'running', gameTime: 1, mode: '1v1' }, players: [] }
+    data: {capabilities: [],  gameContext: { hudScale: 1 }, match: { id: 'first', status: 'running', gameTime: 1, mode: '1v1' }, players: [] }
   });
   assert.equal(client.state.get().match.id, 'first');
 
@@ -1810,12 +1760,12 @@ test('explicit disconnect clears state and the same client can connect cleanly a
   assert.equal(client.diagnostics.protocolVersion, null);
 
   const ready = client.whenReady({ timeout: 0 });
-  await client.connect();
+  await client.open();
   context.onMessage({
     version: PROTOCOL_VERSION,
     sequence: 1,
     type: 'state.snapshot',
-    data: { match: { id: 'second', status: 'running', gameTime: 2, mode: '1v1' }, players: [] }
+    data: {capabilities: [],  gameContext: { hudScale: 1 }, match: { id: 'second', status: 'running', gameTime: 2, mode: '1v1' }, players: [] }
   });
   assert.equal((await ready).match.id, 'second');
   assert.equal(opens, 2);
@@ -1833,10 +1783,10 @@ test('a fatal transport error is closed before an explicit reconnect', async () 
     close() { closes += 1; }
   };
   const client = createClient({ clientId: 'test_app', transport });
-  await client.connect();
+  await client.open();
   context.onStatus('error');
   assert.equal(client.status, 'error');
-  await client.connect();
+  await client.open();
   assert.equal(opens, 2);
   assert.equal(closes, 1);
   await client.disconnect();
@@ -1848,12 +1798,12 @@ test('disconnect and per-wait signals settle pending whenReady calls immediately
     clientId: 'test_app',
     transport: { name: 'no-state', open() {}, close() {} }
   });
-  await client.connect();
+  await client.open();
   const disconnected = client.whenReady({ timeout: 0 });
   await client.disconnect();
   await assert.rejects(disconnected, error => error?.name === 'AbortError');
 
-  await client.connect();
+  await client.open();
   const controller = new AbortController();
   const cancelled = client.whenReady({ timeout: 0, signal: controller.signal });
   controller.abort();
@@ -1893,7 +1843,7 @@ test('start keeps frontend startup pending until synchronized state arrives', as
     version: PROTOCOL_VERSION,
     sequence: 1,
     type: 'state.snapshot',
-    data: { match: { id: 'ready', status: 'running', gameTime: 1, mode: '1v1' }, players: [] }
+    data: {capabilities: [],  gameContext: { hudScale: 1 }, match: { id: 'ready', status: 'running', gameTime: 1, mode: '1v1' }, players: [] }
   });
   assert.equal(await starting, client);
   assert.equal(client.state.isSynchronized, true);
@@ -1918,7 +1868,7 @@ test('start rejects when synchronization becomes permanently unavailable', async
 
 test('subscription signals remove state and event listeners together', async () => {
   const controller = new AbortController();
-  const client = await connect({ clientId: 'test_app', demo: { interval: 5 } });
+  const client = await openClient({ clientId: 'test_app', demo: { interval: 5 } });
   let states = 0;
   let statuses = 0;
   client.state.subscribe(() => { states += 1; }, { signal: controller.signal });
@@ -1935,14 +1885,14 @@ test('status subscriptions immediately expose the current lifecycle state', asyn
   const client = createClient({ clientId: 'test_app', demo: { interval: 0 } });
   const statuses = [];
   const unsubscribe = client.subscribeStatus(status => statuses.push(status));
-  await client.connect();
+  await client.open();
   unsubscribe();
   await client.disconnect();
   assert.deepEqual(statuses, ['idle', 'connecting', 'connected']);
 });
 
 test('lifecycle methods validate options and listeners before registering', async () => {
-  const client = await connect({ clientId: 'test_app', demo: { interval: 0 } });
+  const client = await openClient({ clientId: 'test_app', demo: { interval: 0 } });
   assert.throws(() => client.state.subscribe(() => {}, null), /options/);
   assert.throws(() => client.state.watch(() => 1, () => {}, { signal: {} }), /AbortSignal/);
   assert.throws(() => client.on('status', () => {}, { signal: {} }), /AbortSignal/);
@@ -1971,7 +1921,7 @@ test('initial retry uses SDK backoff and stops retrying protocol failures', asyn
       close() {}
     }
   });
-  await transient.connect();
+  await transient.open();
   assert.equal(transientOpens, 3);
   await transient.disconnect();
 
@@ -1985,7 +1935,7 @@ test('initial retry uses SDK backoff and stops retrying protocol failures', asyn
       close() {}
     }
   });
-  await assert.rejects(incompatible.connect(), ProtocolError);
+  await assert.rejects(incompatible.open(), ProtocolError);
   assert.equal(protocolOpens, 1);
   await incompatible.disconnect();
 
@@ -1999,12 +1949,12 @@ test('initial retry uses SDK backoff and stops retrying protocol failures', asyn
       close() {}
     }
   });
-  await assert.rejects(misconfigured.connect(), error => error?.code === 'CONFIGURATION');
+  await assert.rejects(misconfigured.open(), error => error?.code === 'CONFIGURATION');
   assert.equal(configurationOpens, 1);
   await misconfigured.disconnect();
 });
 
-test('connect is single-flight while a transport is opening', async () => {
+test('openClient is single-flight while a transport is opening', async () => {
   let release;
   let opens = 0;
   const transport = {
@@ -2016,8 +1966,8 @@ test('connect is single-flight while a transport is opening', async () => {
     close() {}
   };
   const client = createClient({ clientId: 'test_app', transport });
-  const first = client.connect();
-  const second = client.connect();
+  const first = client.open();
+  const second = client.open();
   await Promise.resolve();
   assert.equal(opens, 1);
   release();
@@ -2038,14 +1988,14 @@ test('disconnect cancels an in-flight connection without allowing a late connect
     close() { closes += 1; }
   };
   const client = createClient({ clientId: 'test_app', transport });
-  const connecting = client.connect();
+  const connecting = client.open();
   await Promise.resolve();
   await client.disconnect();
   await assert.rejects(connecting, error => error?.name === 'AbortError');
   assert.equal(closes, 1);
   assert.equal(client.status, 'closed');
   assert.equal(client.diagnostics.transport, null);
-  await client.connect();
+  await client.open();
   assert.equal(client.status, 'connected');
   assert.equal(opens, 2);
   await client.disconnect();
@@ -2058,7 +2008,7 @@ test('an AbortSignal cancels the initial connection attempt', async () => {
     signal: controller.signal,
     transport: { name: 'never-opens', open() { return new Promise(() => {}); }, close() {} }
   });
-  const connecting = client.connect();
+  const connecting = client.open();
   controller.abort();
   await assert.rejects(connecting, error => error?.name === 'AbortError');
   assert.equal(client.status, 'closed');
@@ -2068,21 +2018,20 @@ test('an AbortSignal cancels the initial connection attempt', async () => {
 
 test('recorder team-color booleans normalize numeric string values', () => {
   const state = {
-    capabilities: ['overlay'],
-    match: { id: 'match' },
+    capabilities: [], match: {status: 'none', gameTime: 0, mode: 'undefined',  id: 'match' },
     players: [],
-    overlay: { runtime: { teamColors: true } }
+    gameContext: { hudScale: 1, teamColors: true }
   };
   const disabled = applyLocalRecorderUpdates(state, [{ class: 'W3TeamColor', value: '0' }]);
   const enabled = applyLocalRecorderUpdates(disabled, [{ class: 'W3TeamColor', value: '1' }]);
 
-  assert.equal(disabled.overlay.runtime.teamColors, false);
-  assert.equal(enabled.overlay.runtime.teamColors, true);
+  assert.equal(disabled.gameContext.teamColors, false);
+  assert.equal(enabled.gameContext.teamColors, true);
 });
 
 test('the connection AbortSignal owns the established client lifetime', async () => {
   const controller = new AbortController();
-  const client = await connect({ clientId: 'test_app', demo: true, signal: controller.signal });
+  const client = await openClient({ clientId: 'test_app', demo: true, signal: controller.signal });
   assert.equal(client.status, 'connected');
   controller.abort();
   await new Promise(resolve => setTimeout(resolve, 0));
@@ -2134,7 +2083,7 @@ test('the default cloud backend receives the launch credential without probing l
   };
 
   try {
-    const client = await connect({ clientId: 'test_app', applicationRevision: 'revision-current' });
+    const client = await openClient({ clientId: 'test_app', applicationRevision: 'revision-current' });
     const brokerRequests = requests.filter(request => request.url);
     assert.equal(brokerRequests.length, 1);
     assert.ok(brokerRequests.every(request => request.authorization === 'Bearer launch-secret'));
@@ -2154,12 +2103,12 @@ test('the default cloud backend receives the launch credential without probing l
       origin: '',
       data: {
         source: 'w3booster-host', clientId: 'test_app', type: 'host.response',
-        requestId: automaticCapabilities.requestId, ok: true, value: { capabilities: ['match-score:write'] }
+        requestId: automaticCapabilities.requestId, ok: true, value: { capabilities: ['command'] }
       }
     });
-    const scoreChange = client.host.changeMatchScore('wins', 1);
+    const scoreChange = client.host.command('example.command', { enabled: true });
     const scoreMessage = hostMessages.at(-1);
-    assert.equal(scoreMessage.command, 'overlay.match-score.change');
+    assert.equal(scoreMessage.command, 'example.command');
     for (const listener of hostListeners) listener({
       source: host,
       origin: '',
@@ -2168,7 +2117,7 @@ test('the default cloud backend receives the launch credential without probing l
         requestId: scoreMessage.requestId, ok: true, value: { accepted: true }
       }
     });
-    assert.equal(await scoreChange, undefined);
+    assert.deepEqual(await scoreChange, { accepted: true });
     await client.disconnect();
   } finally {
     if (original.fetch === undefined) delete globalThis.fetch; else globalThis.fetch = original.fetch;
@@ -2204,7 +2153,7 @@ test('backend auto continues to cloud after local authorization fails', async ()
     send() {}
   };
   try {
-    const client = await connect({ clientId: 'test_app', backend: 'auto', tokenProvider: () => 'session' });
+    const client = await openClient({ clientId: 'test_app', backend: 'auto', tokenProvider: () => 'session' });
     assert.deepEqual(requests, [
       'https://localhost:25080/stream/v1/stream-tickets',
       'https://api.w3booster.com/stream/v1/stream-tickets'
@@ -2250,7 +2199,7 @@ test('backend auto continues to cloud after the local broker times out', async (
     send() {}
   };
   try {
-    const client = await connect({ clientId: 'test_app', backend: 'auto', tokenProvider: () => 'session' });
+    const client = await openClient({ clientId: 'test_app', backend: 'auto', tokenProvider: () => 'session' });
     assert.deepEqual(requests, [
       'https://localhost:25080/stream/v1/stream-tickets',
       'https://api.w3booster.com/stream/v1/stream-tickets'
@@ -2297,7 +2246,7 @@ test('an explicit token provider is refreshed for every broker ticket', async ()
     tokenProvider: () => `session-${++tokenCalls}`
   });
   try {
-    await client.connect();
+    await client.open();
     const reconnected = new Promise(resolve => {
       let reconnecting = false;
       client.on('status', status => {
@@ -2348,7 +2297,7 @@ test('broker reconnect stops after a permanent configuration failure', async () 
   const issues = [];
   client.on('issue', issue => issues.push(issue));
   try {
-    await client.connect();
+    await client.open();
     const failed = new Promise(resolve => client.on('status', status => {
       if (status === 'error') resolve();
     }));
@@ -2400,7 +2349,7 @@ test('disconnect aborts an in-flight broker reconnect before it can create anoth
     send() {}
   };
   try {
-    const client = await connect({ clientId: 'test_app', tokenProvider: () => 'session' });
+    const client = await openClient({ clientId: 'test_app', tokenProvider: () => 'session' });
     sockets[0].emit('close');
     await new Promise(resolve => setTimeout(resolve, 520));
     assert.equal(fetchCount, 2);
@@ -2440,7 +2389,7 @@ test('broker timeouts include reading the response body', async () => {
   const client = createClient({ clientId: 'test_app', tokenProvider: () => 'session' });
   let connecting;
   try {
-    connecting = client.connect();
+    connecting = client.open();
     await assert.rejects(connecting, ConnectionError);
     assert.equal(bodyAborted, true);
   } finally {
@@ -2468,7 +2417,7 @@ test('cancelling a broker connection closes a WebSocket that is still opening', 
   const controller = new AbortController();
   try {
     const client = createClient({ clientId: 'test_app', tokenProvider: () => 'session', signal: controller.signal });
-    const connecting = client.connect();
+    const connecting = client.open();
     await new Promise(resolve => setTimeout(resolve, 0));
     controller.abort();
     await assert.rejects(connecting, error => error?.name === 'AbortError');
@@ -2500,7 +2449,7 @@ test('the platform launch parameter selects localhost without application-specif
   };
 
   try {
-    const client = await connect({
+    const client = await openClient({
       clientId: 'test_app',
       // Platform-issued launch configuration wins over app-specific transport choices.
       backend: 'cloud',
@@ -2536,7 +2485,7 @@ test('backend local never falls back to the cloud broker', async () => {
   };
 
   try {
-    const client = await connect({
+    const client = await openClient({
       clientId: 'test_app',
       backend: 'local',
       tokenProvider: () => 'launch-secret'
@@ -2560,7 +2509,7 @@ test('overlay composition authenticates a browser-source session', async () => {
     if (String(url).includes('/compositor-sessions')) {
       return { ok: true, status: 200, async json() { return { sessionToken: 'compositor-session' }; } };
     }
-    return { ok: true, async json() { return { apps: [{ appId: 'one', clientId: 'child', name: 'Child', url: 'https://child.test/#w3session=token' }] }; } };
+    return { ok: true, async json() { return { apps: [{ appId: 'one', launchKey: 'launch-one', expiresAt: '2030-01-01T00:00:00Z', colorScheme: 'normal', clientId: 'child', name: 'Child', url: 'https://child.test/#w3session=token' }] }; } };
   };
   try {
     const apps = await getOverlayComposition({
@@ -2629,7 +2578,7 @@ test('compositor app launches reject credentialed and insecure remote URLs', asy
   globalThis.fetch = async () => ({
     ok: true,
     status: 200,
-    async json() { return { apps: [{ appId: 'one', clientId: 'child', name: 'Child', url: appUrl }] }; }
+    async json() { return { apps: [{ appId: 'one', launchKey: 'launch-one', expiresAt: '2030-01-01T00:00:00Z', colorScheme: 'normal', clientId: 'child', name: 'Child', url: appUrl }] }; }
   });
   try {
     for (const rejectedUrl of [
@@ -2691,7 +2640,7 @@ test('overlay composition establishes a new session when auto falls back to clou
     return {
       ok: true,
       status: 200,
-      async json() { return { apps: [{ appId: 'one', clientId: 'child', name: 'Child', url: 'https://child.test/' }] }; }
+      async json() { return { apps: [{ appId: 'one', launchKey: 'launch-one', expiresAt: '2030-01-01T00:00:00Z', colorScheme: 'normal', clientId: 'child', name: 'Child', url: 'https://child.test/' }] }; }
     };
   };
   try {
@@ -2730,7 +2679,7 @@ test('overlay composition auto fallback distinguishes timeouts from cancellation
     return Promise.resolve({
       ok: true,
       status: 200,
-      async json() { return { apps: [{ appId: 'one', clientId: 'child', name: 'Child', url: 'https://child.test/' }] }; }
+      async json() { return { apps: [{ appId: 'one', launchKey: 'launch-one', expiresAt: '2030-01-01T00:00:00Z', colorScheme: 'normal', clientId: 'child', name: 'Child', url: 'https://child.test/' }] }; }
     });
   };
   try {
@@ -2779,7 +2728,7 @@ test('the stable browser-source URL remains reusable across compositor reloads',
     }
     return {
       ok: true,
-      async json() { return { apps: [{ appId: 'one', clientId: 'child-app', name: 'Child', url: 'https://child.test/' }] }; }
+      async json() { return { apps: [{ appId: 'one', launchKey: 'launch-one', expiresAt: '2030-01-01T00:00:00Z', colorScheme: 'normal', clientId: 'child-app', name: 'Child', url: 'https://child.test/' }] }; }
     };
   };
   try {
@@ -2984,13 +2933,13 @@ test('unsupported protocol majors are rejected without mutating state', async ()
     clientId: 'test_app',
     transport: { name: 'test', async open(value) { context = value; }, resync() { resyncs++; } }
   });
-  client.on('error', value => { error = value; });
-  await client.connect();
+  client.on('issue', issue => { error = issue.error; });
+  await client.open();
   context.onMessage({
-    version: '2.0',
+    version: '99.0',
     sequence: 1,
     type: 'state.snapshot',
-    data: { match: { id: '', status: 'none', gameTime: 0, mode: 'undefined' }, players: [] }
+    data: {capabilities: [],  gameContext: { hudScale: 1 }, match: { id: '', status: 'none', gameTime: 0, mode: 'undefined' }, players: [] }
   });
   assert.equal(client.state.get(), null);
   assert.ok(error instanceof ProtocolError);
@@ -3008,14 +2957,14 @@ test('runtime validation enforces the public state types', async () => {
     clientId: 'test_app',
     transport: { name: 'test', async open(value) { context = value; } }
   });
-  client.on('error', error => errors.push(error));
-  await client.connect();
+  client.on('issue', ({ error }) => errors.push(error));
+  await client.open();
   context.onMessage({
     version: PROTOCOL_VERSION,
     sequence: 1,
     type: 'state.snapshot',
-    data: {
-      match: { id: 'match', status: 'not-a-status', gameTime: 1, mode: '1v1' },
+    data: {capabilities: [],
+      gameContext: { hudScale: 1 }, match: { id: 'match', status: 'not-a-status', gameTime: 1, mode: '1v1' },
       players: []
     }
   });
@@ -3023,8 +2972,8 @@ test('runtime validation enforces the public state types', async () => {
     version: PROTOCOL_VERSION,
     sequence: 2,
     type: 'state.snapshot',
-    data: {
-      match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' },
+    data: {capabilities: [],
+      gameContext: { hudScale: 1 }, match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' },
       players: [{ id: 7, resources: { gold: 'invalid' } }]
     }
   });
@@ -3032,8 +2981,8 @@ test('runtime validation enforces the public state types', async () => {
     version: PROTOCOL_VERSION,
     sequence: 3,
     type: 'state.snapshot',
-    data: {
-      match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' },
+    data: {capabilities: [],
+      gameContext: { hudScale: 1 }, match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' },
       players: [{ id: '7', resources: { gold: 'invalid', lumber: 0, supply: 0, supplyCap: 0 } }]
     }
   });
@@ -3041,28 +2990,26 @@ test('runtime validation enforces the public state types', async () => {
     version: PROTOCOL_VERSION,
     sequence: 4,
     type: 'state.snapshot',
-    data: {
-      match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' },
+    data: {capabilities: [],  match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' },
       players: [],
-      overlay: { settings: {}, misc: { hudScale: 'invalid' } }
+      gameContext: { hudScale: 'invalid' }
     }
   });
   context.onMessage({
     version: PROTOCOL_VERSION,
     sequence: 5,
     type: 'state.snapshot',
-    data: {
-      match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' },
+    data: {capabilities: [],  match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' },
       players: [],
-      overlay: { settings: {}, misc: { hudScale: 1.2 } }
+      gameContext: { hudScale: 1.2 }
     }
   });
   context.onMessage({
     version: PROTOCOL_VERSION,
     sequence: 6,
     type: 'state.snapshot',
-    data: {
-      match: { id: 'match', status: 'running', gameTime: 1.5, mode: '1v1' },
+    data: {capabilities: [],
+      gameContext: { hudScale: 1 }, match: { id: 'match', status: 'running', gameTime: 1.5, mode: '1v1' },
       players: []
     }
   });
@@ -3070,8 +3017,8 @@ test('runtime validation enforces the public state types', async () => {
     version: PROTOCOL_VERSION,
     sequence: 7,
     type: 'state.snapshot',
-    data: {
-      match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1', startedAt: 'yesterday' },
+    data: {capabilities: [],
+      gameContext: { hudScale: 1 }, match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1', startedAt: 'yesterday' },
       players: []
     }
   });
@@ -3079,8 +3026,8 @@ test('runtime validation enforces the public state types', async () => {
     version: PROTOCOL_VERSION,
     sequence: 8,
     type: 'state.snapshot',
-    data: {
-      match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' },
+    data: {capabilities: [],
+      gameContext: { hudScale: 1 }, match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' },
       players: [{ id: '7', mainAccount: { name: 'Player', mainRace: 1 } }]
     }
   });
@@ -3088,8 +3035,8 @@ test('runtime validation enforces the public state types', async () => {
     version: PROTOCOL_VERSION,
     sequence: 9,
     type: 'state.snapshot',
-    data: {
-      match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' },
+    data: {capabilities: [],
+      gameContext: { hudScale: 1 }, match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' },
       players: [{ id: '7', stats: { solo: { wins: 1, losses: 1, winRate: 101 } } }]
     }
   });
@@ -3113,15 +3060,15 @@ test('match completion timestamps must be ISO-8601 and survive state validation'
     clientId: 'test_app',
     transport: { name: 'test', async open(value) { context = value; } }
   });
-  client.on('error', error => errors.push(error));
-  await client.connect();
+  client.on('issue', ({ error }) => errors.push(error));
+  await client.open();
 
   context.onMessage({
     version: PROTOCOL_VERSION,
     sequence: 1,
     type: 'state.snapshot',
-    data: {
-      match: { id: 'match', status: 'finished', gameTime: 100, mode: '1v1', endedAt: 'later' },
+    data: {capabilities: [],
+      gameContext: { hudScale: 1 }, match: { id: 'match', status: 'finished', gameTime: 100, mode: '1v1', endedAt: 'later' },
       players: []
     }
   });
@@ -3132,8 +3079,8 @@ test('match completion timestamps must be ISO-8601 and survive state validation'
     version: PROTOCOL_VERSION,
     sequence: 2,
     type: 'state.snapshot',
-    data: {
-      match: {
+    data: {capabilities: [],
+      gameContext: { hudScale: 1 }, match: {
         id: 'match', status: 'finished', gameTime: 100, mode: '1v1',
         endedAt: '2026-08-19T00:00:10.000Z'
       },
@@ -3151,13 +3098,13 @@ test('active and completed matches require stable identity', async () => {
     clientId: 'test_app',
     transport: { name: 'test', async open(value) { context = value; } }
   });
-  client.on('error', value => { error = value; });
-  await client.connect();
+  client.on('issue', issue => { error = issue.error; });
+  await client.open();
   context.onMessage({
     version: PROTOCOL_VERSION,
     sequence: 1,
     type: 'state.snapshot',
-    data: { match: { id: '', status: 'running', gameTime: 1, mode: '1v1' }, players: [] }
+    data: {capabilities: [],  gameContext: { hudScale: 1 }, match: { id: '', status: 'running', gameTime: 1, mode: '1v1' }, players: [] }
   });
   assert.equal(client.state.get(), null);
   assert.match(error?.message, /non-empty ID/);
@@ -3179,13 +3126,13 @@ test('unversioned protocol envelopes are rejected', async () => {
       resync() { resyncs += 1; }
     }
   });
-  client.on('error', value => { error = value; });
+  client.on('issue', issue => { error = issue.error; });
   client.on('issue', issue => issues.push(issue));
-  await client.connect();
+  await client.open();
   context.onMessage({
     sequence: 1,
     type: 'state.snapshot',
-    data: { match: { id: '', status: 'none', gameTime: 0, mode: 'undefined' }, players: [] }
+    data: {capabilities: [],  gameContext: { hudScale: 1 }, match: { id: '', status: 'none', gameTime: 0, mode: 'undefined' }, players: [] }
   });
   assert.equal(client.state.get(), null);
   assert.equal(error?.code, 'UNSUPPORTED_PROTOCOL');
@@ -3202,27 +3149,27 @@ test('unsafe patch paths cannot mutate object prototypes', async () => {
   let context;
   let error;
   const client = createClient({ clientId: 'test_app', transport: { name: 'test', async open(value) { context = value; } } });
-  client.on('error', value => { error = value; });
-  await client.connect();
+  client.on('issue', issue => { error = issue.error; });
+  await client.open();
   context.onMessage({
-    version: '1.0', sequence: 1, type: 'state.snapshot',
-    data: { match: { id: '', status: 'none', gameTime: 0, mode: 'undefined' }, players: [] }
+    version: '2.0', sequence: 1, type: 'state.snapshot',
+    data: {capabilities: [],  gameContext: { hudScale: 1 }, match: { id: '', status: 'none', gameTime: 0, mode: 'undefined' }, players: [] }
   });
   context.onMessage({
-    version: '1.0', sequence: 2, type: 'state.patch',
+    version: '2.0', sequence: 2, type: 'state.patch',
     data: [{ op: 'add', path: '/__proto__/w3boosterPolluted', value: true }]
   });
   assert.equal(Object.prototype.w3boosterPolluted, undefined);
   assert.ok(error instanceof ProtocolError);
   assert.equal(error.code, 'UNSAFE_PATCH');
   context.onMessage({
-    version: '1.0', sequence: 3, type: 'state.patch',
+    version: '2.0', sequence: 3, type: 'state.patch',
     data: [{ op: 'replace', path: '/match/gameTime', value: 999 }]
   });
   assert.equal(client.state.get().match.gameTime, 0);
   context.onMessage({
-    version: '1.0', sequence: 4, type: 'state.snapshot',
-    data: { match: { id: '', status: 'none', gameTime: 4, mode: 'undefined' }, players: [] }
+    version: '2.0', sequence: 4, type: 'state.snapshot',
+    data: {capabilities: [],  gameContext: { hudScale: 1 }, match: { id: '', status: 'none', gameTime: 4, mode: 'undefined' }, players: [] }
   });
   assert.equal(client.state.get().match.gameTime, 4);
   await client.disconnect();

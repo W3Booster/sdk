@@ -1,5 +1,44 @@
 # SDK architecture decisions
 
+## ADR-010: Recorder outcomes extend the existing match state
+
+Status: accepted, 2026-09-05.
+
+`Match.result` optionally identifies the actual local player and its `won` or
+`lost` outcome. Unknown results, observer slots and replays leave it absent. The
+API consumes native W3GameResult facts and retains terminal state until the next
+match. Existing SDK state subscriptions and initial-finished lifecycle hydration
+carry this information; there is no separate app-specific result transport.
+
+The SDK validates and freezes the optional result, but does not turn it into
+session wins/losses or decide which games an app counts. Generic application
+storage may be accessed through the existing host command primitive; schemas,
+retention, automatic resets and scoring remain consuming-app policy. SDK 1.1's
+existing safe-field preservation accepts the additive wire field, so consumers
+that validate it can run against that registry release while the new type and
+validation await publication.
+
+## 2026-09-05: One prerelease runtime contract; retain release preparation
+
+Status: accepted; supersedes earlier promises to preserve development SDK aliases.
+
+The platform has not launched. SDK 2 and protocol 2 use one current contract:
+required `gameContext`, private `transport.recorderUrls`, explicit host capability
+discovery, and parser-validated typed commands. App-owned score stays in application
+data. Removed scopes, methods, state shapes, and launcher implementations must fail
+explicitly instead of being inferred or silently converted. Deploy platform, SDK,
+and apps together; package versioning records the breaking change, not a promise
+to support older development builds concurrently.
+
+Keep seeding, bootstrap, catalog preparation/reapply, grant synchronization,
+release preflight checks, purchase-history migrations, and immutable release assets.
+The v2.0 release must migrate pre-2.0 production data, including user settings,
+grants, purchases, and entitlements. Migration support is not obsolete runtime
+compatibility. One-time data preparation belongs in those tools, not ordinary runtime reads.
+Current browser/game support, reconnects, missing-data handling, and corruption
+protection remain required behavior.
+
+
 This file prevents repeated reviews from oscillating between equally plausible designs. These decisions are not immutable: change one when constraints have changed or new evidence invalidates an assumption. A change should update this file with the reason and migration path. Reviewers should still report bugs or violations of a decision, but should not report the documented tradeoff itself as a new finding without explaining the new evidence.
 
 ## ADR-009: Unscoped game context and app-owned runtime data

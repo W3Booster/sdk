@@ -51,7 +51,7 @@ export class LocalRecorderTransport {
     const observerOrReplay = state?.match?.isObserver === true || state?.match?.isReplay === true;
     const active = state?.match?.status === 'starting' || state?.match?.status === 'running';
     const urls = active && observerOrReplay && this.enabled
-      ? localRecorderUrls(state?.overlay?.misc?.localServerUrls)
+      ? localRecorderUrls(state?.transport?.recorderUrls)
       : [];
     const signature = `${String(state?.match?.id || '')}|${urls.join('|')}`;
     if (signature === this.signature) return;
@@ -263,14 +263,9 @@ export function applyLocalRecorderUpdates(state, updates) {
     if (Object.is(next.match?.[field], value)) return;
     next = { ...next, match: { ...next.match, [field]: value } };
   };
-  const updateMisc = (field, value) => {
-    if (Object.is(next.gameContext?.[field], value) &&
-        (!next.overlay?.runtime || Object.is(next.overlay.runtime[field], value))) return;
-    next = {
-      ...next,
-      gameContext: { hudScale: 1, ...next.gameContext, [field]: value },
-      ...(next.overlay?.runtime ? { overlay: { ...next.overlay, runtime: { ...next.overlay.runtime, [field]: value } } } : {})
-    };
+  const updateContext = (field, value) => {
+    if (Object.is(next.gameContext[field], value)) return;
+    next = { ...next, gameContext: { ...next.gameContext, [field]: value } };
   };
   const updatePlayer = (playerId, updater) => {
     const index = playerIndexes.get(String(playerId));
@@ -288,13 +283,13 @@ export function applyLocalRecorderUpdates(state, updates) {
     if (update.class === 'W3GameTime' && hasCapability(next, 'match') && Number.isFinite(Number(update.value))) {
       updateMatch('gameTime', Number(update.value));
     } else if (update.class === 'W3ChatbarState') {
-      updateMisc('chatbarOpen', Number(update.value) === 1);
+      updateContext('chatbarOpen', Number(update.value) === 1);
     } else if (update.class === 'W3HudScale') {
       const hudScale = normalizedHudScale(update.value);
-      if (hudScale !== null) updateMisc('hudScale', hudScale);
+      if (hudScale !== null) updateContext('hudScale', hudScale);
     } else if (update.class === 'W3TeamColor') {
       const value = Number(update.value);
-      if (value === 0 || value === 1) updateMisc('teamColors', value === 1);
+      if (value === 0 || value === 1) updateContext('teamColors', value === 1);
     } else if (update.class === 'W3Resource' && hasCapability(next, 'resources')) {
       const resource = localResourceName(update.type);
       const value = Number(update.value);

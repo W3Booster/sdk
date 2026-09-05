@@ -49,8 +49,6 @@ export interface DefinedApplication<
   TScopes extends readonly Scope[]
 > extends ApplicationDefinition<TSettings, TScopes> {
   open<TOverlayExtensions extends object = object>(...args: ApplicationConnectArguments<TSettings, TScopes, TOverlayExtensions>): Promise<W3BoosterClient<DeepPartial<TSettings>, TOverlayExtensions>>;
-  /** @deprecated Use `open()` for transport-only startup or `start()` for synchronized state. */
-  connect<TOverlayExtensions extends object = object>(...args: ApplicationConnectArguments<TSettings, TScopes, TOverlayExtensions>): Promise<W3BoosterClient<DeepPartial<TSettings>, TOverlayExtensions>>;
   createClient<TOverlayExtensions extends object = object>(...args: ApplicationConnectArguments<TSettings, TScopes, TOverlayExtensions>): W3BoosterClient<DeepPartial<TSettings>, TOverlayExtensions>;
   start<TOverlayExtensions extends object = object>(
     ...args: TOverlayExtensions extends OverlayExtensionsInput<TOverlayExtensions>

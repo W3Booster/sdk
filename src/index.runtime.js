@@ -62,9 +62,6 @@ export async function openClient(options) {
   }
 }
 
-/** @deprecated Use openClient() for transport-only startup or startClient() for synchronized state. */
-export function connect(options) { return openClient(options); }
-
 /** Create a client and wait for the frontend lifecycle milestone requested by startup options. */
 export async function startClient(options, startup = {}) {
   const client = createClient(options);
@@ -165,8 +162,6 @@ export class W3BoosterClient {
   }
 
   get status() { return this.#runtime._status; }
-
-  connect(options = {}) { return this.open(options); }
 
   async open(options = {}) {
     if (!isPlainObject(options)) throw new TypeError('open options must be an object');
@@ -646,7 +641,6 @@ export class W3BoosterClient {
       isSynchronized: this.#state.isSynchronized
     });
     this.#events.emit('issue', issue);
-    this.#events.emit('error', error);
   }
 
   #setStatus(status, error) {
@@ -729,8 +723,6 @@ function createHostFacade(host) {
     subscribeCapabilities: (listener, options) => host.subscribeCapabilities(listener, options),
     openWindow: (windowOptions, actionOptions) => host.openWindow(windowOptions, actionOptions),
     closeWindow: options => host.closeWindow(options),
-    changeMatchScore: (side, delta, options) => host.changeMatchScore(side, delta, options),
-    resetMatchScore: options => host.resetMatchScore(options),
     command: (command, payload, options) => host.command(command, payload, options),
     setSetting: (path, value, options) => host.setSetting(path, value, options),
     startAutoResize: () => host.startAutoResize(),
@@ -851,8 +843,8 @@ async function createTransportCandidates(options) {
       typeof Reflect.get(globalThis, 'WebSocket') === 'function') {
     const credentialProvider = createCredentialProvider(options);
     urls.forEach((url, index) => {
-      const name = url === (options.localApi || DEFAULT_LOCAL_API) ? 'local'
-        : (url === (options.cloudApi || DEFAULT_CLOUD_API) ? 'cloud' : `backend-${index + 1}`);
+      const name = url === DEFAULT_LOCAL_API ? 'local'
+        : (url === DEFAULT_CLOUD_API ? 'cloud' : `backend-${index + 1}`);
       candidates.push(createBrokerTransport(name, url, credentialProvider, options.reconnect));
     });
   }
@@ -873,41 +865,10 @@ function isRecoverableStreamProtocolError(error) {
   return !['UNSUPPORTED_PROTOCOL', 'APPLICATION_MISMATCH'].includes(error.code);
 }
 
-/** Remove platform control-plane and legacy fields before state reaches applications. */
+/** Recorder discovery is consumed privately and never delivered to applications. */
 function publicApplicationState(state) {
-  const overlay = state?.overlay;
-  const legacyRuntime = overlay?.misc ?? {};
-  const modernRuntime = overlay?.runtime ?? {};
-  const runtimeValue = key => modernRuntime[key] === undefined ? legacyRuntime[key] : modernRuntime[key];
-  const context = { hudScale: 1 };
-  for (const key of ['chatbarOpen', 'hudScale', 'teamColors']) {
-    const value = state.gameContext?.[key] ?? runtimeValue(key);
-    if (value !== undefined) context[key] = value;
-  }
-  // gameContext is an allowlist, never a copy of transport or app-owned data.
-  if (!overlay) return { ...state, gameContext: context };
-  const publicRuntime = {};
-  for (const key of ['chatbarOpen', 'hudScale', 'teamColors']) {
-    const value = state.gameContext?.[key] ?? runtimeValue(key);
-    if (value !== undefined) publicRuntime[key] = value;
-  }
-  const matchScore = runtimeValue('matchScore');
-  if (matchScore !== undefined) {
-    publicRuntime.matchScore = matchScore;
-  } else {
-    const wins = Number(runtimeValue('matchscoreWins'));
-    const losses = Number(runtimeValue('matchscoreLosses'));
-    if (Number.isFinite(wins) || Number.isFinite(losses)) {
-    publicRuntime.matchScore = Object.freeze({
-      wins: Number.isFinite(wins) ? wins : 0,
-      losses: Number.isFinite(losses) ? losses : 0
-    });
-    }
-  }
-  const publicOverlay = { ...overlay, runtime: publicRuntime };
-  delete publicOverlay.misc;
-  delete publicOverlay.settings;
-  return { ...state, gameContext: context, overlay: publicOverlay };
+  const { transport, ...publicState } = state;
+  return publicState;
 }
 
 /** Preserve application-visible overlay branches when only hidden platform data changed. */
@@ -920,9 +881,6 @@ function preservePublicOverlayIdentity(previousState, nextState) {
   if (!previousOverlay || !nextOverlay || previousOverlay === nextOverlay) return nextState;
 
   let overlay = nextOverlay;
-  if (previousOverlay.runtime !== nextOverlay.runtime && deepEqual(previousOverlay.runtime, nextOverlay.runtime)) {
-    overlay = { ...nextOverlay, runtime: previousOverlay.runtime };
-  }
   if (deepEqual(previousOverlay, overlay)) overlay = previousOverlay;
   return overlay === nextOverlay ? nextState : { ...nextState, overlay };
 }

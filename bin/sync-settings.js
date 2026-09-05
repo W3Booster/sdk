@@ -110,18 +110,7 @@ async function synchronize({ requestedClientId, output: requestedOutput, check, 
     throw new Error(`The existing project binding belongs to ${knownClientId}, not ${requestedClientId}.`);
   }
 
-  let result;
-  try {
-    result = await fetchDefinition(clientId, endpoint);
-  } catch (error) {
-    if (!check && metadata.clientId === clientId) {
-      console.warn(`Could not refresh W3Booster settings (${error instanceof Error ? error.message : String(error)}). Using the checked-in binding at revision ${metadata.revision || 'unknown'}.`);
-      return;
-    }
-    throw error;
-  }
-
-  const definition = result;
+  const definition = await fetchDefinition(clientId, endpoint);
   if (definition.clientId !== clientId) throw new Error(`Application definition belongs to ${definition.clientId}, not ${clientId}.`);
   const extension = extname(outputPath).toLowerCase();
   const format = ['.js', '.mjs', '.jsx'].includes(extension) ? 'javascript' : 'typescript';

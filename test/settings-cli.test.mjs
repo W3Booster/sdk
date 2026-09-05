@@ -147,7 +147,7 @@ test('settings CLI installs package-manager-neutral lifecycle hooks only when ex
   }
 });
 
-test('ordinary development uses a checked-in binding while offline but strict checks fail', async () => {
+test('failed refreshes reject and preserve the checked-in binding', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'w3booster-settings-'));
   const outputPath = join(directory, 'generated.ts');
   const server = definitionServer();
@@ -156,8 +156,12 @@ test('ordinary development uses a checked-in binding while offline but strict ch
     await run(process.execPath, ['bin/sync-settings.js', 'app_cli', '--endpoint', endpoint, '--output', outputPath]);
     await close(server);
 
-    const fallback = await run(process.execPath, ['bin/sync-settings.js', '--endpoint', endpoint, '--output', outputPath]);
-    assert.match(fallback.stderr, /Using the checked-in binding/);
+    const before = await readFile(outputPath, 'utf8');
+    await assert.rejects(
+      run(process.execPath, ['bin/sync-settings.js', '--endpoint', endpoint, '--output', outputPath]),
+      /Could not reach the app definition endpoint/
+    );
+    assert.equal(await readFile(outputPath, 'utf8'), before);
     await assert.rejects(
       run(process.execPath, ['bin/sync-settings.js', '--endpoint', endpoint, '--output', outputPath, '--check']),
       /Could not reach the app definition endpoint/

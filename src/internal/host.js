@@ -5,7 +5,7 @@ import { assertSafeValue, deepFreeze, structuredCloneSafe } from './values.js';
 const HOST_ACTION_TIMEOUT = 10000;
 const HOST_CONTEXT_LIFETIME = 12 * 60 * 60 * 1000;
 const HOST_CAPABILITIES = new Set([
-  'window:open', 'window:close', 'match-score:write', 'settings:write', 'resize:report', 'command'
+  'window:open', 'window:close', 'settings:write', 'resize:report', 'command'
 ]);
 export const UNAVAILABLE_HOST_SNAPSHOT = Object.freeze({
   available: false,
@@ -108,16 +108,6 @@ export class W3BoosterHost {
   }
   closeWindow(options = {}) {
     return this.#requestMessage('host.close-window', {}, 'closing the application window', options).then(() => undefined);
-  }
-
-  changeMatchScore(side, delta, options = {}) {
-    if (!['wins', 'losses'].includes(side)) throw new TypeError('side must be wins or losses');
-    if (![1, -1].includes(delta)) throw new TypeError('delta must be 1 or -1');
-    return this.command('overlay.match-score.change', { side, delta }, options).then(() => undefined);
-  }
-
-  resetMatchScore(options = {}) {
-    return this.command('overlay.match-score.reset', undefined, options).then(() => undefined);
   }
 
   command(command, payload, options = {}) {
@@ -233,21 +223,12 @@ export class W3BoosterHost {
     try {
       const result = await this.#request('host.capabilities.get', undefined, options);
       if (!this.authenticated) return this._capabilities;
-      if (result == null) {
-        this.#setCapabilityState([], 'legacy');
-        return this._capabilities;
-      }
       if (!Array.isArray(result?.capabilities)) throw new TypeError('The W3Booster host returned invalid capabilities.');
       this.#setCapabilityState(result.capabilities.filter(capability => HOST_CAPABILITIES.has(capability)), 'known');
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') throw error;
       if (this.authenticated) {
-        // Older hosts either acknowledge unknown generic commands without a
-        // value or reject them explicitly. Other failures must not enable UI.
-        const status = error instanceof HostActionError && error.code === 'UNKNOWN_COMMAND'
-          ? 'legacy'
-          : 'unavailable';
-        this.#setCapabilityState([], status);
+        this.#setCapabilityState([], 'unavailable');
       }
       if (!tolerateFailure) throw error;
     }
@@ -376,8 +357,7 @@ export class W3BoosterHost {
 
 export function canUseHostCapability(snapshot, capability) {
   if (!HOST_CAPABILITIES.has(capability)) throw new TypeError(`Unknown W3Booster host capability: ${String(capability)}`);
-  if (!snapshot?.available || snapshot.capabilityStatus === 'pending' || snapshot.capabilityStatus === 'unavailable') return false;
-  return snapshot.capabilityStatus === 'legacy' || snapshot.capabilities?.includes(capability) === true;
+  return snapshot?.available === true && snapshot.capabilityStatus === 'known' && snapshot.capabilities?.includes(capability) === true;
 }
 
 function validateOpenWindowOptions(options) {

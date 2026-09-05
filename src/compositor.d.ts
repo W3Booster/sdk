@@ -13,8 +13,6 @@ export interface OverlayCompositionOptions {
   backend?: 'auto' | 'local' | 'cloud';
   /** Explicit platform API origin. Prefer `backend` for standard local/cloud selection. */
   backendUrl?: string;
-  localApi?: string;
-  cloudApi?: string;
   /** Supplies the current compositor credential for each authorization attempt. */
   tokenProvider?: () => string | null | Promise<string | null>;
   /** Stable credentials from the user's W3Booster browser-source URL. */
@@ -29,6 +27,9 @@ export interface OverlayCompositionApp {
   name: string;
   url: string;
   development?: boolean;
+  launchKey: string;
+  expiresAt: string;
+  colorScheme: 'normal' | 'light' | 'dark';
 }
 
 export interface OverlayCompositionWatcher { close(): void }

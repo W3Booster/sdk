@@ -5,8 +5,7 @@ const KNOWN_SCOPES = new Set([
   'heroes:read',
   'upgrades:read',
   'resources:read',
-  'controlgroups:read',
-  'overlay:read'
+  'controlgroups:read'
 ]);
 
 export function isKnownScope(value) {

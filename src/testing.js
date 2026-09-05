@@ -20,7 +20,7 @@ export function createDemoTransport(options = {}) {
           development: true
         };
       }
-      context.onMessage({ version: PROTOCOL_VERSION, sequence: ++sequence, type: 'state.snapshot', data: platformState(state) });
+      context.onMessage({ version: PROTOCOL_VERSION, sequence: ++sequence, type: 'state.snapshot', data: clone(state) });
       if (interval === 0) return;
       timer = setInterval(() => {
         state.match.gameTime += 1;
@@ -29,7 +29,7 @@ export function createDemoTransport(options = {}) {
           const resources = state.players[index]?.resources;
           if (resources && Number.isFinite(resources.gold)) resources.gold += gold;
         });
-        context.onMessage({ version: PROTOCOL_VERSION, sequence: ++sequence, type: 'state.snapshot', data: platformState(state) });
+        context.onMessage({ version: PROTOCOL_VERSION, sequence: ++sequence, type: 'state.snapshot', data: clone(state) });
       }, interval);
     },
     close() { clearInterval(timer); },
@@ -50,7 +50,7 @@ export function createDemoState(options = {}) {
     }
   }
   const state = {
-    capabilities: ['match', 'players', 'stats', 'heroes', 'upgrades', 'resources', 'controlgroups', 'overlay'],
+    capabilities: ['match', 'players', 'stats', 'heroes', 'upgrades', 'resources', 'controlgroups'],
     match: {
       id: 'demo-match', status: /** @type {import('./index.js').MatchStatus} */ ('running'), gameTime: 0, mode: '1v1', map: 'Echo Isles', realm: 'W3Champions',
       broadcasterPlayerId: '0', realBroadcasterPlayerId: '0', isObserver: false, isReplay: false, isReforged: true
@@ -86,10 +86,8 @@ export function createDemoState(options = {}) {
         upgrades: { upgrades: [], active: [], researching: [] }
       }
     ],
-    overlay: {
-      ...clone(overlayExtensions),
-      runtime: { hudScale: 1, chatbarOpen: false, matchScore: { wins: 0, losses: 0 }, teamColors: true }
-    }
+    gameContext: { hudScale: 1, chatbarOpen: false, teamColors: true },
+    overlay: clone(overlayExtensions)
   };
   if (options.clientId) {
     state.application = {
@@ -100,21 +98,4 @@ export function createDemoState(options = {}) {
     };
   }
   return state;
-}
-
-function platformState(state) {
-  const snapshot = clone(state);
-  if (!snapshot.overlay?.runtime) return snapshot;
-  const runtime = snapshot.overlay.runtime;
-  const matchScore = runtime.matchScore;
-  snapshot.overlay = {
-    ...snapshot.overlay,
-    misc: {
-      ...runtime,
-      ...(matchScore ? { matchscoreWins: matchScore.wins, matchscoreLosses: matchScore.losses } : {})
-    }
-  };
-  delete snapshot.overlay.runtime;
-  delete snapshot.overlay.misc.matchScore;
-  return snapshot;
 }

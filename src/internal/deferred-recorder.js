@@ -58,6 +58,6 @@ function isEligible(state) {
   const match = state?.match;
   const active = match?.status === 'starting' || match?.status === 'running';
   const observerOrReplay = match?.isObserver === true || match?.isReplay === true;
-  return active && observerOrReplay && Array.isArray(state?.overlay?.misc?.localServerUrls) &&
-    state.overlay.misc.localServerUrls.length > 0;
+  return active && observerOrReplay && Array.isArray(state?.transport?.recorderUrls) &&
+    state.transport.recorderUrls.length > 0;
 }

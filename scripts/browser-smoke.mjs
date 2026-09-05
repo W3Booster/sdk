@@ -7,13 +7,13 @@ import { chromium, firefox, webkit } from 'playwright';
 const repository = dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
 const html = `<!doctype html>
 <html><body data-result="pending"><script type="module">
-  import { connect, createClient } from '/src/index.js';
+  import { openClient, createClient } from '/src/index.js';
   try {
     const unrelated = createClient({ clientId: 'browser_review' });
     if (unrelated.host.available) throw new Error('unrelated top-level page was treated as a host');
 
     const lifetime = new AbortController();
-    const client = await connect({ clientId: 'browser_review', demo: true, signal: lifetime.signal });
+    const client = await openClient({ clientId: 'browser_review', demo: true, signal: lifetime.signal });
     const state = await client.whenReady({ signal: lifetime.signal });
     if (state.match.id !== 'demo-match') throw new Error('demo state was not hydrated');
 

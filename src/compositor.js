@@ -176,6 +176,9 @@ function validateCompositionApps(body) {
     if (!isPlainObject(app) || typeof app.appId !== 'string' || !app.appId ||
         typeof app.clientId !== 'string' || !app.clientId || typeof app.name !== 'string' ||
         typeof app.url !== 'string' || !app.url ||
+        typeof app.launchKey !== 'string' || !app.launchKey ||
+        typeof app.expiresAt !== 'string' || !Number.isFinite(Date.parse(app.expiresAt)) ||
+        !['normal', 'light', 'dark'].includes(app.colorScheme) ||
         (app.development !== undefined && typeof app.development !== 'boolean')) {
       throw new ProtocolError('INVALID_RESPONSE', `Overlay composition app ${index} is invalid.`);
     }

@@ -11,9 +11,6 @@ import {
   heroInventory,
   inventorySlotIdentity,
   isActiveMatch,
-  matchScore,
-  matchScoreOrZero,
-  overlayRuntime,
   playerHeroes,
   playerDisplayIdentity,
   playerResources,
@@ -110,16 +107,10 @@ test('selectors expose canonical inventory and preserve non-BattleTag hashes', (
   assert.equal(battleTagName('W3Pad#1234'), 'W3Pad');
   assert.equal(battleTagName('Team#EU'), 'Team#EU');
   assert.equal(battleTagName(undefined), undefined);
-  assert.equal(overlayRuntime(undefined), overlayRuntime({}));
   assert.equal(playerHeroes(undefined), playerHeroes({}));
   assert.equal(playerResources(undefined), undefined);
   assert.equal(playerResourcesOrZero(undefined), playerResourcesOrZero({}));
   assert.deepEqual(playerResourcesOrZero(undefined), { gold: 0, lumber: 0, supply: 0, supplyCap: 0, workerSupply: 0 });
-  assert.equal(matchScore(undefined), undefined);
-  assert.equal(matchScoreOrZero(undefined), matchScoreOrZero({}));
-  assert.deepEqual(matchScoreOrZero(undefined), { wins: 0, losses: 0 });
-  const runtime = { overlay: { runtime: { matchScore: { wins: 2, losses: 1 } } } };
-  assert.equal(matchScore(runtime), runtime.overlay.runtime.matchScore);
   assert.equal(inventorySlotIdentity(0, 'ratf'), '0:ratf');
   assert.equal(upgradeIdentity({ name: 'Rhme', level: 2 }), 'Rhme:2');
   assert.throws(() => inventorySlotIdentity(-1, 'ratf'), /non-negative integer/);

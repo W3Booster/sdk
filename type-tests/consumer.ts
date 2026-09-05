@@ -1,19 +1,18 @@
 import type {
   MatchState,
-  OverlayRuntimeState,
+  GameContext,
   Player,
   ProtocolEnvelope,
   Scope,
   StateStore,
   W3BoosterIssue
 } from '../src/index.js';
-import { canUseHostCapability, classifyW3BoosterError, connect, ConnectionError, createClient, openClient, PermissionRequiredError, ProtocolError, startClient, W3BoosterClient } from '../src/index.js';
+import { canUseHostCapability, classifyW3BoosterError, openClient, ConnectionError, createClient, PermissionRequiredError, ProtocolError, startClient, W3BoosterClient } from '../src/index.js';
 import { defineApplication } from '../src/app.js';
 import type { ApplicationRuntimeStartOptions } from '../src/app.js';
-import { broadcasterFirstTeams, broadcasterPlayer, currentUpgrades, groupPlayersByTeam, hasCapability, headToHeadPair, heroInventory, inventorySlotIdentity, matchScore, matchScoreOrZero, overlayRuntime as selectOverlayRuntime, playerDisplayIdentity, playerHeroes, playerResources, playerResourcesOrZero, upgradeIdentity } from '../src/selectors.js';
+import { broadcasterFirstTeams, broadcasterPlayer, currentUpgrades, groupPlayersByTeam, hasCapability, headToHeadPair, heroInventory, inventorySlotIdentity, gameContext as selectGameContext, playerDisplayIdentity, playerHeroes, playerResources, playerResourcesOrZero, upgradeIdentity } from '../src/selectors.js';
 import type { PlayerTeam } from '../src/selectors.js';
 import * as standardGame from '../src/standard-game.js';
-import * as standardGameObjects from '../src/standard-game-objects.js';
 import * as standardGameIcons from '../src/standard-game-icons.js';
 import * as standardGameCooldowns from '../src/standard-game-cooldowns.js';
 import { countryFlagUrl } from '../src/assets.js';
@@ -41,11 +40,11 @@ interface OrderedHistoryPlayer extends HistoryPlayer {
 }
 
 async function useSdk() {
-  // @ts-expect-error Public clients must go through connect/createClient so setup stays normalized.
+  // @ts-expect-error Public clients must go through openClient/createClient so setup stays normalized.
   new W3BoosterClient<ExampleSettings>('app_example');
   const abortController = new AbortController();
-  const client: W3BoosterClient<ExampleSettings> = await connect<ExampleSettings>('app_example');
-  const recorderClient = await connect<ExampleSettings>({ clientId: 'app_example', localRecorder: true, signal: abortController.signal, retry: true });
+  const client: W3BoosterClient<ExampleSettings> = await openClient<ExampleSettings>('app_example');
+  const recorderClient = await openClient<ExampleSettings>({ clientId: 'app_example', localRecorder: true, signal: abortController.signal, retry: true });
   await recorderClient.start({ until: 'synchronized', signal: abortController.signal });
   const state: MatchState<ExampleSettings> = await client.whenReady({ signal: abortController.signal });
   const synchronizedState: MatchState<ExampleSettings> = await client.whenSynchronized({ signal: abortController.signal });
@@ -53,9 +52,9 @@ async function useSdk() {
   const player: Player | null = client.state.player('0');
   const store: StateStore<ExampleSettings> = client.state;
   const scopes: Scope[] = ['match:read', 'players:read'];
-  const overlayRuntime: OverlayRuntimeState | undefined = state.overlay?.runtime;
-  const archmageIcon: string | undefined = standardGameObjects.getIcon('Hamg');
-  const archmageIconUrl: string | undefined = standardGameObjects.iconUrl('Hamg', { graphics: 'reforged' });
+  const context: GameContext = state.gameContext;
+  const archmageIcon: string | undefined = standardGameIcons.getIcon('Hamg');
+  const archmageIconUrl: string | undefined = standardGameIcons.iconUrl('Hamg', { graphics: 'reforged' });
   const specializedIconUrl: string | undefined = standardGameIcons.iconUrl('Hamg', { graphics: 'reforged' });
   const specializedCooldown: number | undefined = standardGameCooldowns.getAbilityCooldown('AHbz', 1);
   const germanFlagUrl: string | undefined = countryFlagUrl('DE');
@@ -84,18 +83,16 @@ async function useSdk() {
   const teams: readonly PlayerTeam[] = groupPlayersByTeam(state.players);
   const orderedTeams: readonly PlayerTeam[] = broadcasterFirstTeams(state.players, state.match);
   const inventory: readonly string[] = heroInventory(state.players[0]?.heroes?.[0]);
-  const stableRuntime: OverlayRuntimeState = selectOverlayRuntime(state);
-  const score: Readonly<{ wins: number; losses: number }> | undefined = matchScore(state);
-  const scoreOrZero: Readonly<{ wins: number; losses: number }> = matchScoreOrZero(state);
+  const stableRuntime: GameContext = selectGameContext(state);
   const resources: Readonly<import('../src/index.js').Resources> | undefined = playerResources(state.players[0]);
   const resourcesOrZero: Readonly<import('../src/index.js').Resources> = playerResourcesOrZero(state.players[0]);
   const heroes = playerHeroes(state.players[0]);
   const inventoryKey: string = inventorySlotIdentity(0, inventory[0]);
   const cooldown = state.players[0]?.heroes?.[0]?.abilities?.[0]
-    ? standardGameObjects.abilityCooldown(state.players[0].heroes[0].abilities[0], state.match.gameTime)
+    ? standardGameCooldowns.abilityCooldown(state.players[0].heroes[0].abilities[0], state.match.gameTime)
     : undefined;
-  const cooldowns = standardGameObjects.abilityCooldownsForState(state);
-  const heroIcon = standardGameObjects.heroIconUrl(state.players[0]?.heroes?.[0]);
+  const cooldowns = standardGameCooldowns.abilityCooldownsForState(state);
+  const heroIcon = standardGameIcons.heroIconUrl(state.players[0]?.heroes?.[0]);
   const current = currentUpgrades(state.players[0]);
   const upgradeKey: string | undefined = current[0] ? upgradeIdentity(current[0]) : undefined;
   const presentationColor: string = standardGame.presentationPlayerColor(state.players[0], state.match, state.players, stableRuntime);
@@ -139,7 +136,6 @@ async function useSdk() {
   client.host.setSetting('layout', 'wide');
   const savedSettings: Readonly<ExampleSettings> = await client.host.setSetting('labels.player', 'Player');
   const hostActionLifetime = new AbortController();
-  const scoreResult: void = await client.host.changeMatchScore('wins', 1, { signal: hostActionLifetime.signal });
   const windowResult: void = await client.host.openWindow({ path: '?view=compact' }, { timeout: 1000 });
   const commandResult: { accepted: boolean } = await client.host.command('example.command', { enabled: true }, {
     parse(value): { accepted: boolean } {
@@ -151,15 +147,14 @@ async function useSdk() {
   });
   const unknownCommandResult: unknown = await client.host.command('example.command');
   void unknownCommandResult;
-  // SDK 1 retains this deprecated source-compatible overload; new code should
-  // use the parser-backed call above so the acknowledgement is validated.
+  // @ts-expect-error Typed host results require a runtime parser.
   const legacyTypedCommandResult: { accepted: boolean } = await client.host.command<{ accepted: boolean }>(
     'example.command', { enabled: true }
   );
   void legacyTypedCommandResult;
   const hostCapabilities = await client.host.refreshCapabilities({ signal: hostActionLifetime.signal });
   const canOpenWindow: boolean = client.host.can('window:open');
-  const hostCapabilityStatus: 'unavailable' | 'pending' | 'known' | 'legacy' = client.host.capabilityStatus;
+  const hostCapabilityStatus: 'unavailable' | 'pending' | 'known' = client.host.capabilityStatus;
   const reactiveCanOpenWindow: boolean = canUseHostCapability(client.host.lifecycle.get(), 'window:open');
   client.host.lifecycle.subscribe(snapshot => console.log(snapshot.available, snapshot.capabilityStatus, snapshot.capabilities));
   // @ts-expect-error Setting values are checked against the application settings type.
@@ -173,10 +168,10 @@ async function useSdk() {
   const demoTransport: Transport = createDemoTransport<ExampleSettings>();
   const synchronousTransport: Transport = { name: 'synchronous', open() {} };
   const testingOptions: TestingConnectOptions<ExampleSettings> = { clientId: 'app_example', transport: demoTransport };
-  const testingClient = await connect(testingOptions);
+  const testingClient = await openClient(testingOptions);
   const readonlyScopes = ['match:read', 'players:read'] as const;
-  const scopedClient = await connect({ clientId: 'app_example', scopes: readonlyScopes });
-  const configuredDemo = await connect<ExampleSettings>({
+  const scopedClient = await openClient({ clientId: 'app_example', scopes: readonlyScopes });
+  const configuredDemo = await openClient<ExampleSettings>({
     clientId: 'app_example',
     demo: { settings: { layout: 'compact' }, surface: 'streamOverlay' }
   });
@@ -286,13 +281,13 @@ async function useSdk() {
   // @ts-expect-error Additive runtime fields do not hide misspelled public properties.
   state.match.gameTIme;
   // @ts-expect-error Overlay runtime fields retain spelling safety.
-  state.overlay?.runtime.hudScael;
+  state.gameContext.hudScael;
   const composition = await getOverlayComposition({ surface: 'streamOverlay' });
   const permissionError = new PermissionRequiredError('permission', 'https://w3booster.com/authorize');
   const connectionError = new ConnectionError('connection', [permissionError]);
   const protocolError = new ProtocolError('INVALID_TEST', 'protocol', { field: 'value' });
   const development: boolean | undefined = composition[0]?.development;
-  console.log(layout, player, store, scopes, message, synchronizedState, state ? store.isSynchronized : false, overlayRuntime?.hudScale, archmageIcon, archmageIconUrl, specializedIconUrl, specializedCooldown, heroIcon, germanFlagUrl, heroLevel, raceLocalizationKey, broadcaster, teams, orderedTeams, presentationTeams, orderedPlayers, orderedPair, scopedPair, inventory, stableRuntime, inventoryKey, current, upgradeKey, presentationColor, displayLevel, resourcesAvailable, resources, resourcesOrZero, score, scoreOrZero, fixture, cooldown, cooldowns, resolvedSettings, recorderClient.diagnostics.localTransport, testingOptions, testingClient, synchronousTransport, scopedClient, configuredDemo, explicitlyOpened, explicitlyStarted, extensionRound, invalidOverlay, groupedHistory, historyBroadcaster, historyIdentity, stableNames, statusStore.get(), statusSubscribable, composition, development, connectionError, protocolError, hostCapabilities, canOpenWindow, hostCapabilityStatus, scoreResult, windowResult, commandResult);
+  console.log(layout, player, store, scopes, message, synchronizedState, state ? store.isSynchronized : false, context.hudScale, archmageIcon, archmageIconUrl, specializedIconUrl, specializedCooldown, heroIcon, germanFlagUrl, heroLevel, raceLocalizationKey, broadcaster, teams, orderedTeams, presentationTeams, orderedPlayers, orderedPair, scopedPair, inventory, stableRuntime, inventoryKey, current, upgradeKey, presentationColor, displayLevel, resourcesAvailable, resources, resourcesOrZero, fixture, cooldown, cooldowns, resolvedSettings, recorderClient.diagnostics.localTransport, testingOptions, testingClient, synchronousTransport, scopedClient, configuredDemo, explicitlyOpened, explicitlyStarted, extensionRound, invalidOverlay, groupedHistory, historyBroadcaster, historyIdentity, stableNames, statusStore.get(), statusSubscribable, composition, development, connectionError, protocolError, hostCapabilities, canOpenWindow, hostCapabilityStatus, windowResult, commandResult);
 }
 
 void useSdk;

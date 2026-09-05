@@ -1,13 +1,11 @@
 export { hasCapability, isActiveMatch, isObserverOrReplayMatch } from './internal/domain.js';
 import { createImmutableSelector } from './internal/immutable-selector.js';
 
-const EMPTY_OVERLAY_RUNTIME = Object.freeze({});
 /** @type {readonly string[]} */
 const EMPTY_INVENTORY = Object.freeze([]);
 /** @type {readonly import('./contracts.js').Hero[]} */
 const EMPTY_HEROES = Object.freeze([]);
 const EMPTY_RESOURCES = Object.freeze({ gold: 0, lumber: 0, supply: 0, supplyCap: 0, workerSupply: 0 });
-const EMPTY_MATCH_SCORE = Object.freeze({ wins: 0, losses: 0 });
 
 const selectHeadToHeadPair = createImmutableSelector(players => players.length === 2
   ? Object.freeze([players[0], players[1]])
@@ -132,21 +130,6 @@ const EMPTY_GAME_CONTEXT = Object.freeze({ hudScale: 1 });
 /** Read shared game context; no scope or capability check is needed. */
 export function gameContext(state) {
   return state?.gameContext ?? EMPTY_GAME_CONTEXT;
-}
-
-/** Read legacy overlay runtime values through one stable empty fallback. */
-export function overlayRuntime(state) {
-  return state?.overlay?.runtime ?? EMPTY_OVERLAY_RUNTIME;
-}
-
-/** Read the normalized match score without collapsing unavailable overlay data into zeroes. */
-export function matchScore(state) {
-  return state?.overlay?.runtime?.matchScore;
-}
-
-/** Read the normalized match score with an explicit stable 0-0 presentation fallback. */
-export function matchScoreOrZero(state) {
-  return matchScore(state) ?? EMPTY_MATCH_SCORE;
 }
 
 /** Stable identity for one rendered inventory slot and its current contents. */

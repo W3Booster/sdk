@@ -4,8 +4,9 @@ export const CONNECTION_TIMEOUT = 5000;
 
 export function backendUrls(options = {}) {
   const backend = launchBackendHint() || options.backendUrl || options.backend || 'cloud';
-  const local = normalizeApiBase(options.localApi || DEFAULT_LOCAL_API, 'localApi');
-  const cloud = normalizeApiBase(options.cloudApi || DEFAULT_CLOUD_API, 'cloudApi');
+  if ('localApi' in options || 'cloudApi' in options) throw new TypeError('Use backend and backendUrl to select the platform API.');
+  const local = DEFAULT_LOCAL_API;
+  const cloud = DEFAULT_CLOUD_API;
   if (backend === 'local') return [local];
   if (backend === 'cloud') return [cloud];
   if (backend !== 'auto') return [normalizeApiBase(backend, 'backend')];

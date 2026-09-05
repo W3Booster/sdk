@@ -1,4 +1,4 @@
-import type { Hero, Match, OverlayRuntimeState, Player, PlayerStats, Race, ValuePool } from './index.js';
+import type { Hero, Match, GameContext, Player, PlayerStats, Race, ValuePool } from './index.js';
 import type { PlayerTeam, TeamAssignable } from './selectors.js';
 
 export interface StandardGameRaceMetadata {
@@ -69,6 +69,6 @@ export function presentationPlayerColor(
   player: Player | null | undefined,
   match: Pick<Match, 'broadcasterPlayerId' | 'isObserver'> | null | undefined,
   players: readonly Player[],
-  runtime?: Pick<OverlayRuntimeState, 'teamColors'>
+  gameContext?: Pick<GameContext, 'teamColors'>
 ): string;
 export function formatHeroLevelProgress(hero: Pick<Hero, 'level' | 'experience'> | null | undefined): string;

@@ -78,7 +78,7 @@ Platform integrations that explicitly provide a `tokenProvider` should return th
 
 ## State lifecycle
 
-`start()` and top-level `startClient()` are the canonical long-lived frontend entry points and resolve with synchronized state by default. `open()` and top-level `openClient()` explicitly stop at transport readiness. The older `connect()` names remain deprecated aliases for `open()` so existing applications keep working. Use `whenReady()` when work only needs any hydrated snapshot, including preserved state during reconnect. Use `whenSynchronized()` when rendering or an action must wait for a fresh snapshot from the current connection:
+`start()` and top-level `startClient()` are the canonical long-lived frontend entry points and resolve with synchronized state by default. `open()` and top-level `openClient()` explicitly stop at transport readiness. Use `whenReady()` when work only needs any hydrated snapshot, including preserved state during reconnect. Use `whenSynchronized()` when rendering or an action must wait for a fresh snapshot from the current connection:
 
 ```js
 const initialState = await client.whenReady(); // 10-second default timeout
@@ -106,7 +106,7 @@ await client.start({ signal });
 
 Generated application runtimes share transport opening, but each concurrent `runtime.start()` call keeps its own readiness milestone, timeout, and cancellation. Cancelling one runtime startup wait does not disconnect another caller or the runtime lifetime; call `runtime.stop()` for shared teardown.
 
-`client.lifecycle` publishes connection status, current state, freshness, and the current connection/synchronization error as one snapshot. Non-fatal recorder and consumer-listener problems—including listeners attached to a generated application runtime—are published as structured `issue` events without turning healthy match data into a connection failure. The legacy untyped `error` event mirrors issues for compatibility and is deprecated for new integrations. The lifecycle store is the preferred UI integration point when its values feed one view model. The narrower `state.subscribe()`, `subscribeStatus()`, and event APIs remain useful when a feature needs only one stream.
+`client.lifecycle` publishes connection status, current state, freshness, and the current connection/synchronization error as one snapshot. Non-fatal recorder and consumer-listener problems—including listeners attached to a generated application runtime—are published as structured `issue` events without turning healthy match data into a connection failure. The lifecycle store is the preferred UI integration point when its values feed one view model. The narrower `state.subscribe()`, `subscribeStatus()`, and event APIs remain useful when a feature needs only one stream.
 
 `client.state` is the authoritative source of current data:
 
@@ -204,11 +204,9 @@ optional `chatbarOpen`, and optional `teamColors`. Unknown boolean values stay
 absent. The SDK `gameContext(state)` selector also supplies a scale-1 fallback
 before hydration. These values do not require a data scope or plan.
 
-`overlay:read` is retired. It is accepted as a no-op for existing registered
-bindings, but new apps should omit it. `overlay.runtime` and `overlayRuntime()`
-remain deprecated aliases during migration; recorder URLs and legacy settings
-are removed before state reaches consumers. Transport discovery follows the
-actual granted live-data scopes, not an overlay permission.
+`overlay:read` and the old overlay runtime branches are removed. Use
+`gameContext` directly. Private recorder discovery follows actual live-data grants
+and is stripped before snapshots reach applications.
 
 Match Vision's wins/losses counter lives in `state.application.data.matchScore`.
 The API delivers it only to Match Vision, regardless of scopes. It is separate
@@ -242,9 +240,9 @@ Useful events include:
 - `hero.added`, `hero.changed`, `hero.removed`
 - `hero.inventory.changed`, `hero.abilities.changed`
 - `application.settings.changed`
-- `status`, `issue`, the deprecated compatibility `error`, and `stream.gap`
+- `status`, `issue`, `stream.gap`
 
-`on()` and `once()` return unsubscribe functions. Listener failures are isolated and forwarded to the structured `issue` event (and mirrored to deprecated `error` listeners) so one application callback cannot interrupt state delivery.
+`on()` and `once()` return unsubscribe functions. Listener failures are isolated and forwarded to the structured `issue` event so one application callback cannot interrupt state delivery.
 
 Event payloads are immutable and shared safely between listeners. Async listener promises are observed for rejection but do not delay or serialize later events; applications that require ordered asynchronous work should queue it explicitly inside the listener.
 
@@ -358,6 +356,39 @@ Use `client.subscribeMatchLifecycle()` when a feature needs both the match that 
 
 Only loopback and private-network socket addresses are accepted. Capabilities still control all exposed fields. Set `localRecorder: false` only when an application deliberately needs to disable this behavior. `client.diagnostics.localTransport` is `recorder-local` while it is active.
 
+### Finished match results
+
+A finished match can include an optional recorder-confirmed result:
+
+```ts
+// Inside your application runtime setup; runtime.signal owns the subscription.
+runtime.client.state.subscribe(state => {
+  const match = state?.match;
+  if (match?.status !== 'finished' || !match.result) return;
+  const { playerId, outcome } = match.result;
+  console.log(match.id, playerId, outcome); // outcome: 'won' | 'lost'
+}, { signal: runtime.signal });
+```
+
+`match.result` requires `match:read`, with no additional scope or plan gate.
+`playerId` identifies the actual local player within that match; joining its player
+record requires `players:read`. The field is absent for unknown results, observer
+games and replays. It is not a full winner/loser list or the result of an observer's
+selected player. Missing data must never be interpreted as a loss.
+
+The outcome can arrive after the first finished snapshot and `match.ended` event,
+so result consumers must also observe state hydration. The platform retains the
+current terminal match until the next match starts, including across reconnects;
+it does not provide a historical result log. `match.endedAt` is the platform's
+completion timestamp when supplied; `observedAt` is a client observation time.
+
+Display updates can run repeatedly. Persistent scoring requires app-owned rules
+and atomic deduplication by match ID, including across windows, reloads and retries.
+The SDK does not choose exclusions, count session wins/losses, or reset scores.
+
+See the [developer guide](https://website.w3booster.com/developer/guides/#match-results)
+for a complete display example.
+
 ## Selectors
 
 Pure state helpers live in `@w3booster/sdk/selectors`:
@@ -412,7 +443,7 @@ const runtime = w3boosterApp.createRuntime<TournamentOverlay>();
 
 ## Warcraft III standard-game data
 
-Lightweight Warcraft III rules live in `@w3booster/sdk/standard-game`. Icon metadata and cooldown metadata use separate opt-in entry points so frontends pay only for the data they use. The backwards-compatible combined object table remains available from `@w3booster/sdk/standard-game/objects`:
+Lightweight Warcraft III rules live in `@w3booster/sdk/standard-game`. Icon metadata and cooldown metadata use separate opt-in entry points so frontends pay only for the data they use. Import only the dataset your application uses:
 
 ```js
 import * as standardGame from '@w3booster/sdk/standard-game';
@@ -469,8 +500,6 @@ Embedded surfaces can ask W3Booster to perform supported host actions:
 ```js
 await client.host.openWindow({ path: '?view=compact', width: 520, height: 620 });
 await client.host.closeWindow();
-await client.host.changeMatchScore('wins', 1);
-await client.host.resetMatchScore();
 const settings = await client.host.setSetting('observer.layout', 'wide');
 const accepted = await client.host.command('application.preview', undefined, {
   parse(value) {
@@ -486,11 +515,11 @@ Every asynchronous host method accepts action options at its final argument, so 
 
 ```js
 const feature = new AbortController();
-await client.host.changeMatchScore('wins', 1, { signal: feature.signal, timeout: 3000 });
+await client.host.openWindow({ path: '?view=compact' }, { signal: feature.signal, timeout: 3000 });
 feature.abort(); // cancels any later pending feature actions
 ```
 
-`client.host.available` becomes `true` after an authenticated connection inside a captured W3Booster application launch. Browser responses must come from the launch's embedding origin; Electron windows use the injected host bridge. Every action waits for a host acknowledgement and rejects when delivery, execution, cancellation, or timeout fails; use `void client.host.openWindow(...)` only when a view deliberately does not need to await it. Named window and score actions resolve with `void`. Generic `command()` results remain `unknown` unless a parser validates and transforms the host acknowledgement. A capability refresh starts automatically after authentication. `host.can(capability)` is a synchronous read for imperative code. Reactive UIs should subscribe to `host.lifecycle` and call `canUseHostCapability(snapshot, capability)`, or consume `snapshot.host` from a generated application runtime, so controls update when discovery completes. Both distinguish pending discovery and explicit unsupported actions while preserving compatibility with `legacy` hosts that cannot advertise capabilities. `host.capabilityStatus`, `capabilities`, `supports()`, and `subscribeCapabilities()` expose lower-level reads. Call `refreshCapabilities()` only when an explicit refresh is needed. Settings writes are serialized globally because parent and child paths may overlap; `setSetting()` resolves to the complete persisted settings. Embedded application surfaces automatically report their document height. Pass `autoResize: false` when an application deliberately manages its host height itself.
+`client.host.available` becomes `true` after an authenticated connection inside a captured W3Booster application launch. Browser responses must come from the launch's embedding origin; Electron windows use the injected host bridge. Every action waits for a host acknowledgement and rejects when delivery, execution, cancellation, or timeout fails; use `void client.host.openWindow(...)` only when a view deliberately does not need to await it. Named window actions resolve with `void`. Generic `command()` results remain `unknown` unless a parser validates and transforms the host acknowledgement. A capability refresh starts automatically after authentication. `host.can(capability)` is a synchronous read for imperative code. Reactive UIs should subscribe to `host.lifecycle` and call `canUseHostCapability(snapshot, capability)`, or consume `snapshot.host` from a generated application runtime, so controls update when discovery completes. Both require successful discovery and explicit advertised support; missing or invalid capability responses leave actions unavailable. `host.capabilityStatus`, `capabilities`, `supports()`, and `subscribeCapabilities()` expose lower-level reads. Call `refreshCapabilities()` only when an explicit refresh is needed. Settings writes are serialized globally because parent and child paths may overlap; `setSetting()` resolves to the complete persisted settings. Embedded application surfaces automatically report their document height. Pass `autoResize: false` when an application deliberately manages its host height itself.
 
 ## Settings definitions
 
@@ -596,7 +625,6 @@ const lifecycle$ = new Observable(subscriber => {
 
 - `@w3booster/sdk/assets` contains versioned URL helpers for shared hosted assets such as country flags.
 - `@w3booster/sdk/app` owns typed application bindings created from generated public metadata.
-- `@w3booster/sdk/standard-game/objects` contains the optional shipped object table, icon URLs, and ability-cooldown lookup.
 - `@w3booster/sdk/standard-game/icons` contains only standard-game icon metadata and URL resolvers.
 - `@w3booster/sdk/standard-game/cooldowns` contains only standard-game ability cooldown metadata and derivation.
 - `@w3booster/sdk/compositor` contains browser-source composition APIs used by W3Booster's platform compositor. Its watcher renews expired browser-source sessions and reauthorizes reconnects automatically. Returned child launch URLs require HTTPS except for exact loopback development hosts and may not contain URL user information, because their fragments can carry launch credentials. Ordinary applications do not import it.

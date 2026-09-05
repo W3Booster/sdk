@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.0.0
+
+- Added optional `Match.result: { playerId, outcome: 'won' | 'lost' }` for the recorder-confirmed local-player outcome, with protocol validation. The field uses `match:read` and remains absent for unknown results, observer games and replays.
+- Documented that results may arrive after the first finished snapshot, that terminal state can be hydrated again, and that applications own scoring rules and persistent match-ID deduplication.
+
+Breaking prerelease contract cleanup. Protocol 2 requires gameContext and moves
+private recorder discovery to transport.recorderUrls. Removed overlay:read, old
+overlay runtime/score aliases, connect aliases, the error event, localApi/cloudApi,
+unparsed generic host commands, match-score host primitives, and the combined
+standard-game/objects entry. Host capability discovery now fails closed. See
+COMPATIBILITY.md for replacements. Pre-v2 user-data migration remains supported.
+
+
 ## 1.1.0 - 2026-09-05
 
 - Added unconditional `state.gameContext` and the `gameContext()` selector for HUD scale, chat visibility, and team-color mode, including legacy snapshot normalization and recorder updates without `overlay:read`.

@@ -10,7 +10,6 @@ const entries = [
   ['compositor', 'Compositor'],
   ['testing', 'Testing'],
   ['react', 'React'],
-  ['standard-game-objects', 'StandardGameObjects'],
   ['standard-game-icons', 'StandardGameIcons'],
   ['standard-game-cooldowns', 'StandardGameCooldowns']
 ];

@@ -42,15 +42,10 @@ export function validateState(value, clientId, cloneState = true) {
   assertSafeValue(value, 'state');
   const state = cloneState ? structuredCloneSafe(value) : value;
   if (cloneState) normalizeMatchMap(state);
-  if (state.capabilities === undefined) state.capabilities = [];
   if (!Array.isArray(state.capabilities) || state.capabilities.some(item => typeof item !== 'string')) {
     throw new ProtocolError('INVALID_STATE', 'State capabilities must be an array of strings.');
   }
   if (!isPlainObject(state.match)) throw new ProtocolError('INVALID_STATE', 'State match is missing.');
-  state.match.id ??= '';
-  state.match.status ??= 'none';
-  state.match.gameTime ??= 0;
-  state.match.mode ??= 'undefined';
   if (typeof state.match.id !== 'string' || typeof state.match.status !== 'string' ||
       !Number.isSafeInteger(state.match.gameTime) || state.match.gameTime < 0 || typeof state.match.mode !== 'string') {
     throw new ProtocolError('INVALID_STATE', 'State match contains invalid core fields.');
@@ -69,7 +64,11 @@ export function validateState(value, clientId, cloneState = true) {
   if (state.match.endedAt !== undefined && !isIsoTimestamp(state.match.endedAt)) {
     throw new ProtocolError('INVALID_STATE', 'State match endedAt must be an ISO-8601 timestamp.');
   }
-  if (state.players === undefined) state.players = [];
+  if (state.match.result !== undefined && (!isPlainObject(state.match.result) ||
+      typeof state.match.result.playerId !== 'string' || !state.match.result.playerId.trim() ||
+      !['won', 'lost'].includes(state.match.result.outcome))) {
+    throw new ProtocolError('INVALID_STATE', 'State match result must identify a player and a won/lost outcome.');
+  }
   if (!Array.isArray(state.players)) throw new ProtocolError('INVALID_STATE', 'State players must be an array.');
   const playerIds = new Set();
   state.players.forEach((player, index) => {
@@ -106,38 +105,20 @@ export function validateState(value, clientId, cloneState = true) {
       throw new ProtocolError('INVALID_STATE', `Unknown application surface: ${state.application.surface}`);
     }
   }
-  if (state.gameContext !== undefined) {
-    if (!isPlainObject(state.gameContext)) throw new ProtocolError('INVALID_STATE', 'Game context must be an object.');
-    validateOptionalFields(state.gameContext, { hudScale: 'number', chatbarOpen: 'boolean', teamColors: 'boolean' }, 'Game context');
-    if (state.gameContext.hudScale !== undefined && (state.gameContext.hudScale < 0.5 || state.gameContext.hudScale > 1)) {
-      throw new ProtocolError('INVALID_STATE', 'Game context hudScale must be between 0.5 and 1.0.');
-    }
+  if (!isPlainObject(state.gameContext) || !Number.isFinite(state.gameContext.hudScale)) {
+    throw new ProtocolError('INVALID_STATE', 'Game context must contain a finite hudScale.');
   }
-  if (state.overlay !== undefined) {
-    if (!isPlainObject(state.overlay)) {
-      throw new ProtocolError('INVALID_STATE', 'Overlay state must contain a runtime object.');
-    }
-    const legacyRuntime = state.overlay.misc;
-    const modernRuntime = state.overlay.runtime;
-    if ((legacyRuntime !== undefined && !isPlainObject(legacyRuntime)) ||
-        (modernRuntime !== undefined && !isPlainObject(modernRuntime)) ||
-        (legacyRuntime === undefined && modernRuntime === undefined)) {
-      throw new ProtocolError('INVALID_STATE', 'Overlay state must contain a runtime object.');
-    }
-    const runtime = { ...(legacyRuntime ?? {}), ...(modernRuntime ?? {}) };
-    if (state.overlay.settings !== undefined && !isPlainObject(state.overlay.settings)) {
-      throw new ProtocolError('INVALID_STATE', 'Legacy overlay settings must be an object when present.');
-    }
-    validateOptionalFields(runtime, {
-      chatbarOpen: 'boolean', hudScale: 'number', matchscoreWins: 'number', matchscoreLosses: 'number', teamColors: 'boolean'
-    }, 'Overlay runtime state');
-    if (runtime.matchScore !== undefined && (!isPlainObject(runtime.matchScore) ||
-        !Number.isFinite(runtime.matchScore.wins) || !Number.isFinite(runtime.matchScore.losses))) {
-      throw new ProtocolError('INVALID_STATE', 'Overlay runtime matchScore must contain finite wins and losses.');
-    }
-    if (runtime.hudScale !== undefined && (runtime.hudScale < 0.5 || runtime.hudScale > 1)) {
-      throw new ProtocolError('INVALID_STATE', 'Overlay runtime state.hudScale must be between 0.5 and 1.0.');
-    }
+  validateOptionalFields(state.gameContext, { chatbarOpen: 'boolean', teamColors: 'boolean' }, 'Game context');
+  if (state.gameContext.hudScale < 0.5 || state.gameContext.hudScale > 1) {
+    throw new ProtocolError('INVALID_STATE', 'Game context hudScale must be between 0.5 and 1.0.');
+  }
+  if (state.overlay !== undefined && (!isPlainObject(state.overlay) ||
+      ['runtime', 'misc', 'settings'].some(key => key in state.overlay))) {
+    throw new ProtocolError('INVALID_STATE', 'Overlay extensions cannot contain retired runtime, misc, or settings branches.');
+  }
+  if (state.transport !== undefined && (!isPlainObject(state.transport) ||
+      !Array.isArray(state.transport.recorderUrls) || state.transport.recorderUrls.some(url => typeof url !== 'string'))) {
+    throw new ProtocolError('INVALID_STATE', 'Transport metadata must contain recorderUrls.');
   }
   return state;
 }

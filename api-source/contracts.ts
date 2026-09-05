@@ -24,10 +24,8 @@ export type Scope =
   | 'heroes:read'
   | 'upgrades:read'
   | 'resources:read'
-  | 'controlgroups:read'
-  /** @deprecated Game context is always delivered; retained for existing app bindings. */
-  | 'overlay:read';
-export type KnownCapability = 'match' | 'players' | 'stats' | 'heroes' | 'upgrades' | 'resources' | 'controlgroups' | 'overlay';
+  | 'controlgroups:read';
+export type KnownCapability = 'match' | 'players' | 'stats' | 'heroes' | 'upgrades' | 'resources' | 'controlgroups';
 export type Capability = KnownCapability | (string & {});
 export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'closed' | 'error';
 export type AppSurface = 'application' | 'streamOverlay' | 'ingameOverlay';
@@ -109,10 +107,6 @@ export interface ConnectOptions<
   backendUrl?: string;
   /** Supplies the current bearer credential for each broker ticket request, including reconnects. */
   tokenProvider?: () => string | null | Promise<string | null>;
-  /** @deprecated Use `backend` and `backendUrl`; retained for SDK 1 configuration compatibility. */
-  localApi?: string;
-  /** @deprecated Use `backend` and `backendUrl`; retained for SDK 1 configuration compatibility. */
-  cloudApi?: string;
   /** Prefer the recorder's low-latency observer/replay feed when the platform exposes one. Defaults to true. */
   localRecorder?: boolean;
   /** Automatically report embedded application height to W3Booster. Defaults to true. */
@@ -138,19 +132,6 @@ export interface GameContext {
   readonly chatbarOpen?: boolean;
   readonly teamColors?: boolean;
 }
-/** @deprecated Use gameContext. This branch remains a compatibility alias. */
-export interface OverlayRuntimeState {
-  readonly chatbarOpen?: boolean;
-  /** CSS scale multiplier normalized by W3Booster from 0.5 through 1.0. */
-  readonly hudScale?: number;
-  /** @deprecated App-owned scores belong in application.data; this legacy alias is app-restricted. */
-  readonly matchScore?: MatchScore;
-  readonly teamColors?: boolean;
-}
-export interface MatchScore {
-  readonly wins: number;
-  readonly losses: number;
-}
 export type OverlayExtensionReservedKey = 'runtime' | 'misc' | 'settings';
 /** Call-site constraint for JSON-compatible overlay extensions that cannot shadow SDK-owned branches. */
 export type OverlayExtensionsInput<TOverlayExtensions extends object> =
@@ -162,7 +143,7 @@ export type OverlayExtensionsInput<TOverlayExtensions extends object> =
 /** Extension branches are deeply immutable; normalization-owned overlay keys cannot be extensions. */
 export type OverlayState<TOverlayExtensions extends object = object> =
   TOverlayExtensions extends OverlayExtensionsInput<TOverlayExtensions>
-    ? DeepReadonly<TOverlayExtensions> & { readonly runtime: OverlayRuntimeState }
+    ? DeepReadonly<TOverlayExtensions>
     : never;
 export interface MatchState<
   TSettings extends object = JsonObject,
@@ -171,12 +152,14 @@ export interface MatchState<
   readonly capabilities: readonly Capability[];
   readonly match: Match;
   readonly players: readonly Player[];
-  /** Always supplied by the current SDK; optional here for legacy wire snapshots and fixtures. */
-  readonly gameContext?: GameContext;
+  /** Always delivered, including idle and scope-free state. */
+  readonly gameContext: GameContext;
   readonly overlay?: OverlayState<TOverlayExtensions>;
   readonly application?: ApplicationState<TSettings>;
 }
 export interface Match {
+    /** Recorder-confirmed outcome for the actual local player; absent when unknown, observing, or replaying. */
+    readonly result?: { readonly playerId: string; readonly outcome: 'won' | 'lost' };
   /** Stable match identity. Empty only while status is `none`. */
   readonly id: string;
   readonly status: MatchStatus;
@@ -316,8 +299,6 @@ export interface W3BoosterEventMap<TSettings extends object = JsonObject, TOverl
   'hero.abilities.changed': HeroEvent<TSettings, TOverlayExtensions> & { readonly abilities: readonly HeroAbility[]; readonly previousAbilities: readonly HeroAbility[] };
   'application.settings.changed': { readonly settings: DeepReadonly<TSettings> | undefined; readonly previousSettings: DeepReadonly<TSettings> | undefined; readonly application?: ApplicationState<TSettings>; readonly state: MatchState<TSettings, TOverlayExtensions> };
   status: ConnectionStatus;
-  /** @deprecated Use `issue` for structured diagnostics and `client.lifecycle.error` for connection/synchronization failures. */
-  error: unknown;
   issue: W3BoosterIssue;
   'stream.gap': { readonly expected: number; readonly received: number };
 }
@@ -410,8 +391,6 @@ export interface W3BoosterClient<TSettings extends object = JsonObject, TOverlay
   readonly status: ConnectionStatus;
   /** Open a transport. The optional signal cancels this connection attempt. */
   open(options?: { readonly signal?: AbortSignal }): Promise<this>;
-  /** @deprecated Use `open()` for transport-only startup or `start()` when synchronized state is required. */
-  connect(options?: { readonly signal?: AbortSignal }): Promise<this>;
   /** Connect and optionally wait for hydrated or synchronized state. The default synchronized wait has no timeout. */
   start(options?: StartupOptions): Promise<this>;
   whenReady(options?: ReadyOptions): Promise<MatchState<TSettings, TOverlayExtensions>>;
@@ -447,9 +426,8 @@ export interface HostCommandOptions<TResult> extends HostActionOptions {
   /** Validate and transform the untrusted host acknowledgement value. */
   readonly parse: (value: unknown) => TResult;
 }
-export type MatchScoreSide = 'wins' | 'losses';
-export type HostCapability = 'window:open' | 'window:close' | 'match-score:write' | 'settings:write' | 'resize:report' | 'command';
-export type HostCapabilityStatus = 'unavailable' | 'pending' | 'known' | 'legacy';
+export type HostCapability = 'window:open' | 'window:close' | 'settings:write' | 'resize:report' | 'command';
+export type HostCapabilityStatus = 'unavailable' | 'pending' | 'known';
 export interface HostLifecycleSnapshot {
   readonly available: boolean;
   readonly capabilities: readonly HostCapability[];
@@ -481,12 +459,12 @@ export interface W3BoosterHost<TSettings extends object = JsonObject> {
   readonly lifecycle: HostLifecycleStore;
   readonly available: boolean;
   readonly capabilities: readonly HostCapability[];
-  /** Discovery state. `legacy` means the host accepts actions but cannot advertise them. */
+  /** Discovery state; actions require an explicit advertised capability. */
   readonly capabilityStatus: HostCapabilityStatus;
   supports(capability: HostCapability): boolean;
-  /** Whether an action should currently be offered, including compatibility with legacy hosts. */
+  /** Whether an explicitly advertised action is currently available. */
   can(capability: HostCapability): boolean;
-  /** Ask the authenticated host to advertise supported actions. Older hosts transition to `legacy`. */
+  /** Ask the authenticated host to advertise supported actions. Invalid responses reject. */
   refreshCapabilities(options?: HostActionOptions): Promise<readonly HostCapability[]>;
   subscribeCapabilities(
     listener: (capabilities: readonly HostCapability[], status: HostCapabilityStatus) => void | Promise<void>,
@@ -494,11 +472,7 @@ export interface W3BoosterHost<TSettings extends object = JsonObject> {
   ): () => void;
   openWindow(options?: OpenWindowOptions, actionOptions?: HostActionOptions): Promise<void>;
   closeWindow(options?: HostActionOptions): Promise<void>;
-  changeMatchScore(side: MatchScoreSide, delta: 1 | -1, options?: HostActionOptions): Promise<void>;
-  resetMatchScore(options?: HostActionOptions): Promise<void>;
   command<TResult>(command: string, payload: JsonValue | undefined, options: HostCommandOptions<TResult>): Promise<TResult>;
-  /** @deprecated Supply `options.parse` to validate a typed acknowledgement. Retained for SDK 1 source compatibility. */
-  command<TResult>(command: string, payload?: JsonValue, options?: HostActionOptions): Promise<TResult>;
   command(command: string, payload?: JsonValue, options?: HostActionOptions): Promise<unknown>;
   /** Persist a setting and resolve only after the host confirms the saved settings. */
   setSetting<TPath extends SettingsPath<TSettings>>(path: TPath, value: SettingsPathValue<TSettings, TPath>, options?: HostActionOptions): Promise<DeepReadonly<TSettings>>;
@@ -554,12 +528,6 @@ export declare const W3BoosterClient: {
 
 /** Open a W3Booster transport without waiting for hydrated state. */
 export declare function openClient<
-  TSettings extends object = JsonObject,
-  TOverlayExtensions extends object = object
->(options: ClientOptionsInput<TSettings, TOverlayExtensions>): Promise<W3BoosterClient<TSettings, TOverlayExtensions>>;
-
-/** @deprecated Use openClient() for transport-only startup or startClient() for synchronized state. */
-export declare function connect<
   TSettings extends object = JsonObject,
   TOverlayExtensions extends object = object
 >(options: ClientOptionsInput<TSettings, TOverlayExtensions>): Promise<W3BoosterClient<TSettings, TOverlayExtensions>>;
