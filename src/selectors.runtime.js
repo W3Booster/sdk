@@ -128,7 +128,13 @@ export function playerResourcesOrZero(player) {
   return playerResources(player) ?? EMPTY_RESOURCES;
 }
 
-/** Read public overlay runtime values through one stable empty fallback. */
+const EMPTY_GAME_CONTEXT = Object.freeze({ hudScale: 1 });
+/** Read shared game context; no scope or capability check is needed. */
+export function gameContext(state) {
+  return state?.gameContext ?? EMPTY_GAME_CONTEXT;
+}
+
+/** Read legacy overlay runtime values through one stable empty fallback. */
 export function overlayRuntime(state) {
   return state?.overlay?.runtime ?? EMPTY_OVERLAY_RUNTIME;
 }

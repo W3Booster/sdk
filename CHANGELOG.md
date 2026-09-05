@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.0 - 2026-09-05
+
+- Added unconditional `state.gameContext` and the `gameContext()` selector for HUD scale, chat visibility, and team-color mode, including legacy snapshot normalization and recorder updates without `overlay:read`.
+- Added app-owned `application.data`; Match Vision receives its score there. Deprecated the generic overlay runtime and score helpers while retaining compatibility aliases for existing consumers.
+- Retained `overlay:read` as a deprecated, unnecessary scope for existing app bindings. Data grants such as `resources:read` still control access to their respective data.
+
 ## 1.0.3 - 2026-09-04
 
 - Added a runnable public starter and first-app/tutorial/reference links on the prerelease documentation host.

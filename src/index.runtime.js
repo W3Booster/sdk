@@ -876,13 +876,19 @@ function isRecoverableStreamProtocolError(error) {
 /** Remove platform control-plane and legacy fields before state reaches applications. */
 function publicApplicationState(state) {
   const overlay = state?.overlay;
-  if (!overlay) return state;
-  const legacyRuntime = overlay.misc ?? {};
-  const modernRuntime = overlay.runtime ?? {};
+  const legacyRuntime = overlay?.misc ?? {};
+  const modernRuntime = overlay?.runtime ?? {};
   const runtimeValue = key => modernRuntime[key] === undefined ? legacyRuntime[key] : modernRuntime[key];
+  const context = { hudScale: 1 };
+  for (const key of ['chatbarOpen', 'hudScale', 'teamColors']) {
+    const value = state.gameContext?.[key] ?? runtimeValue(key);
+    if (value !== undefined) context[key] = value;
+  }
+  // gameContext is an allowlist, never a copy of transport or app-owned data.
+  if (!overlay) return { ...state, gameContext: context };
   const publicRuntime = {};
   for (const key of ['chatbarOpen', 'hudScale', 'teamColors']) {
-    const value = runtimeValue(key);
+    const value = state.gameContext?.[key] ?? runtimeValue(key);
     if (value !== undefined) publicRuntime[key] = value;
   }
   const matchScore = runtimeValue('matchScore');
@@ -901,11 +907,14 @@ function publicApplicationState(state) {
   const publicOverlay = { ...overlay, runtime: publicRuntime };
   delete publicOverlay.misc;
   delete publicOverlay.settings;
-  return { ...state, overlay: publicOverlay };
+  return { ...state, gameContext: context, overlay: publicOverlay };
 }
 
 /** Preserve application-visible overlay branches when only hidden platform data changed. */
 function preservePublicOverlayIdentity(previousState, nextState) {
+  if (previousState?.gameContext && deepEqual(previousState.gameContext, nextState.gameContext)) {
+    nextState = { ...nextState, gameContext: previousState.gameContext };
+  }
   const previousOverlay = previousState?.overlay;
   const nextOverlay = nextState?.overlay;
   if (!previousOverlay || !nextOverlay || previousOverlay === nextOverlay) return nextState;

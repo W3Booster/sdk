@@ -1,4 +1,4 @@
-import type { ActiveUpgrade, Capability, Hero, Match, MatchScore, MatchState, OverlayRuntimeState, Player, Resources } from './index.js';
+import type { ActiveUpgrade, Capability, GameContext, Hero, Match, MatchScore, MatchState, OverlayRuntimeState, Player, Resources } from './index.js';
 
 export function isActiveMatch(match: Pick<Match, 'status'> | null | undefined): boolean;
 export function isObserverOrReplayMatch(match: Pick<Match, 'isObserver' | 'isReplay'> | null | undefined): boolean;
@@ -44,12 +44,17 @@ export function heroInventory(hero: Pick<Hero, 'inventory'> | null | undefined):
 export function playerHeroes(player: Pick<Player, 'heroes'> | null | undefined): readonly Hero[];
 export function playerResources(player: Pick<Player, 'resources'> | null | undefined): Readonly<Resources> | undefined;
 export function playerResourcesOrZero(player: Pick<Player, 'resources'> | null | undefined): Readonly<Resources>;
+/** Shared game context with a stable scale-1 fallback before hydration. No scope required. */
+export function gameContext<TSettings extends object>(state: Pick<MatchState<TSettings>, 'gameContext'> | null | undefined): GameContext;
+/** @deprecated Use gameContext(). */
 export function overlayRuntime<TSettings extends object>(
   state: Pick<MatchState<TSettings>, 'overlay'> | null | undefined
 ): OverlayRuntimeState;
+/** @deprecated App-owned scores belong in application.data. Kept for released consumers. */
 export function matchScore<TSettings extends object>(
   state: Pick<MatchState<TSettings>, 'overlay'> | null | undefined
 ): MatchScore | undefined;
+/** @deprecated App-owned scores belong in application.data. */
 export function matchScoreOrZero<TSettings extends object>(
   state: Pick<MatchState<TSettings>, 'overlay'> | null | undefined
 ): MatchScore;

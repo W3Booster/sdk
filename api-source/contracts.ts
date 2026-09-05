@@ -25,6 +25,7 @@ export type Scope =
   | 'upgrades:read'
   | 'resources:read'
   | 'controlgroups:read'
+  /** @deprecated Game context is always delivered; retained for existing app bindings. */
   | 'overlay:read';
 export type KnownCapability = 'match' | 'players' | 'stats' | 'heroes' | 'upgrades' | 'resources' | 'controlgroups' | 'overlay';
 export type Capability = KnownCapability | (string & {});
@@ -125,14 +126,24 @@ export interface ConnectOptions<
 export interface ApplicationState<TSettings extends object = JsonObject> {
   readonly clientId: string;
   readonly settings: DeepReadonly<JsonCompatible<TSettings>>;
+  /** Read-only runtime data belonging to this application, separate from saved settings. */
+  readonly data?: DeepReadonly<JsonObject>;
   readonly surface?: AppSurface;
   readonly development?: boolean;
 }
-/** Runtime information produced by the recorder for overlay-capable apps. */
+/** Shared game context, delivered without a scope to every authorized application. */
+export interface GameContext {
+  /** CSS scale multiplier from 0.5 to 1.0. Defaults to 1 when no measurement is available. */
+  readonly hudScale: number;
+  readonly chatbarOpen?: boolean;
+  readonly teamColors?: boolean;
+}
+/** @deprecated Use gameContext. This branch remains a compatibility alias. */
 export interface OverlayRuntimeState {
   readonly chatbarOpen?: boolean;
   /** CSS scale multiplier normalized by W3Booster from 0.5 through 1.0. */
   readonly hudScale?: number;
+  /** @deprecated App-owned scores belong in application.data; this legacy alias is app-restricted. */
   readonly matchScore?: MatchScore;
   readonly teamColors?: boolean;
 }
@@ -160,6 +171,8 @@ export interface MatchState<
   readonly capabilities: readonly Capability[];
   readonly match: Match;
   readonly players: readonly Player[];
+  /** Always supplied by the current SDK; optional here for legacy wire snapshots and fixtures. */
+  readonly gameContext?: GameContext;
   readonly overlay?: OverlayState<TOverlayExtensions>;
   readonly application?: ApplicationState<TSettings>;
 }

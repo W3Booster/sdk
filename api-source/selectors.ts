@@ -19,8 +19,13 @@ export const heroInventory: typeof Contract.heroInventory = runtime.heroInventor
 export const playerHeroes: typeof Contract.playerHeroes = runtime.playerHeroes;
 export const playerResources: typeof Contract.playerResources = runtime.playerResources;
 export const playerResourcesOrZero: typeof Contract.playerResourcesOrZero = runtime.playerResourcesOrZero;
+/** Shared game context with a stable scale-1 fallback before hydration. No scope required. */
+export const gameContext: typeof Contract.gameContext = runtime.gameContext;
+/** @deprecated Use gameContext(). */
 export const overlayRuntime: typeof Contract.overlayRuntime = runtime.overlayRuntime;
+/** @deprecated App-owned scores belong in application.data. Kept for released consumers. */
 export const matchScore: typeof Contract.matchScore = runtime.matchScore;
+/** @deprecated App-owned scores belong in application.data. */
 export const matchScoreOrZero: typeof Contract.matchScoreOrZero = runtime.matchScoreOrZero;
 export const inventorySlotIdentity: typeof Contract.inventorySlotIdentity = runtime.inventorySlotIdentity;
 export const upgradeIdentity: typeof Contract.upgradeIdentity = runtime.upgradeIdentity;

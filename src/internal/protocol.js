@@ -98,9 +98,19 @@ export function validateState(value, clientId, cloneState = true) {
     if (!isPlainObject(state.application.settings)) {
       throw new ProtocolError('INVALID_STATE', 'Application settings must be an object.');
     }
+    if (state.application.data !== undefined && !isPlainObject(state.application.data)) {
+      throw new ProtocolError('INVALID_STATE', 'Application data must be an object when present.');
+    }
     validateOptionalFields(state.application, { surface: 'string', development: 'boolean' }, 'Application state');
     if (state.application.surface !== undefined && !APP_SURFACES.has(state.application.surface)) {
       throw new ProtocolError('INVALID_STATE', `Unknown application surface: ${state.application.surface}`);
+    }
+  }
+  if (state.gameContext !== undefined) {
+    if (!isPlainObject(state.gameContext)) throw new ProtocolError('INVALID_STATE', 'Game context must be an object.');
+    validateOptionalFields(state.gameContext, { hudScale: 'number', chatbarOpen: 'boolean', teamColors: 'boolean' }, 'Game context');
+    if (state.gameContext.hudScale !== undefined && (state.gameContext.hudScale < 0.5 || state.gameContext.hudScale > 1)) {
+      throw new ProtocolError('INVALID_STATE', 'Game context hudScale must be between 0.5 and 1.0.');
     }
   }
   if (state.overlay !== undefined) {

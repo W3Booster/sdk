@@ -13,8 +13,13 @@ export declare const heroInventory: typeof Contract.heroInventory;
 export declare const playerHeroes: typeof Contract.playerHeroes;
 export declare const playerResources: typeof Contract.playerResources;
 export declare const playerResourcesOrZero: typeof Contract.playerResourcesOrZero;
+/** Shared game context with a stable scale-1 fallback before hydration. No scope required. */
+export declare const gameContext: typeof Contract.gameContext;
+/** @deprecated Use gameContext(). */
 export declare const overlayRuntime: typeof Contract.overlayRuntime;
+/** @deprecated App-owned scores belong in application.data. Kept for released consumers. */
 export declare const matchScore: typeof Contract.matchScore;
+/** @deprecated App-owned scores belong in application.data. */
 export declare const matchScoreOrZero: typeof Contract.matchScoreOrZero;
 export declare const inventorySlotIdentity: typeof Contract.inventorySlotIdentity;
 export declare const upgradeIdentity: typeof Contract.upgradeIdentity;

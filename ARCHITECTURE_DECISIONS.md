@@ -2,6 +2,14 @@
 
 This file prevents repeated reviews from oscillating between equally plausible designs. These decisions are not immutable: change one when constraints have changed or new evidence invalidates an assumption. A change should update this file with the reason and migration path. Reviewers should still report bugs or violations of a decision, but should not report the documented tradeoff itself as a new finding without explaining the new evidence.
 
+## ADR-009: Unscoped game context and app-owned runtime data
+
+Status: accepted, 2026-09-05.
+
+The platform contract now distinguishes shared game context from app data. gameContext is always normalized onto delivered state, including no-scope and idle snapshots, with hudScale defaulting to 1. Optional boolean context stays unknown when absent. Local recorder updates modify this branch without an overlay capability check; resource/hero/etc. gates remain unchanged.
+
+ApplicationState.data is a generic read-only JSON record. Match Vision’s score is delivered there by the platform only to that app; the SDK does not implement application identity or scoring policy. Existing overlay:read bindings and runtime/score helpers remain deprecated compatibility interfaces. Overlay normalization remains allowlisted and gameContext never absorbs score, legacy settings or recorder URLs. MatchState keeps the additive field optional in its source type to accept older wire fixtures; current runtime delivery always includes it. Revisit ADR-008’s scope-dependent runtime assumption with this explicit replacement.
+
 ## ADR-001: Keep the core framework-neutral
 
 Status: accepted, 2026-08-19.

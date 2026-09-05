@@ -198,7 +198,27 @@ An application requests scopes in its W3Booster metadata. The server filters eve
 | `upgrades:read` | `upgrades` | Completed, active, and researching upgrades |
 | `resources:read` | `resources` | Gold, lumber, supply, and worker supply |
 | `controlgroups:read` | `controlgroups` | Control-group front units and sizes |
-| `overlay:read` | `overlay` | Public overlay runtime values |
+`state.gameContext` is shared context delivered to every authorized app, including
+apps with an empty scope list. It contains `hudScale` (always present; default 1),
+optional `chatbarOpen`, and optional `teamColors`. Unknown boolean values stay
+absent. The SDK `gameContext(state)` selector also supplies a scale-1 fallback
+before hydration. These values do not require a data scope or plan.
+
+`overlay:read` is retired. It is accepted as a no-op for existing registered
+bindings, but new apps should omit it. `overlay.runtime` and `overlayRuntime()`
+remain deprecated aliases during migration; recorder URLs and legacy settings
+are removed before state reaches consumers. Transport discovery follows the
+actual granted live-data scopes, not an overlay permission.
+
+Match Vision's wins/losses counter lives in `state.application.data.matchScore`.
+The API delivers it only to Match Vision, regardless of scopes. It is separate
+from `state.application.settings` and is not a score reported by Warcraft.
+The old score alias is retained only for released Match Vision versions;
+third-party apps cannot obtain that counter by requesting `overlay:read`.
+
+Observer resources require only `match:read`, `players:read`, and `resources:read`.
+A local recorder can be used even with a production API; browser local-network
+permission is separate from W3Booster data scopes.
 
 A granted scope does not guarantee that data exists in every match or account context. Check `state.capabilities` and keep conditional fields optional:
 
@@ -325,7 +345,7 @@ Recorder bursts are deduplicated and published at most once per display frame. R
 
 - `match.gameTime` is elapsed in-game time in whole seconds and excludes paused time.
 - `match.map` is a human-readable, display-ready name; the SDK decodes producer transport escaping once at snapshot/patch ingress.
-- `overlay.runtime.hudScale` is a CSS scale multiplier normalized by W3Booster from `0.5` through `1.0`. Apply it as a scale/zoom value; it is not a percentage.
+- `gameContext.hudScale` is a CSS scale multiplier normalized by W3Booster from `0.5` through `1.0`. Apply it as a scale/zoom value; it is not a percentage.
 - `player.startPosition` uses Warcraft III map coordinates, not pixels. It is suitable for relative map placement and player ordering; transforming it onto an image depends on that map's bounds.
 - Gold, lumber, supply, and worker supply are already normalized player-facing values; applications do not divide recorder values themselves.
 - `stats.*.winRate` is a percentage from `0` through `100`, ready to display with a percent sign.
@@ -350,9 +370,7 @@ import {
   headToHeadPair,
   heroInventory,
   inventorySlotIdentity,
-  matchScore,
-  matchScoreOrZero,
-  overlayRuntime,
+  gameContext,
   playerHeroes,
   playerDisplayIdentity,
   playerResources,
@@ -366,9 +384,7 @@ const observerPlayers = headToHeadPair(state.players); // typed pair, or null un
 const broadcasterTeams = broadcasterFirstTeams(state.players, state.match);
 const relation = playerRelationship(state.players[0], state.match, state.players);
 const inventory = heroInventory(broadcaster?.heroes?.[0]);
-const runtime = overlayRuntime(state); // stable empty fallback when unavailable
-const score = matchScore(state); // undefined when overlay score data is unavailable
-const scoreForDisplay = matchScoreOrZero(state); // explicit stable 0-0 presentation fallback
+const context = gameContext(state); // always includes hudScale; no scope required
 const heroes = playerHeroes(broadcaster);
 const identity = playerDisplayIdentity(broadcaster, {
   stripBattleTagDiscriminator: true
