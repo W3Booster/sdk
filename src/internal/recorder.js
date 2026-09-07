@@ -121,7 +121,7 @@ export class LocalRecorderTransport {
             const cached = structuredCloneSafe(update);
             cached.__w3boosterReceivedAt = Date.now();
             const key = localUpdateKey(cached);
-            this.pending.delete(key);
+            if (!(cached.class === 'W3Unit' && cached.isHero)) this.pending.delete(key);
             this.pending.set(key, cached);
           }
           this.scheduleUpdateFrame();
@@ -176,9 +176,9 @@ export class LocalRecorderTransport {
       if (!this.onUpdates(updates)) return;
       for (const update of updates) {
         const key = localUpdateKey(update);
-        // Reinsert replacements so replaying the cache preserves the most
-        // recent recorder ordering (notably player-slot switches).
-        this.latest.delete(key);
+        // Hero insertion order is first appearance, not last inventory update.
+        // Other updates retain chronology (notably player-slot switches).
+        if (!(update.class === 'W3Unit' && update.isHero)) this.latest.delete(key);
         this.latest.set(key, update);
       }
     };
@@ -250,7 +250,11 @@ function localUpdateKey(update) {
   const playerId = localUpdatePlayerId(update);
   if (update.class === 'W3Resource') return `${update.class}:${playerId}:${String(update.type)}`;
   if (update.class === 'W3Player') return `${update.class}:${playerId}`;
-  if (update.class === 'W3Unit') return `${update.class}:${playerId}:${String(update.type)}`;
+  if (update.class === 'W3Unit') {
+    const type = String(update.type);
+    const identity = update.isHero ? (LOCAL_HERO_ALIASES.get(type) || type) : type;
+    return `${update.class}:${playerId}:${identity}`;
+  }
   if (update.class === 'W3Research') return `${update.class}:${playerId}:${String(update.type)}:${String(update.level)}`;
   return String(update.class || 'unknown');
 }
@@ -343,7 +347,8 @@ function applyLocalHeroUpdate(player, update) {
           id: `A${String(player.id)}${name}`,
           name,
           level: LOCAL_UTILITY_ABILITIES.has(name) ? 0 : Number(ability.level) || 0,
-          ...(Number(ability.lastActivation) > 0 ? { lastActivation: Number(ability.lastActivation) } : {})
+          ...(Number.isFinite(Number(ability.lastActivation)) && Number(ability.lastActivation) > 0
+            ? { lastActivation: Number(ability.lastActivation) } : {})
         };
       })
     : (previousHero?.abilities || []);

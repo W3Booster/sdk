@@ -1,5 +1,27 @@
 # SDK architecture decisions
 
+## 2026-09-08: Recorder hero caches preserve first appearance and item slots
+
+Hero updates replace cached values without reinserting their key, both within
+one pending frame and across accepted frames. Replaying the cache over a platform
+snapshot must not reorder heroes by their latest inventory/experience update.
+Use the normalized hero identity for the key so transformed forms replace the
+same hero instead of replaying stale inventories from a second cache entry.
+Clear this order with the existing match/transport cache lifecycle. Other update
+classes retain chronological reinsertion, including player-slot selection.
+
+Inventories retain native slot order exactly, including empty strings and
+duplicate rawcodes. New inventory data replaces the slot array; it is never
+sorted, filtered, or treated as a set. This is transport correctness shared by
+every consumer, not a Match Vision sorting workaround.
+
+Broker resynchronization is coalesced to at most one request per second. The
+first request is immediate; repeated requests retain one delayed retry, canceled
+on close. This bounds repeated invalid snapshots without dropping the ability
+to recover when valid state returns. API and local-recorder hero abilities omit
+non-positive or non-finite activation timestamps instead of publishing native
+unused-ability sentinels into the validated SDK state.
+
 ## ADR-011: Keep installed SDKs stable across additive API changes
 
 Status: accepted, 2026-09-07; clarifies the scope of the prerelease cleanup.

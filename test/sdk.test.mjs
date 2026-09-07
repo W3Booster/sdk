@@ -1359,6 +1359,98 @@ test('observer and replay sessions use the low-latency recorder transport locall
   }
 });
 
+test('local hero abilities omit unused and non-finite activation timestamps', () => {
+  const baseline = {
+    capabilities: ['match', 'players', 'heroes'], gameContext: { hudScale: 1 },
+    match: { id: 'replay', status: 'running', gameTime: 1, mode: '1v1', isReplay: true },
+    players: [{ id: '0', heroes: [] }]
+  };
+  for (const lastActivation of [undefined, 0, -1, Infinity, NaN]) {
+    const state = applyLocalRecorderUpdates(baseline, [{
+      class: 'W3Unit', slotId: 0, type: 'Hamg', isHero: true,
+      abilities: [{ type: 'AHwe', level: 1, lastActivation }]
+    }]);
+    assert.equal(Object.hasOwn(state.players[0].heroes[0].abilities[0], 'lastActivation'), false);
+  }
+});
+
+test('replay heroes retain appearance order and exact inventory slots through cache reapplication', async () => {
+  const originalWebSocket = globalThis.WebSocket;
+  let socket;
+  globalThis.WebSocket = class FakeWebSocket {
+    constructor() { this.listeners = new Map(); socket = this; }
+    addEventListener(type, listener) { this.listeners.set(type, listener); }
+    emit(type, data) { this.listeners.get(type)?.(data === undefined ? {} : { data }); }
+    close() {}
+  };
+  let context;
+  const client = createClient({
+    clientId: 'test_app',
+    transport: { name: 'cloud-test', async open(value) { context = value; } }
+  });
+  const baseline = {
+    capabilities: ['match', 'players', 'heroes'], gameContext: { hudScale: 1 },
+    match: { id: 'replay', status: 'running', gameTime: 1, mode: '1v1', isReplay: true },
+    players: [{ id: '0', heroes: [] }],
+    transport: { recorderUrls: ['ws://127.0.0.1:48123'] },
+    application: { clientId: 'test_app', settings: {} }
+  };
+  let sequence = 0;
+  const resnapshot = () => context.onMessage({
+    version: PROTOCOL_VERSION, sequence: ++sequence, type: 'state.snapshot', data: baseline
+  });
+  const hero = (type, inventory) => ({
+    class: 'W3Unit', matchId: 'replay', slotId: 0, type, isHero: true, inventory
+  });
+  const inventory = ['ratf', '', 'ratf', 'rin1', '', 'rde1'];
+  const movedInventory = ['', 'rin1', 'ratf', '', 'ratf', 'rde1'];
+  const assertHeroes = (ids, items) => {
+    const heroes = client.state.get().players[0].heroes;
+    assert.deepEqual(heroes.map(value => value.id), ids);
+    assert.deepEqual(heroes[0].inventory, items);
+  };
+  try {
+    await client.open();
+    resnapshot();
+    await waitForDeferredModule(() => socket !== undefined);
+    socket.emit('open');
+    socket.emit('message', JSON.stringify([
+      hero('Edem', []), hero('Ekee', []), hero('Edem', inventory)
+    ]));
+    await waitForRecorderFrame();
+    assertHeroes(['Edem', 'Ekee'], inventory);
+    resnapshot();
+    assertHeroes(['Edem', 'Ekee'], inventory);
+
+    // A transformed hero is the same hero; later inventory updates must not
+    // move it behind a newer hero or reapply an older form's item slots.
+    socket.emit('message', JSON.stringify([hero('Emoo', []), hero('Edmm', movedInventory)]));
+    await waitForRecorderFrame();
+    assertHeroes(['Edem', 'Ekee', 'Emoo'], movedInventory);
+    resnapshot();
+    assertHeroes(['Edem', 'Ekee', 'Emoo'], movedInventory);
+    socket.emit('message', JSON.stringify([hero('Ekee', ['rin1']), hero('Edem', inventory)]));
+    await waitForRecorderFrame();
+    resnapshot();
+    assertHeroes(['Edem', 'Ekee', 'Emoo'], inventory);
+
+    // First appearance belongs to one match, not to a previous replay.
+    baseline.match.id = 'next-replay';
+    resnapshot();
+    socket.emit('open');
+    socket.emit('message', JSON.stringify([
+      { ...hero('Ekee', []), matchId: 'next-replay' },
+      { ...hero('Edem', []), matchId: 'next-replay' }
+    ]));
+    await waitForRecorderFrame();
+    assertHeroes(['Ekee', 'Edem'], []);
+  } finally {
+    await client.disconnect();
+    if (originalWebSocket === undefined) delete globalThis.WebSocket;
+    else globalThis.WebSocket = originalWebSocket;
+  }
+});
+
 test('the local recorder rotates URLs when a socket never opens', async () => {
   const originalWebSocket = globalThis.WebSocket;
   const originalSetTimeout = globalThis.setTimeout;

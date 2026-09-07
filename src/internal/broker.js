@@ -22,6 +22,8 @@ export function createBrokerTransport(name, baseUrl, credentialProvider, reconne
   let context;
   let lifecycleController;
   let reconnectTimer;
+  let resyncTimer;
+  let nextResyncAt = 0;
   const reconnectBackoff = reconnectPolicy ? createReconnectBackoff(reconnectPolicy) : null;
   let stopped = false;
 
@@ -109,6 +111,7 @@ export function createBrokerTransport(name, baseUrl, credentialProvider, reconne
         if (stopped || signal?.aborted) return abort();
         opened = true;
         socket = candidate;
+        nextResyncAt = 0;
         finish(resolve);
       }, { once: true });
       candidate.addEventListener('error', () => {
@@ -120,7 +123,11 @@ export function createBrokerTransport(name, baseUrl, credentialProvider, reconne
         if (socket === candidate) context.onMessage(event.data);
       });
       candidate.addEventListener('close', () => {
-        if (socket === candidate) socket = null;
+        if (socket === candidate) {
+          socket = null;
+          clearTimeout(resyncTimer);
+          resyncTimer = null;
+        }
         if (!opened) finish(reject, new Error(`${name} WebSocket closed before connecting`));
         else if (!stopped) scheduleReconnect();
       });
@@ -166,13 +173,26 @@ export function createBrokerTransport(name, baseUrl, credentialProvider, reconne
       try { await openSocket(); }
       finally { context.signal?.removeEventListener('abort', abort); }
     },
-    resync() { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'stream.resync' })); },
+    resync() {
+      if (stopped || socket?.readyState !== WebSocket.OPEN || resyncTimer) return;
+      const send = () => {
+        resyncTimer = null;
+        if (stopped || socket?.readyState !== WebSocket.OPEN) return;
+        nextResyncAt = Date.now() + 1000;
+        socket.send(JSON.stringify({ type: 'stream.resync' }));
+      };
+      const delay = nextResyncAt - Date.now();
+      if (delay > 0) resyncTimer = setTimeout(send, delay);
+      else send();
+    },
     close() {
       stopped = true;
       lifecycleController?.abort(createAbortError());
       lifecycleController = null;
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
+      clearTimeout(resyncTimer);
+      resyncTimer = null;
       pendingSocket?.close();
       pendingSocket = null;
       socket?.close();

@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.0.1 — 2026-09-08
+
+- Preserve replay hero appearance order across batched updates, cached snapshots, and transformed forms.
+- Preserve inventory slot positions, empty slots, and duplicate items.
+- Coalesce broker resynchronization requests to prevent invalid-state retry storms.
+- Omit unused or non-finite native ability activation timestamps.
+
 ## 2.0.0
 
 - Added optional `Match.result: { playerId, outcome: 'won' | 'lost' }` for the recorder-confirmed local-player outcome, with protocol validation. The field uses `match:read` and remains absent for unknown results, observer games and replays.
