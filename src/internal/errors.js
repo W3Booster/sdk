@@ -24,6 +24,13 @@ export class ConnectionError extends Error {
   }
 }
 
+/** A failure at the fetch boundary, where TypeError means a network failure. */
+export class NetworkRequestError extends ConnectionError {
+  constructor(cause) {
+    super('The W3Booster network request failed.', [cause]);
+  }
+}
+
 export class HostActionError extends Error {
   constructor(message, code = 'HOST_ACTION_FAILED') {
     super(message);
@@ -66,6 +73,7 @@ export function isRetryableConnectionError(error) {
 }
 
 function isRetryableCause(error, seen) {
+  if (error instanceof NetworkRequestError) return true;
   if (error instanceof PermissionRequiredError || error instanceof ProtocolError || error instanceof TypeError) return false;
   if (!(error instanceof ConnectionError)) return true;
   if (error.code === 'CONFIGURATION' || error.code === 'APPLICATION_DEFINITION_MISMATCH' ||

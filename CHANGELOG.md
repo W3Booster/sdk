@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.0.2 — 2026-09-08
+
+- Keep composition-watch and match-data reconnections retrying after browser network failures.
+- Preserve network failure diagnostics while keeping invalid options and protocol failures permanent.
+
 ## 2.0.1 — 2026-09-08
 
 - Preserve replay hero appearance order across batched updates, cached snapshots, and transformed forms.

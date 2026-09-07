@@ -1,3 +1,5 @@
+import { NetworkRequestError } from './errors.js';
+
 export const DEFAULT_LOCAL_API = 'https://localhost:25080';
 export const DEFAULT_CLOUD_API = 'https://api.w3booster.com';
 export const CONNECTION_TIMEOUT = 5000;
@@ -33,10 +35,18 @@ export async function fetchJsonWithTimeout(url, options, timeout, signal, errors
   if (signal?.aborted) abort();
   else signal?.addEventListener('abort', abort, { once: true });
   try {
-    const response = await fetch(url, { ...options, signal: controller.signal });
+    let response;
+    try { response = await fetch(url, { ...options, signal: controller.signal }); }
+    catch (error) {
+      // Fetch rejects with TypeError for connection loss, unlike SDK argument
+      // validation. Preserve the cause without classifying it as caller misuse.
+      if (error instanceof TypeError && !controller.signal.aborted) throw new NetworkRequestError(error);
+      throw error;
+    }
     let body = {};
     try { body = await response.json(); }
     catch (error) {
+      if (error instanceof TypeError && !controller.signal.aborted) throw new NetworkRequestError(error);
       if (response.ok) throw errors.invalidJson(error);
     }
     return { response, body };

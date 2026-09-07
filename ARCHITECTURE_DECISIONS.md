@@ -1,5 +1,14 @@
 # SDK architecture decisions
 
+## 2026-09-08: Classify network errors at the HTTP boundary
+
+Fetch and response-body TypeErrors represent network failures and stay retryable
+through aggregate ConnectionErrors. Preserve their causes for diagnostics.
+Classify them only at the network boundary: SDK argument TypeErrors, credential
+provider errors, invalid JSON, and permission failures retain their permanent
+classification. Both composition watches and broker match-data connections
+must recover after repeated browser fetch failures without a page reload.
+
 ## 2026-09-08: Recorder hero caches preserve first appearance and item slots
 
 Hero updates replace cached values without reinserting their key, both within
