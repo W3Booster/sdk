@@ -38,6 +38,49 @@ cannot reuse the retired reserved names `runtime`, `misc`, or `settings`.
 Delivered state is deeply immutable. Error recovery, resynchronization, and the
 supported browser matrix remain part of the current contract.
 
+### Additive API changes do not require an SDK upgrade
+
+An app can keep its installed SDK version when the API adds optional attributes
+to state objects, including nested match, player, hero, resource, game-context,
+and application data. The SDK validates fields it knows and preserves other safe
+JSON fields in immutable snapshots. It does not interpret those new fields.
+Preservation is intentional: later patches can replace or remove an attribute
+that the installed SDK does not know. Private `transport` metadata stays hidden.
+New fields can trigger ordinary state/change subscriptions; they are not stripped
+or guaranteed to be invisible to selectors that compare whole objects.
+
+The broker and stream accept later minor versions of protocol 2, such as `2.1`.
+Unknown stream events maintain sequencing and are delivered only to explicit
+`onUnknown` subscribers. Additional advertised data capabilities are accepted;
+unknown host capabilities are filtered out rather than enabling unsupported
+actions. Requesting a new scope or using a new typed SDK method can require an
+SDK upgrade even though existing applications continue working.
+
+| API change | Existing SDK behavior |
+| --- | --- |
+| Add an optional JSON attribute to an existing object | Accepted and preserved |
+| Patch a previously unknown attribute | Applied normally |
+| Add a stream event or capability | Does not break existing data consumption |
+| Add a protocol minor version | Accepted within the supported major |
+| Remove a required field or change an existing field's type | Rejected |
+| Add a value to a closed enum, such as match status, race, result outcome, or application surface | Rejected by SDKs that do not recognize it |
+| Add a patch operation beyond `add`, `replace`, and `remove` | Rejected |
+| Reuse a retired reserved field or send unsafe object keys | Rejected |
+| Change protocol major | Requires an explicit version transition |
+
+API producers must preserve the types, meanings, required fields, and closed-enum
+values of the supported contract. A new enum member is not an additive attribute.
+Use an optional new field or an explicitly negotiated new contract for new
+semantics; do not send an unknown outcome and assume old apps will ignore it.
+Older SDKs also cannot promise typed helpers or validation for newly added fields.
+Apps that only use existing fields need no dependency or generated-binding update.
+Changes to an app's own definition revision still require regenerating its binding;
+that is separate from a platform adding state attributes.
+
+`test/forward-compatibility.test.mjs` exercises additive snapshots, nested patches,
+minor versions, unknown event sequencing, and the incompatible boundaries through
+the public client. These tests run in the normal SDK test suite.
+
 The SDK remains framework-neutral and supports the browser versions declared in
 `package.json`. Test runtime contracts, declarations, packed consumers, and browser
 execution before publishing. A local link is not evidence of a registry release.

@@ -1,5 +1,22 @@
 # SDK architecture decisions
 
+## ADR-011: Keep installed SDKs stable across additive API changes
+
+Status: accepted, 2026-09-07; clarifies the scope of the prerelease cleanup.
+
+Retiring protocol 1 and prerelease aliases does not prohibit forward compatibility
+inside protocol 2. Existing SDKs accept safe additional state attributes and later
+minor protocol versions. Preserve unknown fields through snapshots and patches,
+without interpreting them, so subsequent patch paths remain valid. Keep private
+transport data hidden and continue validating known fields and unsafe JSON keys.
+
+Do not change an existing type, required field, meaning, or closed enum under the
+label of an additive API change. Such changes need a documented version transition
+or explicit negotiation. New SDK releases may add optional types/helpers without
+forcing apps that consume only existing fields to upgrade. Generated app-definition
+revisions remain a separate contract. The compatibility test suite exercises these
+rules through the public client; no runtime alias or legacy-data fallback is needed.
+
 ## ADR-010: Recorder outcomes extend the existing match state
 
 Status: accepted, 2026-09-05.

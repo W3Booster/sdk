@@ -648,3 +648,9 @@ const client = await openClient(options);
 ```
 
 The complete public data model is exported from `@w3booster/sdk`. See `COMPATIBILITY.md` for the Semantic Versioning and protocol policy and `CHANGELOG.md` for release changes.
+
+You can keep an existing SDK version when the API adds optional state attributes.
+Unknown safe JSON fields are preserved in immutable snapshots and patches without
+being interpreted; using new typed helpers may require an upgrade. Changes to
+existing field types, required fields, or closed enum values are breaking changes.
+See [additive API compatibility](./COMPATIBILITY.md#additive-api-changes-do-not-require-an-sdk-upgrade).
