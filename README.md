@@ -4,7 +4,7 @@ Browser SDK for realtime W3Booster match data in applications and overlays. It h
 
 ## Quick start
 
-New project? Start with the [runnable TypeScript starter](https://github.com/W3Booster/app-starter) and [first-app tutorial](https://website.w3booster.com/developer/first-app/). It renders a dashboard immediately with demo data; no registered app or Warcraft III installation is needed.
+New project? Start with the [runnable TypeScript starter](https://github.com/W3Booster/app-starter) and [first-app tutorial](https://w3booster.com/developer/first-app/). It renders a dashboard immediately with demo data; no registered app or Warcraft III installation is needed.
 
 ```sh
 npx --yes --package=github:W3Booster/app-starter w3booster-create my-app
@@ -13,7 +13,7 @@ npm ci
 npm run dev
 ```
 
-Open `http://localhost:5173/`. The minimal starter contains one dashboard, complete lifecycle cleanup, and demo scenarios for missing data and no active match. [Independent example apps](https://website.w3booster.com/developer/examples/) cover resources, transparent overlays, and SDK-synced settings. For a complete Angular starting point, [fork Match Vision](https://website.w3booster.com/developer/match-vision/).
+Open `http://localhost:5173/`. The minimal starter contains one dashboard, complete lifecycle cleanup, and demo scenarios for missing data and no active match. [Independent example apps](https://w3booster.com/developer/examples/) cover resources, transparent overlays, and SDK-synced settings. For a complete Angular starting point, [fork Match Vision](https://w3booster.com/developer/match-vision/).
 
 **Adding the SDK to an existing app:** create a private application in W3Booster, copy its public client ID, then run these commands from your project directory:
 
@@ -59,7 +59,7 @@ Set `interval: 0` for a static deterministic fixture, or pass `state` to replace
 
 For real data during development, run the app on localhost and use **Apps → Developer → My apps → Test locally**. The temporary session supplies real credentials and replaces only your app surfaces. Application code remains unchanged.
 
-See the [guides](https://website.w3booster.com/developer/guides/), [searchable API reference](https://website.w3booster.com/developer/api/), and [troubleshooting guide](https://website.w3booster.com/developer/troubleshooting/). Documentation is hosted at `website.w3booster.com` during prerelease.
+See the [guides](https://w3booster.com/developer/guides/), [searchable API reference](https://w3booster.com/developer/api/), and [troubleshooting guide](https://w3booster.com/developer/troubleshooting/). Documentation is hosted at `w3booster.com` during prerelease.
 
 W3Booster reserves the URL fragment for its short-lived launch credential; opening a client consumes it and cleans the visible address. Use normal History API paths or query parameters for application routing instead of hash routing.
 
@@ -386,7 +386,7 @@ Display updates can run repeatedly. Persistent scoring requires app-owned rules
 and atomic deduplication by match ID, including across windows, reloads and retries.
 The SDK does not choose exclusions, count session wins/losses, or reset scores.
 
-See the [developer guide](https://website.w3booster.com/developer/guides/#match-results)
+See the [developer guide](https://w3booster.com/developer/guides/#match-results)
 for a complete display example.
 
 ## Selectors

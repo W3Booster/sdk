@@ -84,7 +84,7 @@ async function initializeProject(arguments_) {
       : 'Bound this project and added W3Booster settings sync/check scripts.');
   }
   console.log(`Next: import w3boosterApp from ${output}; call createRuntime(), subscribe to lifecycle, then await runtime.start().`);
-  console.log('Launch real data through W3Booster → Apps → Developer → Test locally. Guide: https://website.w3booster.com/developer/first-app/');
+  console.log('Launch real data through W3Booster → Apps → Developer → Test locally. Guide: https://w3booster.com/developer/first-app/');
 
   function addLifecycleScript(name) {
     // Package lifecycle scripts already receive node_modules/.bin on PATH, so

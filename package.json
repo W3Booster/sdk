@@ -96,7 +96,7 @@
     "type": "git",
     "url": "git+https://github.com/W3Booster/sdk.git"
   },
-  "homepage": "https://website.w3booster.com/developer/",
+  "homepage": "https://w3booster.com/developer/",
   "bugs": {
     "url": "https://github.com/W3Booster/sdk/issues"
   },
