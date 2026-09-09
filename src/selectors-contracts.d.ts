@@ -1,4 +1,4 @@
-import type { ActiveUpgrade, Capability, GameContext, Hero, Match, MatchState, Player, Resources } from './index.js';
+import type { ActiveUpgrade, Capability, GameContext, Unit, Building, Hero, Match, MatchState, Player, Resources } from './index.js';
 
 export function isActiveMatch(match: Pick<Match, 'status'> | null | undefined): boolean;
 export function isObserverOrReplayMatch(match: Pick<Match, 'isObserver' | 'isReplay'> | null | undefined): boolean;
@@ -41,6 +41,8 @@ export function playerDisplayIdentity(
   options?: { readonly stripBattleTagDiscriminator?: boolean }
 ): PlayerDisplayIdentity;
 export function heroInventory(hero: Pick<Hero, 'inventory'> | null | undefined): readonly string[];
+export function playerUnits(player: Pick<Player, 'units'> | null | undefined): readonly Unit[];
+export function playerBuildings(player: Pick<Player, 'buildings'> | null | undefined): readonly Building[];
 export function playerHeroes(player: Pick<Player, 'heroes'> | null | undefined): readonly Hero[];
 export function playerResources(player: Pick<Player, 'resources'> | null | undefined): Readonly<Resources> | undefined;
 export function playerResourcesOrZero(player: Pick<Player, 'resources'> | null | undefined): Readonly<Resources>;

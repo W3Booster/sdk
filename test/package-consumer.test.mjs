@@ -99,7 +99,7 @@ declare const state: MatchState<Settings>;
 const player = broadcasterPlayer(state.match, state.players);
 const experience = heroExperienceState(500);
 const icon = iconUrl('Hamg');
-const heroIcon = heroIconUrl({ id: 'Hamg' });
+const heroIcon = heroIconUrl({ typeId: 'Hamg' });
 const abilityCooldown = getAbilityCooldown('AHbz', 1);
 const flag = countryFlagUrl('DE');
 const composition = getOverlayComposition({ surface: 'streamOverlay' });

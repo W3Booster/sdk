@@ -1,3 +1,4 @@
+import { UNIT_COLLECTIONS, isInstanceId, isTypeId, validPool, validProgress, validQueue } from './unit-state.js';
 import { SUPPORTED_PROTOCOL_VERSIONS } from '../version.js';
 import { ProtocolError } from './errors.js';
 import { isPlainObject } from './network.js';
@@ -71,6 +72,7 @@ export function validateState(value, clientId, cloneState = true) {
   }
   if (!Array.isArray(state.players)) throw new ProtocolError('INVALID_STATE', 'State players must be an array.');
   const playerIds = new Set();
+  const unitIds = new Set();
   state.players.forEach((player, index) => {
     if (!isPlainObject(player) || typeof player.id !== 'string' || !player.id) {
       throw new ProtocolError('INVALID_STATE', `Player ${index} has no valid ID.`);
@@ -79,14 +81,24 @@ export function validateState(value, clientId, cloneState = true) {
     if (playerIds.has(id)) throw new ProtocolError('INVALID_STATE', `Player ID ${id} occurs more than once.`);
     playerIds.add(id);
     validatePlayer(player, id);
-    if (player.heroes !== undefined && !Array.isArray(player.heroes)) {
-      throw new ProtocolError('INVALID_STATE', `Player ${id} heroes must be an array.`);
-    }
-    const heroIds = new Set();
-    for (const hero of player.heroes || []) {
-      validateHero(hero, id);
-      if (heroIds.has(hero.id)) throw new ProtocolError('INVALID_STATE', `Player ${id} hero ID ${hero.id} occurs more than once.`);
-      heroIds.add(hero.id);
+    for (const collection of UNIT_COLLECTIONS) {
+      const values = player[collection];
+      if (values === undefined) continue;
+      if (!isPlainObject(values)) throw new ProtocolError('INVALID_STATE', `Player ${id} ${collection} must be an instance map.`);
+      for (const [key, unit] of Object.entries(values)) {
+        validateUnit(unit, key);
+        if (unitIds.has(key)) throw new ProtocolError('INVALID_STATE', `Unit ${key} occurs in multiple collections or owners.`);
+        unitIds.add(key);
+        if (collection === 'heroes') validateHero(unit, id);
+        if (collection === 'buildings') {
+          if (unit.production !== undefined && (!isPlainObject(unit.production) || !validQueue(unit.production.queue))) {
+            throw new ProtocolError('INVALID_STATE', `Building ${key} has invalid production.`);
+          }
+          if (unit.construction !== undefined && (!isPlainObject(unit.construction) || !validProgress(unit.construction.progress))) {
+            throw new ProtocolError('INVALID_STATE', `Building ${key} has invalid construction progress.`);
+          }
+        }
+      }
     }
     if (player.upgrades !== undefined) validateUpgrades(player.upgrades, id);
   });
@@ -216,8 +228,20 @@ function validateMainAccount(account, playerId) {
   }
 }
 
+function validateUnit(unit, key) {
+  if (!isPlainObject(unit) || !isInstanceId(key) || unit.id !== key || !isTypeId(unit.typeId)) {
+    throw new ProtocolError('INVALID_STATE', `Unit ${key} has an invalid identity or typeId.`);
+  }
+  for (const field of ['hitpoints', 'mana']) {
+    if (unit[field] !== undefined && !validPool(unit[field])) throw new ProtocolError('INVALID_STATE', `Unit ${key} has invalid ${field}.`);
+  }
+  if (unit.position !== undefined && (!isPlainObject(unit.position) || !Number.isFinite(unit.position.x) || !Number.isFinite(unit.position.y))) {
+    throw new ProtocolError('INVALID_STATE', `Unit ${key} has invalid position.`);
+  }
+}
+
 function validateHero(hero, playerId) {
-  if (!isPlainObject(hero) || typeof hero.id !== 'string' || !hero.id || typeof hero.name !== 'string' || !Number.isFinite(hero.level)) {
+  if (!isPlainObject(hero) || typeof hero.id !== 'string' || !hero.id || (hero.level !== undefined && (!Number.isInteger(hero.level) || hero.level < 1))) {
     throw new ProtocolError('INVALID_STATE', `Player ${playerId} contains a hero without a valid ID.`);
   }
   if (Object.prototype.hasOwnProperty.call(hero, 'items')) {

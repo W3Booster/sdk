@@ -3,6 +3,9 @@ const KNOWN_SCOPES = new Set([
   'players:read',
   'stats:read',
   'heroes:read',
+  'units:read',
+  'buildings:read',
+  'production:read',
   'upgrades:read',
   'resources:read',
   'controlgroups:read'

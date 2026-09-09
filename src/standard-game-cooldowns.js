@@ -39,7 +39,7 @@ const selectAbilityCooldowns = createImmutableSelector(state => {
   if (!Number.isFinite(state?.match?.gameTime) || state.match.gameTime < 0 ||
       state.match.status === 'none' || state.match.status === 'finished') return EMPTY_COOLDOWNS;
   for (const player of state.players || []) {
-    for (const hero of player.heroes || []) {
+    for (const hero of Object.values(player.heroes || {})) {
       for (const ability of hero.abilities || []) {
         if (!ability.lastActivation || ability.lastActivation <= 0) continue;
         const cooldown = abilityCooldown(ability, state.match.gameTime);

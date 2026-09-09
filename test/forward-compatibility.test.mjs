@@ -12,9 +12,9 @@ const snapshot = () => ({
     mainAccount: { name: 'Player' },
     stats: { solo: { wins: 2, losses: 1, winRate: 66 } },
     controlgroups: { 1: { frontunit: 'hpea', size: 5 } },
-    heroes: [{ id: 'hero', name: 'Hamg', level: 1,
+    heroes: { '0000000048616d67': { id: '0000000048616d67', typeId: 'Hamg', name: 'Hamg', level: 1,
       hitpoints: { current: 400, max: 500 }, mana: { current: 100, max: 300 },
-      abilities: [{ id: 'ability', name: 'AHbz', level: 1 }] }],
+      abilities: [{ id: 'ability', name: 'AHbz', level: 1 }] } },
     upgrades: { upgrades: [{ name: 'Rhme', level: 1, gametime: 20 }], active: [], researching: [] }
   }],
   application: { clientId: 'future_test', settings: {}, data: {} },
@@ -33,7 +33,7 @@ async function stream(t) {
   client.on('issue', issue => issues.push(issue));
   await client.open();
   return { client, issues, get resyncs() { return resyncs; },
-    send(type, data, version = '2.99') {
+    send(type, data, version = '3.99') {
       context.onMessage(JSON.stringify({ version, sequence: ++sequence, type, data, futureEnvelopeField: true }));
     } };
 }
@@ -45,8 +45,8 @@ test('new API attributes survive snapshots at every known object level without a
   const objects = [input, input.match, input.match.result, input.gameContext, input.players[0],
     input.players[0].startPosition, input.players[0].resources, input.players[0].mainAccount,
     input.players[0].stats, input.players[0].stats.solo, input.players[0].controlgroups[1],
-    input.players[0].heroes[0], input.players[0].heroes[0].hitpoints, input.players[0].heroes[0].mana,
-    input.players[0].heroes[0].abilities[0], input.players[0].upgrades,
+    Object.values(input.players[0].heroes ?? {})[0], Object.values(input.players[0].heroes ?? {})[0].hitpoints, Object.values(input.players[0].heroes ?? {})[0].mana,
+    Object.values(input.players[0].heroes ?? {})[0].abilities[0], input.players[0].upgrades,
     input.players[0].upgrades.upgrades[0], input.application, input.application.settings,
     input.application.data, input.transport];
   for (const object of objects) object.futureAttribute = { list: [1, null, { enabled: true }] };
@@ -54,7 +54,7 @@ test('new API attributes survive snapshots at every known object level without a
   const { transport, ...expected } = input;
   assert.deepEqual(connection.client.state.get(), expected);
   assert.equal(connection.client.state.get().transport, undefined);
-  assert.ok(Object.isFrozen(connection.client.state.get().players[0].heroes[0].futureAttribute.list[2]));
+  assert.ok(Object.isFrozen(Object.values(connection.client.state.get().players[0].heroes ?? {})[0].futureAttribute.list[2]));
   assert.equal(connection.client.lifecycle.get().isSynchronized, true);
   assert.deepEqual(connection.issues, []);
   assert.equal(connection.resyncs, 0);
@@ -130,7 +130,7 @@ for (const [name, change] of [
 
 test('a new protocol major still requires an explicit SDK migration', async t => {
   const connection = await stream(t);
-  connection.send('state.snapshot', snapshot(), '3.0');
+  connection.send('state.snapshot', snapshot(), '4.0');
   assert.equal(connection.client.state.get(), null);
   assert.equal(connection.client.status, 'error');
   assert.equal(connection.issues[0].error.code, 'UNSUPPORTED_PROTOCOL');

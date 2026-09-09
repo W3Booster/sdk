@@ -78,8 +78,8 @@ function emitValueChange(type, context, key, previousValue, value, emit) {
 }
 
 function emitHeroEvents(playerId, previousPlayer, player, state, emit) {
-  const previousHeroes = indexById(previousPlayer.heroes);
-  const heroes = indexById(player.heroes);
+  const previousHeroes = indexById(Object.values(previousPlayer.heroes || {}));
+  const heroes = indexById(Object.values(player.heroes || {}));
   const heroIds = new Set([...previousHeroes.keys(), ...heroes.keys()]);
   heroIds.forEach(heroId => {
     const previousHero = previousHeroes.get(heroId);
@@ -107,7 +107,7 @@ function emitHeroEvents(playerId, previousPlayer, player, state, emit) {
 }
 
 function emitRemovedHeroes(playerId, player, state, emit) {
-  indexById(player.heroes).forEach((hero, heroId) => {
+  indexById(Object.values(player.heroes || {})).forEach((hero, heroId) => {
     emit('hero.removed', { playerId, player, heroId, hero, previousHero: hero, state });
   });
 }

@@ -111,9 +111,14 @@ export function heroInventory(hero) {
   return hero?.inventory ?? EMPTY_INVENTORY;
 }
 
-/** Read a player's heroes through one stable empty fallback. */
+const selectHeroValues = createImmutableSelector(values => values ? Object.freeze(Object.values(values)) : EMPTY_HEROES);
+const selectUnitValues = createImmutableSelector(values => Object.freeze(Object.values(values || {})));
+const selectBuildingValues = createImmutableSelector(values => Object.freeze(Object.values(values || {})));
+export function playerUnits(player) { return selectUnitValues(player?.units); }
+export function playerBuildings(player) { return selectBuildingValues(player?.buildings); }
+/** Read a player's heroes in first-observed order through a memoized immutable array. */
 export function playerHeroes(player) {
-  return player?.heroes ?? EMPTY_HEROES;
+  return selectHeroValues(player?.heroes);
 }
 
 /** Read player resources without collapsing unavailable scoped data into zeroes. */

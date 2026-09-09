@@ -1,5 +1,51 @@
 # SDK architecture decisions
 
+## 2026-09-09: Instance-based player collections (SDK/protocol 3)
+
+Accepted at the user's explicit request to permit breaking changes before SDK
+adoption. This revisits ADR-011's installed-consumer assumption for this major;
+additive compatibility remains required within protocol 3.
+
+Expose mutually exclusive player.units, player.heroes, and player.buildings maps
+keyed by the full match-scoped engine ID. Every instance uses id for identity and
+typeId for its actual rawcode. Hero extends Unit; Building extends Unit. Do not
+retain a parallel rawcode-keyed public hero model. Hero XP and levels are optional
+until observed; never invent level 1 when only a health message has arrived.
+Selectors expose immutable arrays with structural sharing. Hero semantic event
+IDs and renderer keys now identify instances, while icon lookup uses typeId.
+
+Native health and production are independent observations joined by instance ID.
+Invalidating one removes only its fields, not unrelated observations. Ownership
+and category changes remove prior membership. Queue positions are snapshot
+coordinates, not persistent jobs; progress uses 0..1 or null, construction is
+separate, and unknown data is never fabricated. The active queue slot reports
+its observed timer fraction; waiting slots report zero. Construction comes from
+the building's ABnP component, independently of health, and is omitted when no
+construction component is observed. Unreadable progress is null. Building
+upgrades are a separate activity and are not represented as construction.
+
+Heroes publish position changes on the 200 ms native cycle. Structures expose
+the first successfully observed position for their instance; even a transient
+health read failure must not cause it to be resampled. Ordinary units omit
+position. The SDK forwards this observation policy and adds no polling.
+Scope gates are identical for
+server and recorder paths, including the existing hero entitlement.
+
+The private workspace datamodel authors the server's protocol 3 unit DTOs; the
+standalone public SDK mirrors these types without a private-package dependency.
+The API can build before SDK 3 is published using unchanged SDK types for other
+fields and explicit protocol 3 player DTOs. Verify both projections with
+`node apps/api/scripts/verify-unit-sdk-contract.cjs` in the platform workspace;
+SDK_ROOT may select an unpacked SDK artifact. Do not fake a registry dependency
+on an unpublished version or equate local checks with publication.
+
+CE derives the utar virtual getter and target-mask field; no unit field offsets
+are hand-maintained. The SDK does not read process memory or add polling loops.
+The existing Match Vision consumer needs its SDK 3 migration/packed consumer lane
+before a coordinated release; breaking this major does not silently make SDK 2
+applications compatible. No deployment or merge is part of this change.
+
+
 ## 2026-09-08: Classify network errors at the HTTP boundary
 
 Fetch and response-body TypeErrors represent network failures and stay retryable

@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.0.0 — unreleased
+
+- Breaking: player units/heroes/buildings are instance maps; Hero.id now means
+  engine instance identity and typeId carries its rawcode. Protocol major is 3.
+- Add ordinary-unit/building health, production queues, scoped local-recorder
+  projection, and immutable unit/building selectors. Hero pools and XP merge by ID.
+- Expose construction and queue progress, hero positions sampled at 200 ms, and
+  structures' first observed positions. Ordinary units omit position; unreadable
+  progress is null. Preserve unchanged field identities and repeated queue types.
+- Guard ownership, removals, scope access, and cross-match identities.
+
+
 ## 2.0.2 — 2026-09-08
 
 - Keep composition-watch and match-data reconnections retrying after browser network failures.

@@ -11,8 +11,8 @@ export type JsonObjectInput<T extends object> = T extends readonly unknown[] ? n
 export type DeepReadonly<T> = T extends JsonPrimitive ? T : T extends readonly (infer TValue)[] ? readonly DeepReadonly<TValue>[] : T extends object ? {
     readonly [TKey in keyof T]: DeepReadonly<T[TKey]>;
 } : T;
-export type Scope = 'match:read' | 'players:read' | 'stats:read' | 'heroes:read' | 'upgrades:read' | 'resources:read' | 'controlgroups:read';
-export type KnownCapability = 'match' | 'players' | 'stats' | 'heroes' | 'upgrades' | 'resources' | 'controlgroups';
+export type Scope = 'match:read' | 'players:read' | 'stats:read' | 'heroes:read' | 'units:read' | 'buildings:read' | 'production:read' | 'upgrades:read' | 'resources:read' | 'controlgroups:read';
+export type KnownCapability = 'match' | 'players' | 'stats' | 'heroes' | 'units' | 'buildings' | 'production' | 'upgrades' | 'resources' | 'controlgroups';
 export type Capability = KnownCapability | (string & {});
 export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'closed' | 'error';
 export type AppSurface = 'application' | 'streamOverlay' | 'ingameOverlay';
@@ -223,17 +223,41 @@ export interface HeroAbility {
     /** Positive millisecond timestamp on the match game-time clock; absence means never activated. */
     readonly lastActivation?: number;
 }
-export interface Hero {
-    /** Standard-game hero rawcode used for metadata and artwork lookup. */
+/** An observed unit instance. IDs are opaque strings scoped to match.id. */
+export interface Unit {
     readonly id: string;
-    /** Human-readable hero name. */
-    readonly name: string;
-    readonly level: number;
-    readonly experience?: number;
+    /** Actual Warcraft unit type rawcode; never an instance identity. */
+    readonly typeId: string;
     readonly hitpoints?: ValuePool;
     readonly mana?: ValuePool;
+    /** Warcraft map coordinates; omitted until observed. */
+    /** Heroes: sampled every 200 ms. Structures: first observed position, retained. Ordinary units: omitted. */
+    readonly position?: Point;
+}
+/** Inventory is ordered by slot, including empty strings and repeated item types. */
+export type InventorySlot = string;
+export interface Hero extends Unit {
+    readonly level?: number;
+    readonly experience?: number;
     readonly abilities?: readonly HeroAbility[];
-    readonly inventory?: readonly string[];
+    readonly inventory?: readonly InventorySlot[];
+}
+export interface ProductionQueueItem {
+    /** Snapshot position, not a persistent job identity. */
+    readonly position: number;
+    readonly typeId: string;
+    /** Fraction 0..1; null means unavailable. Waiting slots need not have a timer. */
+    readonly progress: number | null;
+}
+export interface Building extends Unit {
+    /** Present while a construction component is observed; progress is 0..1, or null if unreadable. */
+    readonly construction?: {
+        readonly progress: number | null;
+    };
+    /** Missing means unavailable; an empty queue means observed idle production. */
+    readonly production?: {
+        readonly queue: readonly ProductionQueueItem[];
+    };
 }
 export interface CompletedUpgrade {
     /** Standard-game upgrade rawcode. */
@@ -264,7 +288,10 @@ export interface Player {
     readonly mainAccount?: MainAccount;
     readonly controlgroups?: Readonly<Record<string, ControlGroup>>;
     readonly resources?: Resources;
-    readonly heroes?: readonly Hero[];
+    /** Mutually exclusive observed collections, keyed by instance ID. Not authoritative counts. */
+    readonly units?: Readonly<Record<string, Unit>>;
+    readonly heroes?: Readonly<Record<string, Hero>>;
+    readonly buildings?: Readonly<Record<string, Building>>;
     readonly upgrades?: UpgradeState;
     readonly stats?: PlayerStatsCollection;
 }

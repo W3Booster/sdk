@@ -194,6 +194,9 @@ An application requests scopes in its W3Booster metadata. The server filters eve
 | `match:read` | `match` | Match lifecycle, time, map, mode, realm, and broadcaster IDs |
 | `players:read` | `players` | Player identity, race, team, color, and position |
 | `stats:read` | `stats` | Ranking statistics and main-account data |
+| `units:read` | `units` | Ordinary unit instances and health |
+| `buildings:read` | `buildings` | Building instances and health |
+| `production:read` | `production` | Building identity and production queues |
 | `heroes:read` | `heroes` | Heroes, health, mana, abilities, and inventory |
 | `upgrades:read` | `upgrades` | Completed, active, and researching upgrades |
 | `resources:read` | `resources` | Gold, lumber, supply, and worker supply |
@@ -414,7 +417,7 @@ const teams = groupPlayersByTeam(state.players);
 const observerPlayers = headToHeadPair(state.players); // typed pair, or null until both players are scoped
 const broadcasterTeams = broadcasterFirstTeams(state.players, state.match);
 const relation = playerRelationship(state.players[0], state.match, state.players);
-const inventory = heroInventory(broadcaster?.heroes?.[0]);
+const inventory = heroInventory(playerHeroes(broadcaster)[0]);
 const context = gameContext(state); // always includes hudScale; no scope required
 const heroes = playerHeroes(broadcaster);
 const identity = playerDisplayIdentity(broadcaster, {
@@ -654,3 +657,57 @@ Unknown safe JSON fields are preserved in immutable snapshots and patches withou
 being interpreted; using new typed helpers may require an upgrade. Changes to
 existing field types, required fields, or closed enum values are breaking changes.
 See [additive API compatibility](./COMPATIBILITY.md#additive-api-changes-do-not-require-an-sdk-upgrade).
+
+
+## SDK 3 unit instances
+
+Players expose three mutually exclusive instance maps: `player.units`,
+`player.heroes`, and `player.buildings`. `id` is the complete opaque engine
+instance identity within `match.id`; `typeId` is the Warcraft rawcode used for
+metadata/artwork. Two units of the same type have different IDs. A transformed
+hero retains its instance ID and reports its current typeId. Do not parse IDs or
+use them across matches without the match ID.
+
+```js
+import { playerUnits, playerHeroes, playerBuildings } from '@w3booster/sdk/selectors';
+
+const heroes = playerHeroes(player); // Memoized immutable array in observed order
+const hero = player.heroes?.[instanceId];
+const hp = hero?.hitpoints;           // { current, max }, already in game HP
+const buildings = playerBuildings(player);
+const queue = buildings[0]?.production?.queue;
+```
+
+Pools, hero XP/level, and production can arrive independently. Missing data is
+unknown; never substitute zero. A missing production object means unavailable;
+an empty queue means production was observed idle. Queue entries contain
+`position`, `typeId`, and `progress` (fraction 0..1 or null). They have no future
+unit ID or stable job ID, and repeated typeIds are retained. Construction has its
+own optional `construction.progress` field, based on the engine's construction
+component rather than HP. The active queue slot reports its timer fraction;
+waiting slots report zero. Unreadable progress is null. Missing construction
+means no construction component is currently observed; it is not a fabricated
+100%. Building upgrades are not yet exposed as construction.
+
+Heroes expose `position: { x, y }` with changed values sampled every 200 ms.
+Structures expose their first successfully observed position for the instance
+and retain it if moved; this is not necessarily a spawn location. Ordinary units
+omit position. Inventory remains an ordered array of rawcodes, with empty
+strings and repeated items representing actual slots.
+
+Collections are observations, not authoritative unit/building counts. No
+completeness flag is emitted without a reliable producer. Missing collections
+mean outside scope or unavailable; empty collections contain no observed entries.
+Ordinary games expose the current player's units; observer/replay collection
+covers participating players and excludes neutrals. Hero data retains its own
+permission and entitlement gate. A production-only grant supplies building
+identity and queues without granting building health.
+
+SDK processing adds no poller. Ordinary health and queues follow the native
+200 ms cycle; hero HP/mana follows the XP loop. Unchanged observations do not
+publish a new snapshot, and untouched instance objects retain identity.
+
+SDK 3 uses protocol 3 and rejects protocol 2. Migrate `Hero.id` rawcode lookups to
+`Hero.typeId`, replace array access with selectors or instance-map lookup, and
+keep DOM keys based on instance IDs. API, native recorder, desktop relay, and
+consumer SDK releases need a coordinated rollout. This branch is not published.

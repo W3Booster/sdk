@@ -49,7 +49,7 @@ export function iconFilenameUrl(filename, options = {}) {
   return `${baseUrl}/wc3/standard-game/${ASSET_CATALOG_VERSION}/${graphics}/icons/${encodeURIComponent(safeFilename)}`;
 }
 
-export function heroIconUrl(hero, options = {}) { return iconUrl(hero?.id, options); }
+export function heroIconUrl(hero, options = {}) { return iconUrl(hero?.typeId, options); }
 export function abilityIconUrl(ability, options = {}) { return iconUrl(ability?.name, options); }
 export function upgradeIconUrl(upgrade, options = {}) { return iconUrl(upgrade?.name, options); }
 export function itemIconUrl(rawcode, options = {}) { return iconUrl(rawcode, options); }

@@ -50,7 +50,7 @@ export function createDemoState(options = {}) {
     }
   }
   const state = {
-    capabilities: ['match', 'players', 'stats', 'heroes', 'upgrades', 'resources', 'controlgroups'],
+    capabilities: ['match', 'players', 'stats', 'units', 'heroes', 'buildings', 'production', 'upgrades', 'resources', 'controlgroups'],
     match: {
       id: 'demo-match', status: /** @type {import('./index.js').MatchStatus} */ ('running'), gameTime: 0, mode: '1v1', map: 'Echo Isles', realm: 'W3Champions',
       broadcasterPlayerId: '0', realBroadcasterPlayerId: '0', isObserver: false, isReplay: false, isReforged: true
@@ -62,11 +62,12 @@ export function createDemoState(options = {}) {
         stats: { solo: { wins: 42, losses: 18, winRate: 70, rank: 120, league: 'Grandmaster', level: 35 } },
         resources: { gold: 520, lumber: 185, supply: 34, supplyCap: 50, workerSupply: 20 },
         controlgroups: { 1: { frontunit: 'hfoo', size: 8 } },
-        heroes: [{
-          id: 'Hamg', name: 'Archmage', level: 4, experience: 900,
+        units: {}, buildings: {},
+        heroes: /** @type {Record<string, import('./index.js').Hero>} */ ({ '0000000048616d67': {
+          id: '0000000048616d67', typeId: 'Hamg', level: 4, experience: 900,
           hitpoints: { current: 575, max: 650 }, mana: { current: 310, max: 420 },
           abilities: [{ id: 'A0AHwe', name: 'AHwe', level: 2 }], inventory: ['stwp']
-        }],
+        } }),
         upgrades: {
           upgrades: [{ name: 'Rhme', level: 1, gametime: observedAt }],
           active: [{ name: 'Rhme', level: 1, gametime: observedAt }], researching: []
@@ -78,11 +79,12 @@ export function createDemoState(options = {}) {
         stats: { solo: { wins: 38, losses: 22, winRate: 63.3, rank: 180, league: 'Master', level: 32 } },
         resources: { gold: 470, lumber: 210, supply: 38, supplyCap: 50, workerSupply: 19 },
         controlgroups: { 1: { frontunit: 'ogru', size: 6 } },
-        heroes: [{
-          id: 'Obla', name: 'Blademaster', level: 4, experience: 900,
+        units: {}, buildings: {},
+        heroes: /** @type {Record<string, import('./index.js').Hero>} */ ({ '000000004f626c61': {
+          id: '000000004f626c61', typeId: 'Obla', level: 4, experience: 900,
           hitpoints: { current: 610, max: 700 }, mana: { current: 190, max: 300 },
           abilities: [{ id: 'A1AOwk', name: 'AOwk', level: 2 }], inventory: ['phea']
-        }],
+        } }),
         upgrades: { upgrades: [], active: [], researching: [] }
       }
     ],
