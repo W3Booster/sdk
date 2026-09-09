@@ -151,3 +151,34 @@ test('hero positions, one-time structure positions and construction progress pre
     hp(3, 'hbar', 8, { construction: { progress: 1.1 } }),
     hp(3, 'hbar', 8, { position: { x: Infinity, y: 0 } })]) assert.equal(apply(state, [invalid]), state);
 });
+
+test('production preserves observed seconds without inventing timers for waiting or older snapshots', () => {
+  const update = queue(1, [], { queue: [
+    { position: 0, typeId: 'hfoo', progress: 0.25, remainingSeconds: 15.125, totalSeconds: 20 },
+    { position: 1, typeId: 'hfoo', progress: 0, remainingSeconds: null, totalSeconds: null }
+  ] });
+  const state = apply(baseline(), [update]);
+  assert.equal(state.players[0].buildings[id(1)].production.queue[0].remainingSeconds, 15.125);
+  assert.equal(state.players[0].buildings[id(1)].production.queue[0].totalSeconds, 20);
+  assert.equal(state.players[0].buildings[id(1)].production.queue[1].remainingSeconds, null);
+  const unchanged = apply(state, [update]);
+  assert.equal(unchanged.players[0].buildings[id(1)], state.players[0].buildings[id(1)]);
+  for (const remainingSeconds of [0, null, undefined]) {
+    const next = apply(state, [{ ...update, queue: [{ position: 0, typeId: 'hfoo', progress: 0.25, remainingSeconds }] }]);
+    assert.equal(next.players[0].buildings[id(1)].production.queue[0].remainingSeconds, remainingSeconds);
+  }
+  for (const remainingSeconds of [-1, Infinity, NaN, '15']) {
+    const bad = { ...update, queue: [{ position: 0, typeId: 'hfoo', progress: 0.25, remainingSeconds }] };
+    assert.equal(apply(state, [bad]).players[0].buildings[id(1)], state.players[0].buildings[id(1)]);
+    const snapshot = structuredClone(state); snapshot.players[0].buildings[id(1)].production.queue = bad.queue;
+    assert.throws(() => validateState(snapshot), /invalid|finite/i);
+  }
+  for (const totalSeconds of [0, -1, 10, Infinity, NaN, '20']) {
+    const bad = { ...update, queue: [{ ...update.queue[0], totalSeconds }] };
+    assert.equal(apply(state, [bad]).players[0].buildings[id(1)], state.players[0].buildings[id(1)]);
+    const snapshot = structuredClone(state); snapshot.players[0].buildings[id(1)].production.queue = bad.queue;
+    assert.throws(() => validateState(snapshot), /invalid|finite/i);
+  }
+  const badWaiting = { ...update, queue: update.queue.map(slot => ({ ...slot, remainingSeconds: 5 })) };
+  assert.equal(apply(state, [badWaiting]).players[0].buildings[id(1)], state.players[0].buildings[id(1)]);
+});

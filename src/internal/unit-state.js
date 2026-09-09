@@ -10,7 +10,12 @@ export const validPosition = value => isPlainObject(value) && Number.isFinite(va
   Math.abs(value.x) <= 1000000 && Math.abs(value.y) <= 1000000;
 export const validProgress = value => value === null || Number.isFinite(value) && value >= 0 && value <= 1;
 export const validQueue = value => Array.isArray(value) && value.length <= 16 && value.every((item, index) =>
-  isPlainObject(item) && item.position === index && isTypeId(item.typeId) && validProgress(item.progress));
+  isPlainObject(item) && item.position === index && isTypeId(item.typeId) && validProgress(item.progress) &&
+  (item.remainingSeconds === undefined || item.remainingSeconds === null ||
+    index === 0 && Number.isFinite(item.remainingSeconds) && item.remainingSeconds >= 0) &&
+  (item.totalSeconds === undefined || item.totalSeconds === null ||
+    index === 0 && Number.isFinite(item.totalSeconds) && item.totalSeconds > 0 &&
+    (item.remainingSeconds == null || item.remainingSeconds <= item.totalSeconds)));
 export function healthCollection(update) {
   return /^[A-Z]/.test(update.typeId) ? 'heroes' : update.targetFlags & 8 ? 'buildings' : 'units';
 }
@@ -40,7 +45,9 @@ export function applyUnitObservation(player, update, capabilities) {
   unit.typeId = update.typeId;
   if (update.class === 'W3ProductionQueue') {
     if (update.removed) delete unit.production;
-    else unit.production = { queue: update.queue.map(item => ({ position: item.position, typeId: item.typeId, progress: item.progress })) };
+    else unit.production = { queue: update.queue.map(item => ({ position: item.position, typeId: item.typeId, progress: item.progress,
+      ...(item.remainingSeconds === undefined ? {} : { remainingSeconds: item.remainingSeconds }),
+      ...(item.totalSeconds === undefined ? {} : { totalSeconds: item.totalSeconds }) })) };
   } else if (update.class === 'W3UnitHealth') {
     if (update.removed) { delete unit.hitpoints; delete unit.mana; delete unit.position; delete unit.construction; }
     else {

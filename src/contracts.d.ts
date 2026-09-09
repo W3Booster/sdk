@@ -248,6 +248,10 @@ export interface ProductionQueueItem {
     readonly typeId: string;
     /** Fraction 0..1; null means unavailable. Waiting slots need not have a timer. */
     readonly progress: number | null;
+    /** Observed game seconds for the active slot. Null/absent for waiting, unstarted or unreadable timers. */
+    readonly remainingSeconds?: number | null;
+    /** Observed total game seconds for the active slot. Null/absent until its timer is initialized and readable. */
+    readonly totalSeconds?: number | null;
 }
 export interface Building extends Unit {
     /** Present while a construction component is observed; progress is 0..1, or null if unreadable. */

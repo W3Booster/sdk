@@ -19,7 +19,14 @@ Invalidating one removes only its fields, not unrelated observations. Ownership
 and category changes remove prior membership. Queue positions are snapshot
 coordinates, not persistent jobs; progress uses 0..1 or null, construction is
 separate, and unknown data is never fabricated. The active queue slot reports
-its observed timer fraction; waiting slots report zero. Construction comes from
+its observed timer fraction; waiting slots report zero. Additive
+`remainingSeconds?: number | null` and `totalSeconds?: number | null` carry
+the active slot's observed game-time countdown and initialized duration. Waiting/unstarted/unreadable timers are null (older senders may omit
+them), never inferred from rawcode training times or percentages. Values must be
+finite and can only be supplied for slot zero; total is positive and remaining
+is nonnegative and no greater than total. Consumers may derive elapsed seconds
+or percentages from the pair; the delivered progress remains a convenience. The SDK forwards
+the timer without a wall-clock countdown, preserving game pause/speed semantics. Construction comes from
 the building's ABnP component, independently of health, and is omitted when no
 construction component is observed. Unreadable progress is null. Building
 upgrades are a separate activity and are not represented as construction.
