@@ -310,7 +310,7 @@ export function applyLocalRecorderUpdates(state, updates) {
       });
     } else if (update.class === 'W3Player' && hasCapability(next, 'controlgroups') && isPlainObject(update.controlgroups)) {
       updatePlayer(localUpdatePlayerId(update), player => {
-        if (String(player.id) !== String(next.match?.broadcasterPlayerId)) return player;
+        if (!isObserverOrReplayMatch(next.match) && String(player.id) !== String(next.match?.realBroadcasterPlayerId)) return player;
         const controlgroups = structuredCloneSafe(update.controlgroups);
         return deepEqual(player.controlgroups, controlgroups) ? player : { ...player, controlgroups };
       });

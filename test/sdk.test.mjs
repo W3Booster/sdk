@@ -3130,7 +3130,7 @@ test('runtime validation enforces the public state types', async () => {
     type: 'state.snapshot',
     data: {capabilities: [],
       gameContext: { hudScale: 1 }, match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' },
-      players: [{ id: '7', stats: { solo: { wins: 1, losses: 1, winRate: 101 } } }]
+      players: [{ id: '7', stats: { status: 'ready', records: [{ provider: 'w3champions', gameMode: '1v1', queue: 'individual', wins: 1, losses: 1, winRate: 101 }] } }]
     }
   });
   assert.equal(client.state.get(), null);

@@ -17,7 +17,7 @@ const hp = (n, typeId = 'hfoo', targetFlags = 2, extra = {}) => ({
 });
 const queue = (n, entries = ['hfoo', 'hfoo'], extra = {}) => ({
   class: 'W3ProductionQueue', matchId: 42, id: id(n), typeId: 'hbar', slotId: 0,
-  queue: entries.map((typeId, position) => ({ typeId, position, progress: null })), ...extra
+  queue: entries.map((typeId, position) => ({ typeId, position, progress: null, remainingSeconds: null, totalSeconds: null })), ...extra
 });
 const hero = (n, typeId = 'Hamg', extra = {}) => ({ class: 'W3Unit', matchId: 42, id: id(n), typeId,
   slotId: 0, isHero: true, experience: 500, inventory: ['', 'ratf', 'ratf'], ...extra });
@@ -126,15 +126,15 @@ test('hero events use instance IDs and distinguish two heroes of the same type',
   assert.equal(heroes.length, 1); assert.equal(heroes[0].data.heroId, id(2));
 });
 test('hero positions, one-time structure positions and construction progress preserve independent production', () => {
-  const construction = hp(1, 'hbar', 8, { position: { x: -300, y: 120 }, construction: { progress: 0.4 } });
+  const construction = hp(1, 'hbar', 8, { position: { x: -300, y: 120 }, construction: { progress: 0.4, remainingSeconds: null, totalSeconds: null } });
   const heroPosition = hp(2, 'Hamg', 2, { position: { x: 12.5, y: -45 } });
-  const production = queue(1, [], { queue: [{ position: 0, typeId: 'hfoo', progress: 0.25 }, { position: 1, typeId: 'hfoo', progress: 0 }] });
+  const production = queue(1, [], { queue: [{ position: 0, typeId: 'hfoo', progress: 0.25, remainingSeconds: null, totalSeconds: null }, { position: 1, typeId: 'hfoo', progress: 0, remainingSeconds: null, totalSeconds: null }] });
   let state = apply(baseline(), [construction, heroPosition, production]);
   assert.equal(state.players[0].buildings[id(1)].construction.progress, 0.4);
   assert.equal(state.players[0].buildings[id(1)].production.queue[0].progress, 0.25);
   assert.equal(apply(state, [construction, heroPosition, production]), state);
   const previous = deepFreeze(state);
-  state = apply(state, [{ ...construction, construction: { progress: null } }, { ...heroPosition, position: { x: 90, y: -45 } }]);
+  state = apply(state, [{ ...construction, construction: { progress: null, remainingSeconds: null, totalSeconds: null } }, { ...heroPosition, position: { x: 90, y: -45 } }]);
   assert.equal(state.players[0].buildings[id(1)].construction.progress, null);
   assert.equal(state.players[0].buildings[id(1)].position, previous.players[0].buildings[id(1)].position);
   assert.equal(state.players[0].buildings[id(1)].production, previous.players[0].buildings[id(1)].production);
@@ -147,12 +147,12 @@ test('hero positions, one-time structure positions and construction progress pre
   state = apply(state, [{ ...heroPosition, position: undefined }]);
   assert.equal(state.players[0].heroes[id(2)].position, undefined);
   for (const invalid of [hp(3, 'hfoo', 2, { position: { x: 0, y: 0 } }),
-    hp(3, 'Hamg', 2, { construction: { progress: 0.1 } }),
-    hp(3, 'hbar', 8, { construction: { progress: 1.1 } }),
+    hp(3, 'Hamg', 2, { construction: { progress: 0.1, remainingSeconds: null, totalSeconds: null } }),
+    hp(3, 'hbar', 8, { construction: { progress: 1.1, remainingSeconds: null, totalSeconds: null } }),
     hp(3, 'hbar', 8, { position: { x: Infinity, y: 0 } })]) assert.equal(apply(state, [invalid]), state);
 });
 
-test('production preserves observed seconds without inventing timers for waiting or older snapshots', () => {
+test('production preserves observed seconds without inventing timers for waiting snapshots and rejects missing timing fields', () => {
   const update = queue(1, [], { queue: [
     { position: 0, typeId: 'hfoo', progress: 0.25, remainingSeconds: 15.125, totalSeconds: 20 },
     { position: 1, typeId: 'hfoo', progress: 0, remainingSeconds: null, totalSeconds: null }
@@ -163,22 +163,77 @@ test('production preserves observed seconds without inventing timers for waiting
   assert.equal(state.players[0].buildings[id(1)].production.queue[1].remainingSeconds, null);
   const unchanged = apply(state, [update]);
   assert.equal(unchanged.players[0].buildings[id(1)], state.players[0].buildings[id(1)]);
-  for (const remainingSeconds of [0, null, undefined]) {
-    const next = apply(state, [{ ...update, queue: [{ position: 0, typeId: 'hfoo', progress: 0.25, remainingSeconds }] }]);
+  for (const remainingSeconds of [0, null]) {
+    const next = apply(state, [{ ...update, queue: [{ position: 0, typeId: 'hfoo', progress: 0.25, remainingSeconds, totalSeconds: remainingSeconds === null ? null : 20 }] }]);
     assert.equal(next.players[0].buildings[id(1)].production.queue[0].remainingSeconds, remainingSeconds);
   }
-  for (const remainingSeconds of [-1, Infinity, NaN, '15']) {
+  for (const remainingSeconds of [undefined, -1, Infinity, NaN, '15']) {
     const bad = { ...update, queue: [{ position: 0, typeId: 'hfoo', progress: 0.25, remainingSeconds }] };
     assert.equal(apply(state, [bad]).players[0].buildings[id(1)], state.players[0].buildings[id(1)]);
     const snapshot = structuredClone(state); snapshot.players[0].buildings[id(1)].production.queue = bad.queue;
-    assert.throws(() => validateState(snapshot), /invalid|finite/i);
+    assert.throws(() => validateState(snapshot), /invalid|finite|JSON/i);
   }
   for (const totalSeconds of [0, -1, 10, Infinity, NaN, '20']) {
     const bad = { ...update, queue: [{ ...update.queue[0], totalSeconds }] };
     assert.equal(apply(state, [bad]).players[0].buildings[id(1)], state.players[0].buildings[id(1)]);
     const snapshot = structuredClone(state); snapshot.players[0].buildings[id(1)].production.queue = bad.queue;
-    assert.throws(() => validateState(snapshot), /invalid|finite/i);
+    assert.throws(() => validateState(snapshot), /invalid|finite|JSON/i);
   }
   const badWaiting = { ...update, queue: update.queue.map(slot => ({ ...slot, remainingSeconds: 5 })) };
   assert.equal(apply(state, [badWaiting]).players[0].buildings[id(1)], state.players[0].buildings[id(1)]);
+});
+
+
+test('construction uses the same required timing fields through snapshots and local updates', () => {
+  const update = hp(1, 'hbar', 8, { construction: { progress: 0.25, remainingSeconds: 15, totalSeconds: 20 } });
+  let state = apply(baseline(), [update]);
+  assert.deepEqual(state.players[0].buildings[id(1)].construction, update.construction);
+  validateState(state);
+  const same = apply(state, [update]);
+  assert.equal(same.players[0].buildings[id(1)], state.players[0].buildings[id(1)]);
+  // Timers can change even when the progress fraction remains unchanged.
+  const next = { ...update, construction: { progress: 0.25, remainingSeconds: 30, totalSeconds: 40 } };
+  state = apply(state, [next]);
+  assert.deepEqual(state.players[0].buildings[id(1)].construction, next.construction);
+  for (const timing of [
+    { progress: 0.25 },
+    { progress: 0.25, remainingSeconds: null, totalSeconds: 20 },
+    { progress: 0.25, remainingSeconds: 21, totalSeconds: 20 },
+    { progress: 0.25, remainingSeconds: -1, totalSeconds: 20 },
+    { progress: 0.25, remainingSeconds: 0, totalSeconds: 0 }
+  ]) {
+    assert.equal(apply(state, [{ ...update, construction: timing }]).players[0].buildings[id(1)], state.players[0].buildings[id(1)]);
+    const snapshot = structuredClone(state);
+    snapshot.players[0].buildings[id(1)].construction = timing;
+    assert.throws(() => validateState(snapshot), /invalid/i);
+  }
+  const complete = apply(state, [{ ...update, construction: { progress: 1, remainingSeconds: 0, totalSeconds: 20 } }]);
+  assert.equal(complete.players[0].buildings[id(1)].construction.remainingSeconds, 0);
+  const removed = apply(complete, [{ ...update, construction: undefined }]);
+  assert.equal(removed.players[0].buildings[id(1)].construction, undefined);
+});
+
+
+test('researching upgrades use required timing instead of start/finish dates', () => {
+  const state = baseline();
+  state.players[0].upgrades = { upgrades: [], active: [], researching: [{
+    name: 'Rhar', level: 1, gametime: 20, progress: null, remainingSeconds: null, totalSeconds: null
+  }] };
+  validateState(state);
+  state.players[0].upgrades.researching[0] = {
+    name: 'Rhar', level: 1, gametime: 20, progress: 0.5, remainingSeconds: 30, totalSeconds: 60
+  };
+  validateState(state);
+  delete state.players[0].upgrades.researching[0].remainingSeconds;
+  assert.throws(() => validateState(state), /invalid timing/i);
+});
+
+
+test('building read access cannot bypass a withheld production capability', () => {
+  const state = apply(baseline(['match', 'buildings']), [hp(1, 'hbar', 8, {
+    construction: { progress: 0.5, totalSeconds: 20, remainingSeconds: 10 }
+  }), queue(1)]);
+  assert.ok(state.players[0].buildings[id(1)].hitpoints);
+  assert.equal(state.players[0].buildings[id(1)].construction, undefined);
+  assert.equal(state.players[0].buildings[id(1)].production, undefined);
 });

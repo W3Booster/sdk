@@ -94,7 +94,7 @@ test('selectors expose common match and player derivations', () => {
 
 test('current upgrades merge overlapping active and researching records', () => {
   const active = { name: 'Rhme', level: 2, gametime: 1 };
-  const researching = { name: 'Rhar', level: 1, gametime: 2, researchStart: '2026-01-01T00:00:00.000Z' };
+  const researching = { name: 'Rhar', level: 1, gametime: 2, progress: null, remainingSeconds: null, totalSeconds: null };
   const player = { upgrades: { upgrades: [], active: [active], researching: [active, researching] } };
   assert.deepEqual(currentUpgrades(player), [active, researching]);
   assert.deepEqual(currentUpgrades(player, { includeResearching: false }), [active]);

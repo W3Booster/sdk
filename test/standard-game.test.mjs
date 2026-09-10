@@ -117,13 +117,13 @@ test('standard-game asset resolvers bind the catalog and derive graphics from ma
 });
 
 test('standard-game derives upgrade categories and statistics without application presentation rules', () => {
-  const broadcaster = { id: 'me', team: 0, colorId: 0, stats: { solo: { wins: 4, losses: 2, winRate: 66.7 } } };
+  const broadcaster = { id: 'me', team: 0, colorId: 0, stats: { status: 'ready', records: [{ provider: 'w3champions', gameMode: '1v1', queue: 'individual', wins: 4, losses: 2, winRate: 66.7 }] } };
   assert.equal(standardGame.normalizeUpgradeRawcode('Rema3'), 'Rema');
   assert.equal(standardGameIcons.getIcon('Rema3'), standardGameIcons.getIcon('Rema'));
   assert.equal(standardGame.isWeaponOrArmorUpgrade('Rema3'), true);
   assert.equal(standardGame.isWeaponOrArmorUpgrade('Rhde'), false);
   assert.equal(standardGame.statsForMode(broadcaster, '1v1')?.wins, 4);
-  assert.equal(standardGame.preferredStats({ stats: { team: { wins: 7, losses: 1, winRate: 87.5 } } }, 'custom')?.wins, 7);
+  assert.equal(standardGame.statsForMode({ stats: { status: 'ready', records: [{ provider: 'w3champions', gameMode: '2v2', queue: 'individual', wins: 7, losses: 1, winRate: 87.5 }] } }, 'custom'), undefined);
   assert.equal(standardGame.formatGameTime(65), '01:05');
   assert.equal(standardGame.formatGameTime(65, { compactHours: true }), '1:05');
   assert.equal(standardGame.formatGameTime(3665), '1:01:05');
@@ -257,7 +257,7 @@ test('standard-game owns cooldown timestamp and day/night clock semantics', () =
   assert.deepEqual(standardGameCooldowns.abilityCooldown(
     { id: 'AHbz', name: 'AHbz', level: 1, lastActivation: 10_000 },
     12
-  ), { total: 6, elapsed: 2, remaining: 4, progress: 1 / 3, active: true });
+  ), { totalSeconds: 6, remainingSeconds: 4, progress: 1 / 3, active: true });
   assert.equal(standardGameCooldowns.abilityCooldown({ id: 'AHbz', name: 'AHbz', level: 1 }, 12), undefined);
   assert.equal(standardGameCooldowns.abilityCooldown(
     { id: 'AHbz', name: 'AHbz', level: 1, lastActivation: 0 },
@@ -266,7 +266,7 @@ test('standard-game owns cooldown timestamp and day/night clock semantics', () =
   assert.deepEqual(standardGameCooldowns.abilityCooldown(
     { id: 'AHbz', name: 'AHbz', level: 1, lastActivation: 10_500 },
     12
-  ), { total: 6, elapsed: 1.5, remaining: 4.5, progress: 0.25, active: true });
+  ), { totalSeconds: 6, remainingSeconds: 4.5, progress: 0.25, active: true });
   const state = {gameContext: { hudScale: 1 },
     match: { id: 'match', status: 'running', gameTime: 12, mode: '1v1' },
     capabilities: ['match', 'players', 'heroes'],
@@ -278,7 +278,7 @@ test('standard-game owns cooldown timestamp and day/night clock semantics', () =
   const cooldown = cooldowns.get(Object.values(state.players[0].heroes ?? {})[0].abilities[0]);
   assert.deepEqual(
     cooldown,
-    { total: 6, elapsed: 2, remaining: 4, progress: 1 / 3, active: true }
+    { totalSeconds: 6, remainingSeconds: 4, progress: 1 / 3, active: true }
   );
   assert.equal(Object.isFrozen(cooldown), true);
   assert.equal(Object.isFrozen(cooldowns), true);

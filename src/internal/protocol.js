@@ -1,4 +1,4 @@
-import { UNIT_COLLECTIONS, isInstanceId, isTypeId, validPool, validProgress, validQueue } from './unit-state.js';
+import { UNIT_COLLECTIONS, isInstanceId, isTypeId, validPool, validTimedProgress, validQueue } from './unit-state.js';
 import { SUPPORTED_PROTOCOL_VERSIONS } from '../version.js';
 import { ProtocolError } from './errors.js';
 import { isPlainObject } from './network.js';
@@ -94,7 +94,7 @@ export function validateState(value, clientId, cloneState = true) {
           if (unit.production !== undefined && (!isPlainObject(unit.production) || !validQueue(unit.production.queue))) {
             throw new ProtocolError('INVALID_STATE', `Building ${key} has invalid production.`);
           }
-          if (unit.construction !== undefined && (!isPlainObject(unit.construction) || !validProgress(unit.construction.progress))) {
+          if (unit.construction !== undefined && !validTimedProgress(unit.construction)) {
             throw new ProtocolError('INVALID_STATE', `Building ${key} has invalid construction progress.`);
           }
         }
@@ -202,19 +202,27 @@ function validateControlGroups(controlgroups, playerId) {
 
 function validateStatsCollection(stats, playerId) {
   if (!isPlainObject(stats)) throw new ProtocolError('INVALID_STATE', `Player ${playerId} stats must be an object.`);
-  for (const key of ['solo', 'team', 'team4', 'ffa']) {
-    const value = stats[key];
-    if (value === undefined) continue;
-    if (!isPlainObject(value) || !Number.isFinite(value.wins) || !Number.isFinite(value.losses) || !Number.isFinite(value.winRate)) {
-      throw new ProtocolError('INVALID_STATE', `Player ${playerId} stats.${key} is invalid.`);
+  if (!['loading', 'ready', 'unavailable'].includes(stats.status)) throw new ProtocolError('INVALID_STATE', 'Invalid stats status.');
+  if (!Array.isArray(stats.records) || stats.records.length > 128) throw new ProtocolError('INVALID_STATE', 'Stats records must be an array.');
+  for (const value of stats.records) {
+    if (!isPlainObject(value) || !['bnet', 'w3champions', 'netease'].includes(value.provider) ||
+        !['1v1', '2v2', '3v3', '4v4', 'ffa'].includes(value.gameMode) || !['individual', 'arranged'].includes(value.queue) ||
+        !Number.isInteger(value.wins) || value.wins < 0 || !Number.isInteger(value.losses) || value.losses < 0 || !Number.isFinite(value.winRate)) {
+      throw new ProtocolError('INVALID_STATE', `Player ${playerId} stats record is invalid.`);
     }
-    if (value.winRate < 0 || value.winRate > 100) {
-      throw new ProtocolError('INVALID_STATE', `Player ${playerId} stats.${key}.winRate must be between 0 and 100.`);
-    }
-    validateOptionalFields(value, { rank: 'number', level: 'number' }, `Player ${playerId} stats.${key}`);
-    if (value.league !== undefined && typeof value.league !== 'string' && typeof value.league !== 'number') {
-      throw new ProtocolError('INVALID_STATE', `Player ${playerId} stats.${key}.league is invalid.`);
-    }
+    if (value.winRate < 0 || value.winRate > 100) throw new ProtocolError('INVALID_STATE', 'Stats winRate must be between 0 and 100.');
+    validateOptionalFields(value, { mmr: 'number', rank: 'number', level: 'number', xp: 'number', season: 'number', isPlaced: 'boolean' }, 'Stats record');
+    if (value.race !== undefined && !RACES.has(value.race)) throw new ProtocolError('INVALID_STATE', 'Invalid stats race.');
+    if (value.league !== undefined && !(typeof value.league === 'string' || Number.isFinite(value.league))) throw new ProtocolError('INVALID_STATE', 'Invalid stats league.');
+    if (value.queue === 'arranged') {
+      if (!['2v2', '3v3', '4v4'].includes(value.gameMode) || value.race !== undefined || !isPlainObject(value.team) ||
+          typeof value.team.id !== 'string' || !value.team.id || !Array.isArray(value.team.members) ||
+          value.team.members.length < 2 || value.team.members.length > Number(value.gameMode[0]) || value.team.members.some(member =>
+            !isPlainObject(member) || typeof member.battleTag !== 'string' || !member.battleTag.includes('#') ||
+            (member.id !== undefined && typeof member.id !== 'string') || (member.gatewayId !== undefined && !Number.isInteger(member.gatewayId)))) {
+        throw new ProtocolError('INVALID_STATE', 'Invalid arranged team identity.');
+      }
+    } else if (value.team !== undefined) throw new ProtocolError('INVALID_STATE', 'Individual stats cannot have a team.');
   }
 }
 
@@ -287,10 +295,8 @@ function validateUpgrades(upgrades, playerId) {
         throw new ProtocolError('INVALID_STATE', `Upgrade ${upgrade.name} must carry its level separately.`);
       }
       if (collection === 'researching') {
-        validateOptionalFields(upgrade, { researchStart: 'string', researchFinish: 'string' }, `Player ${playerId} researching upgrade`);
-        if ((upgrade.researchStart !== undefined && !isIsoTimestamp(upgrade.researchStart)) ||
-            (upgrade.researchFinish !== undefined && !isIsoTimestamp(upgrade.researchFinish))) {
-          throw new ProtocolError('INVALID_STATE', `Player ${playerId} researching upgrade timestamps must be ISO-8601 strings.`);
+        if (!validTimedProgress(upgrade)) {
+          throw new ProtocolError('INVALID_STATE', `Player ${playerId} researching upgrade has invalid timing.`);
         }
       }
     }

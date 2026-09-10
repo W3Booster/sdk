@@ -1,5 +1,60 @@
 # SDK architecture decisions
 
+## 2026-09-10: Provider MMR and Battle.net league artwork
+
+Expose optional finite `PlayerStats.mmr` consistently with the shared platform
+stats DTO. Preserve the provider value; never substitute level, rank, or zero
+when unavailable. W3Champions already returns `mmr`; its service explicitly
+preserves finite values and caches by realm, player, race and current season so
+one race/season cannot supply another's rating. The existing `match.realm`
+identifies the recorder realm (Reforged, W3Champions and regional variants).
+It is independent of `isReforged`, which selects graphics. No second realm field
+or new network fetch in the browser SDK is introduced.
+
+Original Battle.net division badges live in the versioned static catalog
+`assets/wc3/bnet-leagues/v1`. The SDK assets entry supplies URL/manifest helpers;
+the npm package contains no artwork. Division IDs 0–7 follow the game UI's
+localization array, not W3Champions league IDs. The compact variant defaults to
+the original simplified artwork, with the standard badge for unplaced (0).
+Unknown division values return no URL. No MMR thresholds are hardcoded. Retain
+original bytes, provenance, dimensions and hashes; artwork is not SDK MIT code.
+This adds stats/assets support only; reliable local Battle.net fetching and
+AT/RT attribution remain separate unfinished work. Nothing is published here.
+
+
+
+
+## 2026-09-09: Production follows the existing PRO data entitlement
+
+Production and construction are PRO during self-play and free while observing or
+watching replays. The API withdraws production capability for free self-play;
+construction requires both buildings and production capabilities in the API and
+SDK recorder projection. Native readers enforce the same rule before paid reads
+and publication, including hero pools. Ordinary building health stays free.
+Match Vision's player construction/queue settings are PRO, while observer/replay
+hero, research and production settings remain free as in the legacy client.
+Custom observer headlines remain PRO. Schema metadata, not app-side duplicate
+plan checks, controls settings access.
+
+## 2026-09-09: Unify timed progress before SDK 3 release
+
+The user explicitly permits another breaking change across the unreleased stack.
+`TimedProgress` defines required progress, remainingSeconds, and totalSeconds for
+production slots, construction, researching upgrades, and derived ability
+cooldowns. Progress is the completed fraction 0..1 or null; timers must be both
+null or finite with total > 0 and 0 <= remaining <= total. Missing timing fields
+are rejected for observations rather than supported as an older sender shape.
+This supersedes the optional timer compatibility wording below.
+
+Cooldown helpers remove total/remaining/elapsed names; calculate elapsed from the
+new pair. They still derive standard-game estimates from the observed activation
+and game clock. Construction timers are authoritative engine observations from
+the existing real-property read. Research no longer exposes start/finish wall
+clock dates: the current recorder cannot observe an active research countdown,
+so no durations are invented. Unknown fields remain null. All activities preserve
+game pauses/speed and introduce no wall-clock ticker or extra native reads.
+
+
 ## 2026-09-09: Instance-based player collections (SDK/protocol 3)
 
 Accepted at the user's explicit request to permit breaking changes before SDK
@@ -263,3 +318,29 @@ Explicit FFA modes likewise create one presentation side per visible player befo
 Overlay extension types must enumerate their keys. Broad string index signatures are rejected because they inherently include normalization-owned names. JavaScript demo/testing helpers also reject explicit `runtime`, `misc`, or `settings` extension branches at runtime instead of silently overwriting them.
 
 When BattleTag discriminator stripping is requested, both the in-game name and account name are normalized before choosing the primary display name. These are behavioral guarantees, not application workarounds.
+
+## 2026-09-10: Explicit ladder records replace mode slots
+
+The user authorized breaking the unreleased SDK 3 contract. `PlayerStatsCollection`
+has status (loading, ready, unavailable) and records, with provider/gameMode/queue and optional season/race. Arranged records
+require a provider team identity and members. MMR, rank and league are independent
+optional observations. Unknown values are omitted. Do not keep old solo/team slots
+or preferredStats fallbacks. statsForMode selects an exact, unique record; explicit
+queue/teamId options resolve AT/RT ambiguity. Mode metadata now names ladderMode
+and distinguishes 3v3 from 2v2. Battle.net socket discovery and querying belong to
+the native reader and trusted desktop, never to SDK consumers. The SDK carries
+normalized stats only, with no game GUID, process handle, or socket credentials.
+
+Loading is an explicit provider lifecycle, not inferred from absent records.
+Consumers may render a loading indicator only during loading. Terminal unavailable
+data may later become ready after a verified retry. Local recorder control-group
+updates follow realBroadcasterPlayerId in self-play; observer/replay delivery
+still requires its capability.
+
+## 2026-09-10: Coordinated release review
+
+SDK 3 CI tests a pinned Match Vision SDK 3 consumer. The main-branch SDK 2 app
+is not source-compatible with the breaking instance, stats and timer contracts.
+Consumer registry dependencies only advance after SDK 3 is published. The SDK
+package includes MIGRATION_3.md; website previews type-check against an unpacked
+npm artifact and keep the stable published reference separate.

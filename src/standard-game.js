@@ -13,8 +13,8 @@ export const modeInfo = runtime.modeInfo;
 export const playerColor = runtime.playerColor;
 export const normalizeUpgradeRawcode = runtime.normalizeUpgradeRawcode;
 export const isWeaponOrArmorUpgrade = runtime.isWeaponOrArmorUpgrade;
+/** Select an exact record. No fallback across modes, races, seasons or teams. */
 export const statsForMode = runtime.statsForMode;
-export const preferredStats = runtime.preferredStats;
 export const formatGameTime = runtime.formatGameTime;
 export const dayNightState = runtime.dayNightState;
 export const heroExperienceState = runtime.heroExperienceState;

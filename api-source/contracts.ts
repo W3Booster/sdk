@@ -171,6 +171,7 @@ export interface Match {
   readonly mode: string;
   /** Human-readable, display-ready map name. Producers decode transport escaping before SDK delivery. */
   readonly map?: string;
+  /** Recorder realm, e.g. Reforged, W3Champions, W3Champions@EU or W3Champions@NA. Independent of graphics mode. */
   readonly realm?: string;
   readonly paused?: boolean;
   readonly isReplay?: boolean;
@@ -188,6 +189,17 @@ export interface Point { readonly x: number; readonly y: number }
 /** Player-facing resource and supply values; recorder-specific fixed-point units are already normalized. */
 export interface Resources { readonly gold: number; readonly lumber: number; readonly supply: number; readonly supplyCap: number; readonly workerSupply?: number }
 export interface PlayerStats {
+  readonly provider: 'bnet' | 'w3champions' | 'netease';
+  readonly gameMode: '1v1' | '2v2' | '3v3' | '4v4' | 'ffa';
+  readonly queue: 'individual' | 'arranged';
+  readonly season?: number;
+  readonly race?: Race;
+  /** Provider team identity; distinct teams may contain the same BattleTags. */
+  readonly team?: { readonly id: string; readonly members: readonly { readonly id?: string; readonly battleTag: string; readonly gatewayId?: number }[] };
+  readonly xp?: number;
+  readonly isPlaced?: boolean;
+  /** Provider-reported matchmaking rating for this record; absent when unavailable. Never inferred from level or rank. */
+  readonly mmr?: number;
   readonly wins: number;
   readonly losses: number;
   /** Win percentage from 0 through 100. */
@@ -196,7 +208,7 @@ export interface PlayerStats {
   readonly league?: string | number;
   readonly level?: number;
 }
-export interface PlayerStatsCollection { readonly solo?: PlayerStats; readonly team?: PlayerStats; readonly team4?: PlayerStats; readonly ffa?: PlayerStats }
+export interface PlayerStatsCollection { readonly status: 'loading' | 'ready' | 'unavailable'; readonly records: readonly PlayerStats[] }
 export interface MainAccount { readonly name: string; readonly country?: string; readonly mainRace?: Race }
 export interface ControlGroup { readonly frontunit: string; readonly size: number }
 export interface ValuePool { readonly current: number; readonly max: number }
@@ -228,20 +240,23 @@ export interface Hero extends Unit {
   readonly abilities?: readonly HeroAbility[];
   readonly inventory?: readonly InventorySlot[];
 }
-export interface ProductionQueueItem {
+/** A game-time snapshot. Null means unobserved/uninitialized; never advance on a wall clock. */
+export interface TimedProgress {
+  /** Completed fraction, from 0 to 1; null when unreadable. */
+  readonly progress: number | null;
+  /** Remaining game seconds, or null when unavailable. */
+  readonly remainingSeconds: number | null;
+  /** Positive total game seconds, or null when unavailable. */
+  readonly totalSeconds: number | null;
+}
+export interface ProductionQueueItem extends TimedProgress {
   /** Snapshot position, not a persistent job identity. */
   readonly position: number;
   readonly typeId: string;
-  /** Fraction 0..1; null means unavailable. Waiting slots need not have a timer. */
-  readonly progress: number | null;
-  /** Observed game seconds for the active slot. Null/absent for waiting, unstarted or unreadable timers. */
-  readonly remainingSeconds?: number | null;
-  /** Observed total game seconds for the active slot. Null/absent until its timer is initialized and readable. */
-  readonly totalSeconds?: number | null;
 }
 export interface Building extends Unit {
   /** Present while a construction component is observed; progress is 0..1, or null if unreadable. */
-  readonly construction?: { readonly progress: number | null };
+  readonly construction?: TimedProgress;
   /** Missing means unavailable; an empty queue means observed idle production. */
   readonly production?: { readonly queue: readonly ProductionQueueItem[] };
 }
@@ -253,7 +268,7 @@ export interface CompletedUpgrade {
   readonly gametime: number;
 }
 export interface ActiveUpgrade extends CompletedUpgrade {}
-export interface ResearchingUpgrade extends ActiveUpgrade { readonly researchStart?: string; readonly researchFinish?: string }
+export interface ResearchingUpgrade extends ActiveUpgrade, TimedProgress {}
 export interface UpgradeState {
   readonly upgrades: readonly CompletedUpgrade[];
   readonly active: readonly ActiveUpgrade[];

@@ -58,3 +58,20 @@ export function countryFlagManifestUrl(options = {}) {
   const baseUrl = normalizeAssetBaseUrl(options.baseUrl ?? DEFAULT_ASSET_BASE_URL);
   return `${baseUrl}/country-flags/${COUNTRY_FLAG_CATALOG_VERSION}/manifest.json`;
 }
+
+export const bnetLeagueCatalogVersion = 'v1';
+
+/** Original Battle.net badge for a provider-reported division, never a W3C league ID. */
+export function bnetLeagueIconUrl(division, options = {}) {
+  if (!Number.isInteger(division) || division < 0 || division > 7) return undefined;
+  const variant = options.variant ?? 'simplified';
+  if (variant !== 'standard' && variant !== 'simplified') throw new TypeError('Unknown Battle.net badge variant');
+  const folder = division === 0 ? 'standard' : variant;
+  const baseUrl = normalizeAssetBaseUrl(options.baseUrl ?? DEFAULT_ASSET_BASE_URL);
+  return `${baseUrl}/wc3/bnet-leagues/${bnetLeagueCatalogVersion}/${folder}/${division}.png`;
+}
+
+export function bnetLeagueManifestUrl(options = {}) {
+  const baseUrl = normalizeAssetBaseUrl(options.baseUrl ?? DEFAULT_ASSET_BASE_URL);
+  return `${baseUrl}/wc3/bnet-leagues/${bnetLeagueCatalogVersion}/manifest.json`;
+}

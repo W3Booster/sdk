@@ -59,7 +59,7 @@ export function createDemoState(options = {}) {
       {
         id: '0', name: 'Northwind#1234', race: /** @type {import('./index.js').Race} */ ('human'), team: 0, colorId: 0, startPosition: { x: -3200, y: 800 },
         mainAccount: { name: 'Northwind', country: 'DE', mainRace: /** @type {import('./index.js').Race} */ ('human') },
-        stats: { solo: { wins: 42, losses: 18, winRate: 70, rank: 120, league: 'Grandmaster', level: 35 } },
+        stats: { status: /** @type {const} */ ('ready'), records: [{ provider: /** @type {const} */ ('w3champions'), gameMode: /** @type {const} */ ('1v1'), queue: /** @type {const} */ ('individual'), wins: 42, losses: 18, winRate: 70, rank: 120, league: 'Grandmaster', level: 35 }] },
         resources: { gold: 520, lumber: 185, supply: 34, supplyCap: 50, workerSupply: 20 },
         controlgroups: { 1: { frontunit: 'hfoo', size: 8 } },
         units: {}, buildings: {},
@@ -76,7 +76,7 @@ export function createDemoState(options = {}) {
       {
         id: '1', name: 'Ironclaw#5678', race: /** @type {import('./index.js').Race} */ ('orc'), team: 1, colorId: 1, startPosition: { x: 3200, y: -800 },
         mainAccount: { name: 'Ironclaw', country: 'SE', mainRace: /** @type {import('./index.js').Race} */ ('orc') },
-        stats: { solo: { wins: 38, losses: 22, winRate: 63.3, rank: 180, league: 'Master', level: 32 } },
+        stats: { status: /** @type {const} */ ('ready'), records: [{ provider: /** @type {const} */ ('w3champions'), gameMode: /** @type {const} */ ('1v1'), queue: /** @type {const} */ ('individual'), wins: 38, losses: 22, winRate: 63.3, rank: 180, league: 'Master', level: 32 }] },
         resources: { gold: 470, lumber: 210, supply: 38, supplyCap: 50, workerSupply: 19 },
         controlgroups: { 1: { frontunit: 'ogru', size: 6 } },
         units: {}, buildings: {},

@@ -65,7 +65,7 @@ export function abilityCooldown(ability, gameTime) {
   if (typeof total !== 'number' || !Number.isFinite(total) || total <= 0 || !Number.isFinite(activation) || activation <= 0) return undefined;
   const elapsed = Math.max(0, finiteNonNegative(gameTime) - activation / 1000);
   const remaining = Math.max(0, total - elapsed);
-  return Object.freeze({ total, elapsed, remaining, progress: Math.min(1, elapsed / total), active: remaining > 0 });
+  return Object.freeze({ totalSeconds: total, remainingSeconds: remaining, progress: Math.min(1, elapsed / total), active: remaining > 0 });
 }
 
 /** Index active and completed standard-game ability cooldowns by their hydrated ability objects. */

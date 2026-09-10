@@ -11,8 +11,8 @@ export declare const modeInfo: typeof Contract.modeInfo;
 export declare const playerColor: typeof Contract.playerColor;
 export declare const normalizeUpgradeRawcode: typeof Contract.normalizeUpgradeRawcode;
 export declare const isWeaponOrArmorUpgrade: typeof Contract.isWeaponOrArmorUpgrade;
+/** Select an exact record. No fallback across modes, races, seasons or teams. */
 export declare const statsForMode: typeof Contract.statsForMode;
-export declare const preferredStats: typeof Contract.preferredStats;
 export declare const formatGameTime: typeof Contract.formatGameTime;
 export declare const dayNightState: typeof Contract.dayNightState;
 export declare const heroExperienceState: typeof Contract.heroExperienceState;

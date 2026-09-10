@@ -1,9 +1,8 @@
-import type { HeroAbility, MatchState } from './index.js';
+import type { TimedProgress, HeroAbility, MatchState } from './index.js';
 
-export interface AbilityCooldownState {
-  readonly total: number;
-  readonly elapsed: number;
-  readonly remaining: number;
+export interface AbilityCooldownState extends TimedProgress {
+  readonly totalSeconds: number;
+  readonly remainingSeconds: number;
   readonly progress: number;
   readonly active: boolean;
 }

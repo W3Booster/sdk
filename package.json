@@ -67,7 +67,8 @@
     "README.md",
     "COMPATIBILITY.md",
     "CHANGELOG.md",
-    "LICENSE"
+    "LICENSE",
+    "MIGRATION_3.md"
   ],
   "scripts": {
     "build:api": "node scripts/generate-api-facades.mjs && tsc -p tsconfig.build.json && node scripts/publish-generated-api.mjs",

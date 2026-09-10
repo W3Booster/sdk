@@ -10,7 +10,7 @@ const snapshot = () => ({
     id: '0', race: 'human', startPosition: { x: 0, y: 0 },
     resources: { gold: 100, lumber: 50, supply: 5, supplyCap: 10 },
     mainAccount: { name: 'Player' },
-    stats: { solo: { wins: 2, losses: 1, winRate: 66 } },
+    stats: { status: 'ready', records: [{ provider: 'w3champions', gameMode: '1v1', queue: 'individual', wins: 2, losses: 1, winRate: 66 }] },
     controlgroups: { 1: { frontunit: 'hpea', size: 5 } },
     heroes: { '0000000048616d67': { id: '0000000048616d67', typeId: 'Hamg', name: 'Hamg', level: 1,
       hitpoints: { current: 400, max: 500 }, mana: { current: 100, max: 300 },
@@ -44,7 +44,7 @@ test('new API attributes survive snapshots at every known object level without a
   input.match.result = { playerId: '0', outcome: 'won' };
   const objects = [input, input.match, input.match.result, input.gameContext, input.players[0],
     input.players[0].startPosition, input.players[0].resources, input.players[0].mainAccount,
-    input.players[0].stats, input.players[0].stats.solo, input.players[0].controlgroups[1],
+    input.players[0].stats, input.players[0].stats.records[0], input.players[0].controlgroups[1],
     Object.values(input.players[0].heroes ?? {})[0], Object.values(input.players[0].heroes ?? {})[0].hitpoints, Object.values(input.players[0].heroes ?? {})[0].mana,
     Object.values(input.players[0].heroes ?? {})[0].abilities[0], input.players[0].upgrades,
     input.players[0].upgrades.upgrades[0], input.application, input.application.settings,

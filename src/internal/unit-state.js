@@ -9,13 +9,14 @@ export const validPool = value => isPlainObject(value) && Number.isFinite(value.
 export const validPosition = value => isPlainObject(value) && Number.isFinite(value.x) && Number.isFinite(value.y) &&
   Math.abs(value.x) <= 1000000 && Math.abs(value.y) <= 1000000;
 export const validProgress = value => value === null || Number.isFinite(value) && value >= 0 && value <= 1;
+export const validTimedProgress = value => isPlainObject(value) && validProgress(value.progress) &&
+  (value.remainingSeconds === null && value.totalSeconds === null ||
+    Number.isFinite(value.remainingSeconds) && value.remainingSeconds >= 0 &&
+    Number.isFinite(value.totalSeconds) && value.totalSeconds > 0 && value.remainingSeconds <= value.totalSeconds);
+export const timedProgress = value => ({ progress: value.progress, remainingSeconds: value.remainingSeconds, totalSeconds: value.totalSeconds });
 export const validQueue = value => Array.isArray(value) && value.length <= 16 && value.every((item, index) =>
-  isPlainObject(item) && item.position === index && isTypeId(item.typeId) && validProgress(item.progress) &&
-  (item.remainingSeconds === undefined || item.remainingSeconds === null ||
-    index === 0 && Number.isFinite(item.remainingSeconds) && item.remainingSeconds >= 0) &&
-  (item.totalSeconds === undefined || item.totalSeconds === null ||
-    index === 0 && Number.isFinite(item.totalSeconds) && item.totalSeconds > 0 &&
-    (item.remainingSeconds == null || item.remainingSeconds <= item.totalSeconds)));
+  validTimedProgress(item) && item.position === index && isTypeId(item.typeId) &&
+  (index === 0 || item.remainingSeconds === null && item.totalSeconds === null));
 export function healthCollection(update) {
   return /^[A-Z]/.test(update.typeId) ? 'heroes' : update.targetFlags & 8 ? 'buildings' : 'units';
 }
@@ -25,7 +26,7 @@ export function validUnitUpdate(update) {
   if (update.class === 'W3UnitHealth') return Number.isInteger(update.targetFlags) && update.targetFlags > 0 &&
     update.targetFlags < 2048 && validPool(update.hitpoints) && update.hitpoints.max > 0 &&
     (update.construction === undefined || !/^[A-Z]/.test(update.typeId) && (update.targetFlags & 8) &&
-      isPlainObject(update.construction) && validProgress(update.construction.progress)) &&
+      validTimedProgress(update.construction)) &&
     (update.position === undefined || (/^[A-Z]/.test(update.typeId) || update.targetFlags & 8) && validPosition(update.position)) &&
     (update.mana === undefined || /^[A-Z]/.test(update.typeId) && validPool(update.mana));
   if (update.class === 'W3ProductionQueue') return validQueue(update.queue);
@@ -45,13 +46,11 @@ export function applyUnitObservation(player, update, capabilities) {
   unit.typeId = update.typeId;
   if (update.class === 'W3ProductionQueue') {
     if (update.removed) delete unit.production;
-    else unit.production = { queue: update.queue.map(item => ({ position: item.position, typeId: item.typeId, progress: item.progress,
-      ...(item.remainingSeconds === undefined ? {} : { remainingSeconds: item.remainingSeconds }),
-      ...(item.totalSeconds === undefined ? {} : { totalSeconds: item.totalSeconds }) })) };
+    else unit.production = { queue: update.queue.map(item => ({ position: item.position, typeId: item.typeId, ...timedProgress(item) })) };
   } else if (update.class === 'W3UnitHealth') {
     if (update.removed) { delete unit.hitpoints; delete unit.mana; delete unit.position; delete unit.construction; }
     else {
-      if (update.construction !== undefined) unit.construction = { progress: update.construction.progress };
+      if (capabilities.includes('production') && update.construction !== undefined) unit.construction = timedProgress(update.construction);
       else delete unit.construction;
       if (update.position !== undefined) unit.position = { x: update.position.x, y: update.position.y };
       else delete unit.position;

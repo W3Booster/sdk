@@ -29,3 +29,19 @@ test('asset helpers consume a validated platform-advertised local asset origin',
   assert.throws(() => assets.normalizeAssetBaseUrl('http://example.com'), /must use HTTPS/);
   assert.throws(() => assets.normalizeAssetBaseUrl('https://user@example.com'), /credentials/);
 });
+
+test('Battle.net division badges use their own catalog and handle unplaced/unknown values', () => {
+  assert.equal(assets.bnetLeagueCatalogVersion, 'v1');
+  for (let division = 0; division <= 7; division++) {
+    const folder = division === 0 ? 'standard' : 'simplified';
+    assert.equal(assets.bnetLeagueIconUrl(division), `https://static.w3booster.com/assets/wc3/bnet-leagues/v1/${folder}/${division}.png`);
+    assert.equal(assets.bnetLeagueIconUrl(division, { variant: 'standard', baseUrl: 'http://localhost:8083/assets/' }),
+      `http://localhost:8083/assets/wc3/bnet-leagues/v1/standard/${division}.png`);
+  }
+  for (const division of [undefined, null, -1, 8, 1.5, NaN, Infinity, '6', '../6']) {
+    assert.equal(assets.bnetLeagueIconUrl(division), undefined);
+  }
+  assert.throws(() => assets.bnetLeagueIconUrl(6, { variant: 'unknown' }), /variant/);
+  assert.throws(() => assets.bnetLeagueIconUrl(6, { baseUrl: 'http://example.com' }), /HTTPS/);
+  assert.equal(assets.bnetLeagueManifestUrl(), 'https://static.w3booster.com/assets/wc3/bnet-leagues/v1/manifest.json');
+});
