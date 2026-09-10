@@ -1,6 +1,6 @@
 # Release and compatibility policy
 
-The upcoming SDK 3.0 uses protocol 3.0. It does not negotiate protocol 2 or
+SDK 3.0 uses protocol 3.0. It does not negotiate protocol 2 or
 preserve the previous unit, hero, statistics, or timer shapes. SDK 2 remains the
 published contract until the coordinated rollout. Publish the SDK and update the platform, generated bindings, and apps as
 a coordinated release. Applications consume registry artifacts; packed SDK HEAD

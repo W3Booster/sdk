@@ -1,6 +1,6 @@
 # Changelog
 
-## 3.0.0 — unreleased
+## 3.0.0
 
 - Breaking: statistics are now `player.stats = { status, records }`; render
   `loading`, `ready`, and `unavailable` explicitly. Records identify their
