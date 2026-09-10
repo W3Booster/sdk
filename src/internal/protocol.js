@@ -1,3 +1,4 @@
+import { UNIT_COLLECTIONS, isInstanceId, isTypeId, validPool, validTimedProgress, validQueue } from './unit-state.js';
 import { SUPPORTED_PROTOCOL_VERSIONS } from '../version.js';
 import { ProtocolError } from './errors.js';
 import { isPlainObject } from './network.js';
@@ -71,6 +72,7 @@ export function validateState(value, clientId, cloneState = true) {
   }
   if (!Array.isArray(state.players)) throw new ProtocolError('INVALID_STATE', 'State players must be an array.');
   const playerIds = new Set();
+  const unitIds = new Set();
   state.players.forEach((player, index) => {
     if (!isPlainObject(player) || typeof player.id !== 'string' || !player.id) {
       throw new ProtocolError('INVALID_STATE', `Player ${index} has no valid ID.`);
@@ -79,14 +81,24 @@ export function validateState(value, clientId, cloneState = true) {
     if (playerIds.has(id)) throw new ProtocolError('INVALID_STATE', `Player ID ${id} occurs more than once.`);
     playerIds.add(id);
     validatePlayer(player, id);
-    if (player.heroes !== undefined && !Array.isArray(player.heroes)) {
-      throw new ProtocolError('INVALID_STATE', `Player ${id} heroes must be an array.`);
-    }
-    const heroIds = new Set();
-    for (const hero of player.heroes || []) {
-      validateHero(hero, id);
-      if (heroIds.has(hero.id)) throw new ProtocolError('INVALID_STATE', `Player ${id} hero ID ${hero.id} occurs more than once.`);
-      heroIds.add(hero.id);
+    for (const collection of UNIT_COLLECTIONS) {
+      const values = player[collection];
+      if (values === undefined) continue;
+      if (!isPlainObject(values)) throw new ProtocolError('INVALID_STATE', `Player ${id} ${collection} must be an instance map.`);
+      for (const [key, unit] of Object.entries(values)) {
+        validateUnit(unit, key);
+        if (unitIds.has(key)) throw new ProtocolError('INVALID_STATE', `Unit ${key} occurs in multiple collections or owners.`);
+        unitIds.add(key);
+        if (collection === 'heroes') validateHero(unit, id);
+        if (collection === 'buildings') {
+          if (unit.production !== undefined && (!isPlainObject(unit.production) || !validQueue(unit.production.queue))) {
+            throw new ProtocolError('INVALID_STATE', `Building ${key} has invalid production.`);
+          }
+          if (unit.construction !== undefined && !validTimedProgress(unit.construction)) {
+            throw new ProtocolError('INVALID_STATE', `Building ${key} has invalid construction progress.`);
+          }
+        }
+      }
     }
     if (player.upgrades !== undefined) validateUpgrades(player.upgrades, id);
   });
@@ -190,19 +202,27 @@ function validateControlGroups(controlgroups, playerId) {
 
 function validateStatsCollection(stats, playerId) {
   if (!isPlainObject(stats)) throw new ProtocolError('INVALID_STATE', `Player ${playerId} stats must be an object.`);
-  for (const key of ['solo', 'team', 'team4', 'ffa']) {
-    const value = stats[key];
-    if (value === undefined) continue;
-    if (!isPlainObject(value) || !Number.isFinite(value.wins) || !Number.isFinite(value.losses) || !Number.isFinite(value.winRate)) {
-      throw new ProtocolError('INVALID_STATE', `Player ${playerId} stats.${key} is invalid.`);
+  if (!['loading', 'ready', 'unavailable'].includes(stats.status)) throw new ProtocolError('INVALID_STATE', 'Invalid stats status.');
+  if (!Array.isArray(stats.records) || stats.records.length > 128) throw new ProtocolError('INVALID_STATE', 'Stats records must be an array.');
+  for (const value of stats.records) {
+    if (!isPlainObject(value) || !['bnet', 'w3champions', 'netease'].includes(value.provider) ||
+        !['1v1', '2v2', '3v3', '4v4', 'ffa'].includes(value.gameMode) || !['individual', 'arranged'].includes(value.queue) ||
+        !Number.isInteger(value.wins) || value.wins < 0 || !Number.isInteger(value.losses) || value.losses < 0 || !Number.isFinite(value.winRate)) {
+      throw new ProtocolError('INVALID_STATE', `Player ${playerId} stats record is invalid.`);
     }
-    if (value.winRate < 0 || value.winRate > 100) {
-      throw new ProtocolError('INVALID_STATE', `Player ${playerId} stats.${key}.winRate must be between 0 and 100.`);
-    }
-    validateOptionalFields(value, { rank: 'number', level: 'number' }, `Player ${playerId} stats.${key}`);
-    if (value.league !== undefined && typeof value.league !== 'string' && typeof value.league !== 'number') {
-      throw new ProtocolError('INVALID_STATE', `Player ${playerId} stats.${key}.league is invalid.`);
-    }
+    if (value.winRate < 0 || value.winRate > 100) throw new ProtocolError('INVALID_STATE', 'Stats winRate must be between 0 and 100.');
+    validateOptionalFields(value, { mmr: 'number', rank: 'number', level: 'number', xp: 'number', season: 'number', isPlaced: 'boolean' }, 'Stats record');
+    if (value.race !== undefined && !RACES.has(value.race)) throw new ProtocolError('INVALID_STATE', 'Invalid stats race.');
+    if (value.league !== undefined && !(typeof value.league === 'string' || Number.isFinite(value.league))) throw new ProtocolError('INVALID_STATE', 'Invalid stats league.');
+    if (value.queue === 'arranged') {
+      if (!['2v2', '3v3', '4v4'].includes(value.gameMode) || value.race !== undefined || !isPlainObject(value.team) ||
+          typeof value.team.id !== 'string' || !value.team.id || !Array.isArray(value.team.members) ||
+          value.team.members.length < 2 || value.team.members.length > Number(value.gameMode[0]) || value.team.members.some(member =>
+            !isPlainObject(member) || typeof member.battleTag !== 'string' || !member.battleTag.includes('#') ||
+            (member.id !== undefined && typeof member.id !== 'string') || (member.gatewayId !== undefined && !Number.isInteger(member.gatewayId)))) {
+        throw new ProtocolError('INVALID_STATE', 'Invalid arranged team identity.');
+      }
+    } else if (value.team !== undefined) throw new ProtocolError('INVALID_STATE', 'Individual stats cannot have a team.');
   }
 }
 
@@ -216,8 +236,20 @@ function validateMainAccount(account, playerId) {
   }
 }
 
+function validateUnit(unit, key) {
+  if (!isPlainObject(unit) || !isInstanceId(key) || unit.id !== key || !isTypeId(unit.typeId)) {
+    throw new ProtocolError('INVALID_STATE', `Unit ${key} has an invalid identity or typeId.`);
+  }
+  for (const field of ['hitpoints', 'mana']) {
+    if (unit[field] !== undefined && !validPool(unit[field])) throw new ProtocolError('INVALID_STATE', `Unit ${key} has invalid ${field}.`);
+  }
+  if (unit.position !== undefined && (!isPlainObject(unit.position) || !Number.isFinite(unit.position.x) || !Number.isFinite(unit.position.y))) {
+    throw new ProtocolError('INVALID_STATE', `Unit ${key} has invalid position.`);
+  }
+}
+
 function validateHero(hero, playerId) {
-  if (!isPlainObject(hero) || typeof hero.id !== 'string' || !hero.id || typeof hero.name !== 'string' || !Number.isFinite(hero.level)) {
+  if (!isPlainObject(hero) || typeof hero.id !== 'string' || !hero.id || (hero.level !== undefined && (!Number.isInteger(hero.level) || hero.level < 1))) {
     throw new ProtocolError('INVALID_STATE', `Player ${playerId} contains a hero without a valid ID.`);
   }
   if (Object.prototype.hasOwnProperty.call(hero, 'items')) {
@@ -263,10 +295,8 @@ function validateUpgrades(upgrades, playerId) {
         throw new ProtocolError('INVALID_STATE', `Upgrade ${upgrade.name} must carry its level separately.`);
       }
       if (collection === 'researching') {
-        validateOptionalFields(upgrade, { researchStart: 'string', researchFinish: 'string' }, `Player ${playerId} researching upgrade`);
-        if ((upgrade.researchStart !== undefined && !isIsoTimestamp(upgrade.researchStart)) ||
-            (upgrade.researchFinish !== undefined && !isIsoTimestamp(upgrade.researchFinish))) {
-          throw new ProtocolError('INVALID_STATE', `Player ${playerId} researching upgrade timestamps must be ISO-8601 strings.`);
+        if (!validTimedProgress(upgrade)) {
+          throw new ProtocolError('INVALID_STATE', `Player ${playerId} researching upgrade has invalid timing.`);
         }
       }
     }

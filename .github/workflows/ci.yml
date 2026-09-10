@@ -60,6 +60,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: W3Booster/app-match-vision
+          # SDK 3 consumer under coordinated review; see MIGRATION_3.md.
+          ref: ee0df4b0988421abc5ecca47d836a8c9942e1a0b
           path: app
       - uses: actions/setup-node@v6
         with:

@@ -77,12 +77,12 @@ function orderBroadcasterFirstPlayers(players, broadcasterPlayerId, reverse) {
   return Object.freeze(ordered);
 }
 const MELEE_MODES = Object.freeze({
-  '1v1': Object.freeze({ id: '1v1', kind: 'head-to-head', playerCount: 2, teamSize: 1, stats: 'solo' }),
-  '2v2': Object.freeze({ id: '2v2', kind: 'team', playerCount: 4, teamSize: 2, stats: 'team' }),
-  '3v3': Object.freeze({ id: '3v3', kind: 'team', playerCount: 6, teamSize: 3, stats: 'team' }),
-  '4v4': Object.freeze({ id: '4v4', kind: 'team', playerCount: 8, teamSize: 4, stats: 'team4' }),
-  '3ffa': Object.freeze({ id: '3ffa', kind: 'ffa', playerCount: 3, teamSize: 1, stats: 'ffa' }),
-  '4ffa': Object.freeze({ id: '4ffa', kind: 'ffa', playerCount: 4, teamSize: 1, stats: 'ffa' })
+  '1v1': Object.freeze({ id: '1v1', kind: 'head-to-head', playerCount: 2, teamSize: 1, ladderMode: '1v1' }),
+  '2v2': Object.freeze({ id: '2v2', kind: 'team', playerCount: 4, teamSize: 2, ladderMode: '2v2' }),
+  '3v3': Object.freeze({ id: '3v3', kind: 'team', playerCount: 6, teamSize: 3, ladderMode: '3v3' }),
+  '4v4': Object.freeze({ id: '4v4', kind: 'team', playerCount: 8, teamSize: 4, ladderMode: '4v4' }),
+  '3ffa': Object.freeze({ id: '3ffa', kind: 'ffa', playerCount: 3, teamSize: 1, ladderMode: 'ffa' }),
+  '4ffa': Object.freeze({ id: '4ffa', kind: 'ffa', playerCount: 4, teamSize: 1, ladderMode: 'ffa' })
 });
 
 export const races = RACES;
@@ -126,19 +126,19 @@ export function isWeaponOrArmorUpgrade(rawcode) {
   return WEAPON_OR_ARMOR_UPGRADES.has(normalizeUpgradeRawcode(rawcode));
 }
 
-/** Select the standard ladder statistics represented by a match mode. */
-export function statsForMode(player, mode) {
-  const stats = modeInfo(mode)?.stats;
-  return stats ? player?.stats?.[stats] : player?.stats?.solo;
-}
-
-/** Select mode-specific statistics, then the first available standard ladder record. */
-export function preferredStats(player, mode) {
-  return statsForMode(player, mode)
-    ?? player?.stats?.solo
-    ?? player?.stats?.team
-    ?? player?.stats?.team4
-    ?? player?.stats?.ffa;
+/** Select one exact ladder; unavailable or ambiguous records have no fallback. */
+export function statsForMode(player, mode, options = {}) {
+  const ladderMode = modeInfo(mode)?.ladderMode;
+  if (!ladderMode) return undefined;
+  const records = (player?.stats?.records ?? []).filter(record => record.gameMode === ladderMode &&
+    (options.provider === undefined || record.provider === options.provider) &&
+    (options.season === undefined || record.season === options.season) &&
+    (options.queue === undefined || record.queue === options.queue) &&
+    (options.teamId === undefined || record.team?.id === options.teamId) &&
+    (record.race === undefined || record.race === (options.race ?? player.race)));
+  // Team mode alone cannot distinguish RT from AT or identify a particular team.
+  if (records.some(record => record.queue === 'arranged') && options.queue === undefined && options.teamId === undefined) return undefined;
+  return records.length === 1 ? records[0] : undefined;
 }
 
 /** Format elapsed in-game seconds as m:ss or h:mm:ss. */

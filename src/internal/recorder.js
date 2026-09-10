@@ -1,4 +1,5 @@
-import { hasCapability } from './domain.js';
+import { UNIT_COLLECTIONS, validUnitUpdate, applyUnitObservation, healthCollection } from './unit-state.js';
+import { hasCapability, isObserverOrReplayMatch } from './domain.js';
 import { ConnectionError, ProtocolError } from './errors.js';
 import { CONNECTION_TIMEOUT, isPlainObject } from './network.js';
 import { assertSafeValue, deepEqual, structuredCloneSafe } from './values.js';
@@ -121,6 +122,9 @@ export class LocalRecorderTransport {
             const cached = structuredCloneSafe(update);
             cached.__w3boosterReceivedAt = Date.now();
             const key = localUpdateKey(cached);
+            const previous = this.pending.get(key) || this.latest.get(key);
+            if (['W3Unit', 'W3UnitHealth', 'W3ProductionQueue'].includes(cached.class) && cached.removed &&
+                previous && previous.slotId !== cached.slotId) continue;
             if (!(cached.class === 'W3Unit' && cached.isHero)) this.pending.delete(key);
             this.pending.set(key, cached);
           }
@@ -250,11 +254,7 @@ function localUpdateKey(update) {
   const playerId = localUpdatePlayerId(update);
   if (update.class === 'W3Resource') return `${update.class}:${playerId}:${String(update.type)}`;
   if (update.class === 'W3Player') return `${update.class}:${playerId}`;
-  if (update.class === 'W3Unit') {
-    const type = String(update.type);
-    const identity = update.isHero ? (LOCAL_HERO_ALIASES.get(type) || type) : type;
-    return `${update.class}:${playerId}:${identity}`;
-  }
+  if (['W3Unit', 'W3UnitHealth', 'W3ProductionQueue'].includes(update.class)) return `${update.class}:${String(update.id)}`;
   if (update.class === 'W3Research') return `${update.class}:${playerId}:${String(update.type)}:${String(update.level)}`;
   return String(update.class || 'unknown');
 }
@@ -310,7 +310,7 @@ export function applyLocalRecorderUpdates(state, updates) {
       });
     } else if (update.class === 'W3Player' && hasCapability(next, 'controlgroups') && isPlainObject(update.controlgroups)) {
       updatePlayer(localUpdatePlayerId(update), player => {
-        if (String(player.id) !== String(next.match?.broadcasterPlayerId)) return player;
+        if (!isObserverOrReplayMatch(next.match) && String(player.id) !== String(next.match?.realBroadcasterPlayerId)) return player;
         const controlgroups = structuredCloneSafe(update.controlgroups);
         return deepEqual(player.controlgroups, controlgroups) ? player : { ...player, controlgroups };
       });
@@ -318,8 +318,26 @@ export function applyLocalRecorderUpdates(state, updates) {
       const broadcasterPlayerId = String(Number(update.value));
       updateMatch('broadcasterPlayerId', broadcasterPlayerId);
       updateMatch('realBroadcasterPlayerId', broadcasterPlayerId);
-    } else if (update.class === 'W3Unit' && update.isHero && hasCapability(next, 'heroes')) {
-      updatePlayer(localUpdatePlayerId(update), player => applyLocalHeroUpdate(player, update));
+    } else if (['W3Unit', 'W3UnitHealth', 'W3ProductionQueue'].includes(update.class)) {
+      if (!validUnitUpdate(update)) continue;
+      const owner = String(update.slotId);
+      // Neutral/nonparticipant units and normal-game opponents never enter state.
+      if (!playerIndexes.has(owner) || !isObserverOrReplayMatch(next.match) && owner !== next.match.broadcasterPlayerId) continue;
+      if (!update.removed) {
+        const target = update.class === 'W3UnitHealth' ? healthCollection(update) : update.class === 'W3Unit' ? 'heroes' : 'buildings';
+        for (const existing of next.players) updatePlayer(existing.id, player => {
+          let changed = player;
+          for (const collection of UNIT_COLLECTIONS) {
+            if (String(player.id) === owner && collection === target || !changed[collection]?.[update.id]) continue;
+            const values = { ...changed[collection] }; delete values[update.id];
+            changed = { ...changed, [collection]: values };
+          }
+          return changed;
+        });
+      }
+      if (update.class === 'W3Unit') {
+        if (hasCapability(next, 'heroes')) updatePlayer(owner, player => applyLocalHeroUpdate(player, update));
+      } else updatePlayer(owner, player => applyUnitObservation(player, update, next.capabilities));
     } else if (update.class === 'W3Research' && hasCapability(next, 'upgrades')) {
       updatePlayer(localUpdatePlayerId(update), player => applyLocalResearchUpdate(player, update));
     }
@@ -328,11 +346,15 @@ export function applyLocalRecorderUpdates(state, updates) {
 }
 
 function applyLocalHeroUpdate(player, update) {
-  const heroId = LOCAL_HERO_ALIASES.get(String(update.type)) || String(update.type || '');
+  const heroId = update.id;
   if (!heroId) return player;
-  const heroes = player.heroes || [];
-  const index = heroes.findIndex(candidate => String(candidate.id) === heroId);
-  const previousHero = index >= 0 ? heroes[index] : null;
+  const heroes = player.heroes || {};
+  const previousHero = heroes[heroId];
+  if (update.removed) {
+    if (!previousHero) return player;
+    const remaining = { ...heroes }; delete remaining[heroId];
+    return { ...player, heroes: remaining };
+  }
   const receivedExperience = Number(update.experience);
   const experience = Number.isFinite(receivedExperience)
     ? receivedExperience
@@ -344,7 +366,7 @@ function applyLocalHeroUpdate(player, update) {
       .map(ability => {
         const name = LOCAL_ABILITY_ALIASES.get(String(ability.type)) || String(ability.type || '');
         return {
-          id: `A${String(player.id)}${name}`,
+          id: `A${heroId}${name}`,
           name,
           level: LOCAL_UTILITY_ABILITIES.has(name) ? 0 : Number(ability.level) || 0,
           ...(Number.isFinite(Number(ability.lastActivation)) && Number(ability.lastActivation) > 0
@@ -364,7 +386,7 @@ function applyLocalHeroUpdate(player, update) {
   const hero = {
     ...(previousHero || {}),
     id: heroId,
-    name: previousHero?.name || heroId,
+    typeId: update.typeId,
     experience,
     level: localHeroLevel(experience),
     abilities,
@@ -373,10 +395,7 @@ function applyLocalHeroUpdate(player, update) {
     ...(mana !== undefined ? { mana } : {})
   };
   if (previousHero && deepEqual(previousHero, hero)) return player;
-  const nextHeroes = [...heroes];
-  if (index >= 0) nextHeroes[index] = hero;
-  else nextHeroes.push(hero);
-  return { ...player, heroes: nextHeroes };
+  return { ...player, heroes: { ...heroes, [heroId]: hero } };
 }
 
 function applyLocalResearchUpdate(player, update) {

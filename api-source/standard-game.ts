@@ -17,8 +17,8 @@ export const modeInfo: typeof Contract.modeInfo = runtime.modeInfo;
 export const playerColor: typeof Contract.playerColor = runtime.playerColor;
 export const normalizeUpgradeRawcode: typeof Contract.normalizeUpgradeRawcode = runtime.normalizeUpgradeRawcode;
 export const isWeaponOrArmorUpgrade: typeof Contract.isWeaponOrArmorUpgrade = runtime.isWeaponOrArmorUpgrade;
+/** Select an exact record. No fallback across modes, races, seasons or teams. */
 export const statsForMode: typeof Contract.statsForMode = runtime.statsForMode;
-export const preferredStats: typeof Contract.preferredStats = runtime.preferredStats;
 export const formatGameTime: typeof Contract.formatGameTime = runtime.formatGameTime;
 export const dayNightState: typeof Contract.dayNightState = runtime.dayNightState;
 export const heroExperienceState: typeof Contract.heroExperienceState = runtime.heroExperienceState;

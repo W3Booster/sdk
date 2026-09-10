@@ -919,12 +919,12 @@ test('hydrated changes emit useful player, hero, inventory, and match events', a
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {
     capabilities: ['match', 'players', 'heroes', 'resources'],
     gameContext: { hudScale: 1 }, match: { id: 'one', status: 'running', gameTime: 10, mode: '1v1' },
-    players: [{ id: '0', name: 'Player', resources: { gold: 100, lumber: 0, supply: 0, supplyCap: 0 }, heroes: [{ id: 'Hamg', name: 'Archmage', level: 1, inventory: ['ratf'] }] }]
+    players: [{ id: '0', name: 'Player', resources: { gold: 100, lumber: 0, supply: 0, supplyCap: 0 }, heroes: { '0000000048616d67': { id: '0000000048616d67', typeId: 'Hamg', name: 'Archmage', level: 1, inventory: ['ratf'] } } }]
   } });
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 2, type: 'state.patch', data: [
     { op: 'replace', path: '/players/0/resources/gold', value: 125 },
-    { op: 'replace', path: '/players/0/heroes/0/level', value: 2 },
-    { op: 'add', path: '/players/0/heroes/0/inventory/-', value: 'rin1' },
+    { op: 'replace', path: '/players/0/heroes/0000000048616d67/level', value: 2 },
+    { op: 'add', path: '/players/0/heroes/0000000048616d67/inventory/-', value: 'rin1' },
     { op: 'replace', path: '/match/status', value: 'finished' },
     { op: 'add', path: '/match/endedAt', value: '2026-08-19T00:30:00.000Z' }
   ] });
@@ -1223,7 +1223,7 @@ test('non-canonical hero inventory and upgrade suffixes are rejected', async () 
   await client.open();
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 1, type: 'state.snapshot', data: {capabilities: [],
     gameContext: { hudScale: 1 }, match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' },
-    players: [{ id: '0', heroes: [{ id: 'Hamg', name: 'Archmage', level: 1, items: ['ratf'] }] }]
+    players: [{ id: '0', heroes: { '0000000048616d67': { id: '0000000048616d67', typeId: 'Hamg', name: 'Archmage', level: 1, items: ['ratf'] } } }]
   } });
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 2, type: 'state.snapshot', data: {capabilities: [],
     gameContext: { hudScale: 1 }, match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' },
@@ -1269,13 +1269,13 @@ test('observer and replay sessions use the low-latency recorder transport locall
       },
       players: [{
         id: '0',
-        heroes: [{
-          id: 'Edem', name: 'Demon Hunter', level: 1, experience: 0,
+        heroes: { '000000004564656d': {
+          id: '000000004564656d', typeId: 'Edem', name: 'Demon Hunter', level: 1, experience: 0,
           platformMetadata: { portrait: 'demon-hunter' }, hitpoints: { current: 400, max: 500 }
-        }],
+        } },
         upgrades: { upgrades: [], active: [], researching: [] }
       }, {
-        id: '1', name: 'Unchanged player', heroes: [],
+        id: '1', name: 'Unchanged player', heroes: {  },
         upgrades: { upgrades: [], active: [], researching: [] }
       }],
       transport: { recorderUrls: ['ws://127.0.0.1:48123'] },
@@ -1307,7 +1307,7 @@ test('observer and replay sessions use the low-latency recorder transport locall
       { class: 'W3Resource', matchId: 'observer-match', slotId: 0, type: 4, value: 50 }
     ]));
     sockets[0].emit('message', JSON.stringify([
-      { class: 'W3Unit', matchId: 'observer-match', slotId: 0, type: 'Edmm', isHero: true, experience: 500,
+      { class: 'W3Unit', matchId: 'observer-match', slotId: 0, id: '000000004564656d', typeId: 'Edmm', isHero: true, experience: 500,
         abilities: [{ type: 'AUfa', level: 2, order: 1, lastActivation: 9000 }], inventory: ['ratf'] },
       { class: 'W3Research', matchId: 'observer-match', slotId: 0, type: 'Rema', level: 2 }
     ]));
@@ -1318,19 +1318,19 @@ test('observer and replay sessions use the low-latency recorder transport locall
     assert.equal(publications, 3);
     assert.equal(state.application, authenticatedState.application);
     assert.equal(state.players[1], authenticatedState.players[1]);
-    assert.equal(state.players[0].heroes[0].platformMetadata, authenticatedState.players[0].heroes[0].platformMetadata);
-    assert.equal(state.players[0].heroes[0].hitpoints, authenticatedState.players[0].heroes[0].hitpoints);
+    assert.equal(Object.values(state.players[0].heroes ?? {})[0].platformMetadata, Object.values(authenticatedState.players[0].heroes ?? {})[0].platformMetadata);
+    assert.equal(Object.values(state.players[0].heroes ?? {})[0].hitpoints, Object.values(authenticatedState.players[0].heroes ?? {})[0].hitpoints);
     assert.equal(client.diagnostics.localTransport, 'recorder-local');
     assert.equal(state.match.gameTime, 12);
     assert.equal(state.gameContext.hudScale, 0.75);
     assert.deepEqual(state.players[0].resources, { gold: 123, lumber: 67, supply: 31, supplyCap: 50, workerSupply: 0 });
-    assert.equal(state.players[0].heroes[0].id, 'Edem');
-    assert.equal(state.players[0].heroes[0].name, 'Demon Hunter');
-    assert.equal(state.players[0].heroes[0].level, 3);
-    assert.equal(state.players[0].heroes[0].abilities[0].name, 'AUfu');
-    assert.deepEqual(state.players[0].heroes[0].inventory, ['ratf']);
-    assert.deepEqual(state.players[0].heroes[0].platformMetadata, { portrait: 'demon-hunter' });
-    assert.deepEqual(state.players[0].heroes[0].hitpoints, { current: 400, max: 500 });
+    assert.equal(Object.values(state.players[0].heroes ?? {})[0].id, '000000004564656d');
+    assert.equal(Object.values(state.players[0].heroes ?? {})[0].name, 'Demon Hunter');
+    assert.equal(Object.values(state.players[0].heroes ?? {})[0].level, 3);
+    assert.equal(Object.values(state.players[0].heroes ?? {})[0].abilities[0].name, 'AUfu');
+    assert.deepEqual(Object.values(state.players[0].heroes ?? {})[0].inventory, ['ratf']);
+    assert.deepEqual(Object.values(state.players[0].heroes ?? {})[0].platformMetadata, { portrait: 'demon-hunter' });
+    assert.deepEqual(Object.values(state.players[0].heroes ?? {})[0].hitpoints, { current: 400, max: 500 });
     assert.equal(state.players[0].upgrades.active[0].level, 2);
 
     const updatedState = state;
@@ -1348,7 +1348,7 @@ test('observer and replay sessions use the low-latency recorder transport locall
     state = client.state.get();
     assert.equal(state.gameContext.hudScale, 0.75);
     assert.equal(state.players[0].resources.gold, 123);
-    assert.equal(state.players[0].heroes[0].id, 'Edem');
+    assert.equal(Object.values(state.players[0].heroes ?? {})[0].id, '000000004564656d');
 
     context.onMessage({ version: PROTOCOL_VERSION, sequence: 4, type: 'state.patch', data: [{ op: 'replace', path: '/match/status', value: 'finished' }] });
     assert.equal(client.diagnostics.localTransport, null);
@@ -1363,14 +1363,14 @@ test('local hero abilities omit unused and non-finite activation timestamps', ()
   const baseline = {
     capabilities: ['match', 'players', 'heroes'], gameContext: { hudScale: 1 },
     match: { id: 'replay', status: 'running', gameTime: 1, mode: '1v1', isReplay: true },
-    players: [{ id: '0', heroes: [] }]
+    players: [{ id: '0', heroes: {  } }]
   };
   for (const lastActivation of [undefined, 0, -1, Infinity, NaN]) {
     const state = applyLocalRecorderUpdates(baseline, [{
-      class: 'W3Unit', slotId: 0, type: 'Hamg', isHero: true,
+      class: 'W3Unit', slotId: 0, id: '0000000048616d67', typeId: 'Hamg', isHero: true, experience: 0,
       abilities: [{ type: 'AHwe', level: 1, lastActivation }]
     }]);
-    assert.equal(Object.hasOwn(state.players[0].heroes[0].abilities[0], 'lastActivation'), false);
+    assert.equal(Object.hasOwn(Object.values(state.players[0].heroes ?? {})[0].abilities[0], 'lastActivation'), false);
   }
 });
 
@@ -1391,7 +1391,7 @@ test('replay heroes retain appearance order and exact inventory slots through ca
   const baseline = {
     capabilities: ['match', 'players', 'heroes'], gameContext: { hudScale: 1 },
     match: { id: 'replay', status: 'running', gameTime: 1, mode: '1v1', isReplay: true },
-    players: [{ id: '0', heroes: [] }],
+    players: [{ id: '0', heroes: {  } }],
     transport: { recorderUrls: ['ws://127.0.0.1:48123'] },
     application: { clientId: 'test_app', settings: {} }
   };
@@ -1400,13 +1400,14 @@ test('replay heroes retain appearance order and exact inventory slots through ca
     version: PROTOCOL_VERSION, sequence: ++sequence, type: 'state.snapshot', data: baseline
   });
   const hero = (type, inventory) => ({
-    class: 'W3Unit', matchId: 'replay', slotId: 0, type, isHero: true, inventory
+    class: 'W3Unit', matchId: 'replay', slotId: 0,
+    id: '00000000' + Buffer.from(type === 'Edmm' ? 'Edem' : type).toString('hex'), typeId: type, isHero: true, experience: 0, inventory
   });
   const inventory = ['ratf', '', 'ratf', 'rin1', '', 'rde1'];
   const movedInventory = ['', 'rin1', 'ratf', '', 'ratf', 'rde1'];
   const assertHeroes = (ids, items) => {
-    const heroes = client.state.get().players[0].heroes;
-    assert.deepEqual(heroes.map(value => value.id), ids);
+    const heroes = Object.values(client.state.get().players[0].heroes);
+    assert.deepEqual(heroes.map(value => value.id), ids.map(type => '00000000' + Buffer.from(type).toString('hex')));
     assert.deepEqual(heroes[0].inventory, items);
   };
   try {
@@ -1613,7 +1614,7 @@ test('invalid local recorder updates are not cached into later platform snapshot
   const snapshot = gameTime => ({
     capabilities: ['match', 'players', 'heroes'],
     gameContext: { hudScale: 1 }, match: { id: 'observer-match', status: 'running', gameTime, mode: '1v1', isObserver: true },
-    players: [{ id: '0', heroes: [{ id: 'Hamg', name: 'Archmage', level: 1 }] }],
+    players: [{ id: '0', heroes: { '0000000048616d67': { id: '0000000048616d67', typeId: 'Hamg', name: 'Archmage', level: 1 } } }],
     transport: { recorderUrls: ['ws://127.0.0.1:48123'] },
     application: { clientId: 'test_app', settings: {} }
   });
@@ -1623,15 +1624,15 @@ test('invalid local recorder updates are not cached into later platform snapshot
     await waitForDeferredModule(() => socket !== undefined);
     socket.emit('open');
     socket.emit('message', JSON.stringify([{
-      class: 'W3Unit', matchId: 'observer-match', slotId: 0, type: 'Hamg', isHero: true, hitpoints: 'invalid'
+      class: 'W3Unit', matchId: 'observer-match', slotId: 0, id: '0000000048616d67', typeId: 'Hamg', isHero: true, experience: 0, hitpoints: 'invalid'
     }]));
     await waitForRecorderFrame();
-    assert.equal(client.state.get().players[0].heroes[0].hitpoints, undefined);
+    assert.equal(Object.values(client.state.get().players[0].heroes ?? {})[0].hitpoints, undefined);
     assert.equal(errors[0]?.code, 'INVALID_STATE');
 
     stream.onMessage({ version: PROTOCOL_VERSION, sequence: 2, type: 'state.snapshot', data: snapshot(2) });
     assert.equal(client.state.get().match.gameTime, 2);
-    assert.equal(client.state.get().players[0].heroes[0].hitpoints, undefined);
+    assert.equal(Object.values(client.state.get().players[0].heroes ?? {})[0].hitpoints, undefined);
   } finally {
     await client.disconnect();
     if (originalWebSocket === undefined) delete globalThis.WebSocket;
@@ -3129,7 +3130,7 @@ test('runtime validation enforces the public state types', async () => {
     type: 'state.snapshot',
     data: {capabilities: [],
       gameContext: { hudScale: 1 }, match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' },
-      players: [{ id: '7', stats: { solo: { wins: 1, losses: 1, winRate: 101 } } }]
+      players: [{ id: '7', stats: { status: 'ready', records: [{ provider: 'w3champions', gameMode: '1v1', queue: 'individual', wins: 1, losses: 1, winRate: 101 }] } }]
     }
   });
   assert.equal(client.state.get(), null);
@@ -3244,23 +3245,23 @@ test('unsafe patch paths cannot mutate object prototypes', async () => {
   client.on('issue', issue => { error = issue.error; });
   await client.open();
   context.onMessage({
-    version: '2.0', sequence: 1, type: 'state.snapshot',
+    version: '3.0', sequence: 1, type: 'state.snapshot',
     data: {capabilities: [],  gameContext: { hudScale: 1 }, match: { id: '', status: 'none', gameTime: 0, mode: 'undefined' }, players: [] }
   });
   context.onMessage({
-    version: '2.0', sequence: 2, type: 'state.patch',
+    version: '3.0', sequence: 2, type: 'state.patch',
     data: [{ op: 'add', path: '/__proto__/w3boosterPolluted', value: true }]
   });
   assert.equal(Object.prototype.w3boosterPolluted, undefined);
   assert.ok(error instanceof ProtocolError);
   assert.equal(error.code, 'UNSAFE_PATCH');
   context.onMessage({
-    version: '2.0', sequence: 3, type: 'state.patch',
+    version: '3.0', sequence: 3, type: 'state.patch',
     data: [{ op: 'replace', path: '/match/gameTime', value: 999 }]
   });
   assert.equal(client.state.get().match.gameTime, 0);
   context.onMessage({
-    version: '2.0', sequence: 4, type: 'state.snapshot',
+    version: '3.0', sequence: 4, type: 'state.snapshot',
     data: {capabilities: [],  gameContext: { hudScale: 1 }, match: { id: '', status: 'none', gameTime: 4, mode: 'undefined' }, players: [] }
   });
   assert.equal(client.state.get().match.gameTime, 4);

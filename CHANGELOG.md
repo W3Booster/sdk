@@ -1,5 +1,38 @@
 # Changelog
 
+## 3.0.0
+
+- Breaking: statistics are now `player.stats = { status, records }`; render
+  `loading`, `ready`, and `unavailable` explicitly. Records identify their
+  provider, game mode, season, race or arranged-team roster. Use
+  `statsForMode(player, match.mode)` instead of assuming a race-keyed object.
+- Preserve the recorder's terminal local-player result. The recorder latches a
+  valid victory observation and otherwise reports a loss when a self-play match
+  ends; apps still deduplicate results by match ID and own score eligibility.
+- Prevent opponent control groups from appearing in self-play projections.
+- See [MIGRATION_3.md](MIGRATION_3.md) for the coordinated upgrade checklist.
+
+- Add optional validated `PlayerStats.mmr`, document the existing `match.realm`,
+  and add Battle.net division badge and manifest URL helpers under `/assets`.
+  Artwork remains in the separate versioned static catalog.
+
+- Breaking: unify timed progress as required `progress`, `totalSeconds`, and
+  `remainingSeconds` fields across production, construction, research DTOs, and
+  ability cooldown helpers. Remove cooldown total/remaining/elapsed aliases and
+  research start/finish timestamps. Unknown timers are explicitly null.
+
+- Breaking: remove `Hero.name`, make observed hero level optional, and replace
+  `modeInfo().stats` with `modeInfo().ladderMode`.
+- Breaking: player units/heroes/buildings are instance maps; Hero.id now means
+  engine instance identity and typeId carries its rawcode. Protocol major is 3.
+- Add ordinary-unit/building health, production queues, scoped local-recorder
+  projection, and immutable unit/building selectors. Hero pools and XP merge by ID.
+- Expose construction and queue progress, hero positions sampled at 200 ms, and
+  structures' first observed positions. Ordinary units omit position; unreadable
+  progress is null. Preserve unchanged field identities and repeated queue types.
+- Guard ownership, removals, scope access, and cross-match identities.
+
+
 ## 2.0.2 — 2026-09-08
 
 - Keep composition-watch and match-data reconnections retrying after browser network failures.

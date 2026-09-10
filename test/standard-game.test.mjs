@@ -8,7 +8,7 @@ test('standard-game object namespace exposes optional shipped metadata and asset
   assert.equal(standardGameIcons.getIcon('Hamg'), 'btnheroarchmage.png');
   assert.equal(standardGameIcons.iconFileName('Hamg'), 'btnheroarchmage.png');
   assert.equal(standardGameIcons.iconUrl('Hamg'), 'https://static.w3booster.com/assets/wc3/standard-game/v1/reforged/icons/btnheroarchmage.png');
-  assert.equal(standardGameIcons.heroIconUrl({ id: 'Hamg' }), standardGameIcons.iconUrl('Hamg'));
+  assert.equal(standardGameIcons.heroIconUrl({ typeId: 'Hamg' }), standardGameIcons.iconUrl('Hamg'));
   assert.equal(standardGameIcons.abilityIconUrl({ name: 'AHbz' }), standardGameIcons.iconUrl('AHbz'));
   assert.equal(standardGameIcons.upgradeIconUrl({ name: 'Rhme' }), standardGameIcons.iconUrl('Rhme'));
   assert.equal(standardGameIcons.itemIconUrl('ratf'), standardGameIcons.iconUrl('ratf'));
@@ -92,7 +92,7 @@ test('standard-game asset resolvers bind the catalog and derive graphics from ma
   const assets = standardGameIcons.createAssetResolver({ baseUrl: 'http://localhost:8083/' });
   assert.equal(Object.isFrozen(assets), true);
   assert.equal(
-    assets.hero({ isReforged: false }, { id: 'Hamg' }),
+    assets.hero({ isReforged: false }, { typeId: 'Hamg' }),
     'http://localhost:8083/wc3/standard-game/v1/classic/icons/btnheroarchmage.png'
   );
   assert.equal(
@@ -107,7 +107,7 @@ test('standard-game asset resolvers bind the catalog and derive graphics from ma
     location: { search: '?backend=local&assetBaseUrl=http%3A%2F%2Flocalhost%3A9090%2Fassets' }
   });
   assert.equal(
-    launchAssets.hero({ isReforged: true }, { id: 'Hamg' }),
+    launchAssets.hero({ isReforged: true }, { typeId: 'Hamg' }),
     'http://localhost:9090/assets/wc3/standard-game/v1/reforged/icons/btnheroarchmage.png'
   );
   assert.equal(
@@ -117,13 +117,13 @@ test('standard-game asset resolvers bind the catalog and derive graphics from ma
 });
 
 test('standard-game derives upgrade categories and statistics without application presentation rules', () => {
-  const broadcaster = { id: 'me', team: 0, colorId: 0, stats: { solo: { wins: 4, losses: 2, winRate: 66.7 } } };
+  const broadcaster = { id: 'me', team: 0, colorId: 0, stats: { status: 'ready', records: [{ provider: 'w3champions', gameMode: '1v1', queue: 'individual', wins: 4, losses: 2, winRate: 66.7 }] } };
   assert.equal(standardGame.normalizeUpgradeRawcode('Rema3'), 'Rema');
   assert.equal(standardGameIcons.getIcon('Rema3'), standardGameIcons.getIcon('Rema'));
   assert.equal(standardGame.isWeaponOrArmorUpgrade('Rema3'), true);
   assert.equal(standardGame.isWeaponOrArmorUpgrade('Rhde'), false);
   assert.equal(standardGame.statsForMode(broadcaster, '1v1')?.wins, 4);
-  assert.equal(standardGame.preferredStats({ stats: { team: { wins: 7, losses: 1, winRate: 87.5 } } }, 'custom')?.wins, 7);
+  assert.equal(standardGame.statsForMode({ stats: { status: 'ready', records: [{ provider: 'w3champions', gameMode: '2v2', queue: 'individual', wins: 7, losses: 1, winRate: 87.5 }] } }, 'custom'), undefined);
   assert.equal(standardGame.formatGameTime(65), '01:05');
   assert.equal(standardGame.formatGameTime(65, { compactHours: true }), '1:05');
   assert.equal(standardGame.formatGameTime(3665), '1:01:05');
@@ -257,7 +257,7 @@ test('standard-game owns cooldown timestamp and day/night clock semantics', () =
   assert.deepEqual(standardGameCooldowns.abilityCooldown(
     { id: 'AHbz', name: 'AHbz', level: 1, lastActivation: 10_000 },
     12
-  ), { total: 6, elapsed: 2, remaining: 4, progress: 1 / 3, active: true });
+  ), { totalSeconds: 6, remainingSeconds: 4, progress: 1 / 3, active: true });
   assert.equal(standardGameCooldowns.abilityCooldown({ id: 'AHbz', name: 'AHbz', level: 1 }, 12), undefined);
   assert.equal(standardGameCooldowns.abilityCooldown(
     { id: 'AHbz', name: 'AHbz', level: 1, lastActivation: 0 },
@@ -266,26 +266,26 @@ test('standard-game owns cooldown timestamp and day/night clock semantics', () =
   assert.deepEqual(standardGameCooldowns.abilityCooldown(
     { id: 'AHbz', name: 'AHbz', level: 1, lastActivation: 10_500 },
     12
-  ), { total: 6, elapsed: 1.5, remaining: 4.5, progress: 0.25, active: true });
+  ), { totalSeconds: 6, remainingSeconds: 4.5, progress: 0.25, active: true });
   const state = {gameContext: { hudScale: 1 },
     match: { id: 'match', status: 'running', gameTime: 12, mode: '1v1' },
     capabilities: ['match', 'players', 'heroes'],
-    players: [{ id: '0', heroes: [{ id: 'Hamg', name: 'Archmage', level: 1, abilities: [
+    players: [{ id: '0', heroes: { '0000000048616d67': { id: '0000000048616d67', typeId: 'Hamg', name: 'Archmage', level: 1, abilities: [
       { id: 'AHbz', name: 'AHbz', level: 1, lastActivation: 10_000 }
-    ] }] }]
+    ] } } }]
   };
   const cooldowns = standardGameCooldowns.abilityCooldownsForState(state);
-  const cooldown = cooldowns.get(state.players[0].heroes[0].abilities[0]);
+  const cooldown = cooldowns.get(Object.values(state.players[0].heroes ?? {})[0].abilities[0]);
   assert.deepEqual(
     cooldown,
-    { total: 6, elapsed: 2, remaining: 4, progress: 1 / 3, active: true }
+    { totalSeconds: 6, remainingSeconds: 4, progress: 1 / 3, active: true }
   );
   assert.equal(Object.isFrozen(cooldown), true);
   assert.equal(Object.isFrozen(cooldowns), true);
   assert.equal(cooldowns instanceof Map, false);
-  assert.throws(() => cooldowns.set(state.players[0].heroes[0].abilities[0], cooldown), /immutable/);
+  assert.throws(() => cooldowns.set(Object.values(state.players[0].heroes ?? {})[0].abilities[0], cooldown), /immutable/);
   assert.throws(
-    () => Map.prototype.set.call(cooldowns, state.players[0].heroes[0].abilities[0], cooldown),
+    () => Map.prototype.set.call(cooldowns, Object.values(state.players[0].heroes ?? {})[0].abilities[0], cooldown),
     /incompatible receiver|incompatible|Map/
   );
   assert.equal(cooldowns.size, 1);

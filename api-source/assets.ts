@@ -13,3 +13,7 @@ export const normalizeAssetBaseUrl: typeof Contract.normalizeAssetBaseUrl = runt
 export const countryFlagFileName: typeof Contract.countryFlagFileName = runtime.countryFlagFileName;
 export const countryFlagUrl: typeof Contract.countryFlagUrl = runtime.countryFlagUrl;
 export const countryFlagManifestUrl: typeof Contract.countryFlagManifestUrl = runtime.countryFlagManifestUrl;
+export const bnetLeagueCatalogVersion: typeof Contract.bnetLeagueCatalogVersion = runtime.bnetLeagueCatalogVersion;
+/** Unknown/missing division IDs return undefined. Does not infer division from MMR. */
+export const bnetLeagueIconUrl: typeof Contract.bnetLeagueIconUrl = runtime.bnetLeagueIconUrl;
+export const bnetLeagueManifestUrl: typeof Contract.bnetLeagueManifestUrl = runtime.bnetLeagueManifestUrl;

@@ -1,8 +1,8 @@
 # Release and compatibility policy
 
-W3Booster v2.0 supports one current application contract. SDK 2.0 uses protocol
-2.0; it does not negotiate the retired protocol 1 or preserve development SDK
-aliases. Publish the SDK and update the platform, generated bindings, and apps as
+SDK 3.0 uses protocol 3.0. It does not negotiate protocol 2 or
+preserve the previous unit, hero, statistics, or timer shapes. SDK 2 remains the
+published contract until the coordinated rollout. Publish the SDK and update the platform, generated bindings, and apps as
 a coordinated release. Applications consume registry artifacts; packed SDK HEAD
 is the development verification lane.
 
@@ -49,7 +49,7 @@ that the installed SDK does not know. Private `transport` metadata stays hidden.
 New fields can trigger ordinary state/change subscriptions; they are not stripped
 or guaranteed to be invisible to selectors that compare whole objects.
 
-The broker and stream accept later minor versions of protocol 2, such as `2.1`.
+The broker and stream accept later minor versions of protocol 3, such as `3.1`.
 Unknown stream events maintain sequencing and are delivered only to explicit
 `onUnknown` subscribers. Additional advertised data capabilities are accepted;
 unknown host capabilities are filtered out rather than enabling unsupported

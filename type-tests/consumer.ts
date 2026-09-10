@@ -82,22 +82,23 @@ async function useSdk() {
   const broadcaster: Player | null = broadcasterPlayer(state.match, state.players);
   const teams: readonly PlayerTeam[] = groupPlayersByTeam(state.players);
   const orderedTeams: readonly PlayerTeam[] = broadcasterFirstTeams(state.players, state.match);
-  const inventory: readonly string[] = heroInventory(state.players[0]?.heroes?.[0]);
+  const inventory: readonly string[] = heroInventory(playerHeroes(state.players[0])[0]);
   const stableRuntime: GameContext = selectGameContext(state);
   const resources: Readonly<import('../src/index.js').Resources> | undefined = playerResources(state.players[0]);
   const resourcesOrZero: Readonly<import('../src/index.js').Resources> = playerResourcesOrZero(state.players[0]);
   const heroes = playerHeroes(state.players[0]);
   const inventoryKey: string = inventorySlotIdentity(0, inventory[0]);
-  const cooldown = state.players[0]?.heroes?.[0]?.abilities?.[0]
-    ? standardGameCooldowns.abilityCooldown(state.players[0].heroes[0].abilities[0], state.match.gameTime)
+  const firstAbility = heroes[0]?.abilities?.[0];
+  const cooldown = firstAbility
+    ? standardGameCooldowns.abilityCooldown(firstAbility, state.match.gameTime)
     : undefined;
   const cooldowns = standardGameCooldowns.abilityCooldownsForState(state);
-  const heroIcon = standardGameIcons.heroIconUrl(state.players[0]?.heroes?.[0]);
+  const heroIcon = standardGameIcons.heroIconUrl(playerHeroes(state.players[0])[0]);
   const current = currentUpgrades(state.players[0]);
   const upgradeKey: string | undefined = current[0] ? upgradeIdentity(current[0]) : undefined;
   const presentationColor: string = standardGame.presentationPlayerColor(state.players[0], state.match, state.players, stableRuntime);
-  const displayLevel: string | undefined = state.players[0]?.heroes?.[0]
-    ? standardGame.formatHeroLevelProgress(state.players[0].heroes[0])
+  const displayLevel: string | undefined = playerHeroes(state.players[0])[0]
+    ? standardGame.formatHeroLevelProgress(playerHeroes(state.players[0])[0])
     : undefined;
   const resourcesAvailable: boolean = hasCapability(state, 'resources');
   const fixture: MatchState<ExampleSettings> = createDemoState({ clientId: 'app_example', settings: { layout: 'wide' } });

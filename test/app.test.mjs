@@ -164,7 +164,7 @@ test('managed runtime teardown never publishes a half-updated client and host ag
         name: 'atomic-runtime-test',
         open(context) {
           context.onMessage({
-            version: '2.0',
+            version: '3.0',
             sequence: 1,
             type: 'state.snapshot',
             data: createDemoState({
@@ -233,7 +233,7 @@ test('managed application runtime keeps concurrent startup milestones independen
   assert.equal(synchronizedResolved, false);
 
   context.onMessage({
-    version: '2.0',
+    version: '3.0',
     sequence: 1,
     type: 'state.snapshot',
     data: createDemoState({ clientId: definition.clientId, settings: definition.settingsDefaults })
@@ -318,7 +318,7 @@ test('managed application runtime cancellation is scoped to one startup caller',
   assert.equal(runtime.lifecycle.get().status, 'connected');
 
   context.onMessage({
-    version: '2.0',
+    version: '3.0',
     sequence: 1,
     type: 'state.snapshot',
     data: createDemoState({ clientId: definition.clientId, settings: definition.settingsDefaults })

@@ -22,10 +22,13 @@ export type Scope =
   | 'players:read'
   | 'stats:read'
   | 'heroes:read'
+  | 'units:read'
+  | 'buildings:read'
+  | 'production:read'
   | 'upgrades:read'
   | 'resources:read'
   | 'controlgroups:read';
-export type KnownCapability = 'match' | 'players' | 'stats' | 'heroes' | 'upgrades' | 'resources' | 'controlgroups';
+export type KnownCapability = 'match' | 'players' | 'stats' | 'heroes' | 'units' | 'buildings' | 'production' | 'upgrades' | 'resources' | 'controlgroups';
 export type Capability = KnownCapability | (string & {});
 export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'closed' | 'error';
 export type AppSurface = 'application' | 'streamOverlay' | 'ingameOverlay';
@@ -168,6 +171,7 @@ export interface Match {
   readonly mode: string;
   /** Human-readable, display-ready map name. Producers decode transport escaping before SDK delivery. */
   readonly map?: string;
+  /** Recorder realm, e.g. Reforged, W3Champions, W3Champions@EU or W3Champions@NA. Independent of graphics mode. */
   readonly realm?: string;
   readonly paused?: boolean;
   readonly isReplay?: boolean;
@@ -185,6 +189,17 @@ export interface Point { readonly x: number; readonly y: number }
 /** Player-facing resource and supply values; recorder-specific fixed-point units are already normalized. */
 export interface Resources { readonly gold: number; readonly lumber: number; readonly supply: number; readonly supplyCap: number; readonly workerSupply?: number }
 export interface PlayerStats {
+  readonly provider: 'bnet' | 'w3champions' | 'netease';
+  readonly gameMode: '1v1' | '2v2' | '3v3' | '4v4' | 'ffa';
+  readonly queue: 'individual' | 'arranged';
+  readonly season?: number;
+  readonly race?: Race;
+  /** Provider team identity; distinct teams may contain the same BattleTags. */
+  readonly team?: { readonly id: string; readonly members: readonly { readonly id?: string; readonly battleTag: string; readonly gatewayId?: number }[] };
+  readonly xp?: number;
+  readonly isPlaced?: boolean;
+  /** Provider-reported matchmaking rating for this record; absent when unavailable. Never inferred from level or rank. */
+  readonly mmr?: number;
   readonly wins: number;
   readonly losses: number;
   /** Win percentage from 0 through 100. */
@@ -193,7 +208,7 @@ export interface PlayerStats {
   readonly league?: string | number;
   readonly level?: number;
 }
-export interface PlayerStatsCollection { readonly solo?: PlayerStats; readonly team?: PlayerStats; readonly team4?: PlayerStats; readonly ffa?: PlayerStats }
+export interface PlayerStatsCollection { readonly status: 'loading' | 'ready' | 'unavailable'; readonly records: readonly PlayerStats[] }
 export interface MainAccount { readonly name: string; readonly country?: string; readonly mainRace?: Race }
 export interface ControlGroup { readonly frontunit: string; readonly size: number }
 export interface ValuePool { readonly current: number; readonly max: number }
@@ -206,17 +221,44 @@ export interface HeroAbility {
   /** Positive millisecond timestamp on the match game-time clock; absence means never activated. */
   readonly lastActivation?: number;
 }
-export interface Hero {
-  /** Standard-game hero rawcode used for metadata and artwork lookup. */
+/** An observed unit instance. IDs are opaque strings scoped to match.id. */
+export interface Unit {
   readonly id: string;
-  /** Human-readable hero name. */
-  readonly name: string;
-  readonly level: number;
-  readonly experience?: number;
+  /** Actual Warcraft unit type rawcode; never an instance identity. */
+  readonly typeId: string;
   readonly hitpoints?: ValuePool;
   readonly mana?: ValuePool;
+  /** Warcraft map coordinates; omitted until observed. */
+  /** Heroes: sampled every 200 ms. Structures: first observed position, retained. Ordinary units: omitted. */
+  readonly position?: Point;
+}
+/** Inventory is ordered by slot, including empty strings and repeated item types. */
+export type InventorySlot = string;
+export interface Hero extends Unit {
+  readonly level?: number;
+  readonly experience?: number;
   readonly abilities?: readonly HeroAbility[];
-  readonly inventory?: readonly string[];
+  readonly inventory?: readonly InventorySlot[];
+}
+/** A game-time snapshot. Null means unobserved/uninitialized; never advance on a wall clock. */
+export interface TimedProgress {
+  /** Completed fraction, from 0 to 1; null when unreadable. */
+  readonly progress: number | null;
+  /** Remaining game seconds, or null when unavailable. */
+  readonly remainingSeconds: number | null;
+  /** Positive total game seconds, or null when unavailable. */
+  readonly totalSeconds: number | null;
+}
+export interface ProductionQueueItem extends TimedProgress {
+  /** Snapshot position, not a persistent job identity. */
+  readonly position: number;
+  readonly typeId: string;
+}
+export interface Building extends Unit {
+  /** Present while a construction component is observed; progress is 0..1, or null if unreadable. */
+  readonly construction?: TimedProgress;
+  /** Missing means unavailable; an empty queue means observed idle production. */
+  readonly production?: { readonly queue: readonly ProductionQueueItem[] };
 }
 export interface CompletedUpgrade {
   /** Standard-game upgrade rawcode. */
@@ -226,7 +268,7 @@ export interface CompletedUpgrade {
   readonly gametime: number;
 }
 export interface ActiveUpgrade extends CompletedUpgrade {}
-export interface ResearchingUpgrade extends ActiveUpgrade { readonly researchStart?: string; readonly researchFinish?: string }
+export interface ResearchingUpgrade extends ActiveUpgrade, TimedProgress {}
 export interface UpgradeState {
   readonly upgrades: readonly CompletedUpgrade[];
   readonly active: readonly ActiveUpgrade[];
@@ -243,7 +285,10 @@ export interface Player {
   readonly mainAccount?: MainAccount;
   readonly controlgroups?: Readonly<Record<string, ControlGroup>>;
   readonly resources?: Resources;
-  readonly heroes?: readonly Hero[];
+  /** Mutually exclusive observed collections, keyed by instance ID. Not authoritative counts. */
+  readonly units?: Readonly<Record<string, Unit>>;
+  readonly heroes?: Readonly<Record<string, Hero>>;
+  readonly buildings?: Readonly<Record<string, Building>>;
   readonly upgrades?: UpgradeState;
   readonly stats?: PlayerStatsCollection;
 }

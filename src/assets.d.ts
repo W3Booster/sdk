@@ -7,3 +7,7 @@ export declare const normalizeAssetBaseUrl: typeof Contract.normalizeAssetBaseUr
 export declare const countryFlagFileName: typeof Contract.countryFlagFileName;
 export declare const countryFlagUrl: typeof Contract.countryFlagUrl;
 export declare const countryFlagManifestUrl: typeof Contract.countryFlagManifestUrl;
+export declare const bnetLeagueCatalogVersion: typeof Contract.bnetLeagueCatalogVersion;
+/** Unknown/missing division IDs return undefined. Does not infer division from MMR. */
+export declare const bnetLeagueIconUrl: typeof Contract.bnetLeagueIconUrl;
+export declare const bnetLeagueManifestUrl: typeof Contract.bnetLeagueManifestUrl;

@@ -39,7 +39,7 @@ const selectAbilityCooldowns = createImmutableSelector(state => {
   if (!Number.isFinite(state?.match?.gameTime) || state.match.gameTime < 0 ||
       state.match.status === 'none' || state.match.status === 'finished') return EMPTY_COOLDOWNS;
   for (const player of state.players || []) {
-    for (const hero of player.heroes || []) {
+    for (const hero of Object.values(player.heroes || {})) {
       for (const ability of hero.abilities || []) {
         if (!ability.lastActivation || ability.lastActivation <= 0) continue;
         const cooldown = abilityCooldown(ability, state.match.gameTime);
@@ -65,7 +65,7 @@ export function abilityCooldown(ability, gameTime) {
   if (typeof total !== 'number' || !Number.isFinite(total) || total <= 0 || !Number.isFinite(activation) || activation <= 0) return undefined;
   const elapsed = Math.max(0, finiteNonNegative(gameTime) - activation / 1000);
   const remaining = Math.max(0, total - elapsed);
-  return Object.freeze({ total, elapsed, remaining, progress: Math.min(1, elapsed / total), active: remaining > 0 });
+  return Object.freeze({ totalSeconds: total, remainingSeconds: remaining, progress: Math.min(1, elapsed / total), active: remaining > 0 });
 }
 
 /** Index active and completed standard-game ability cooldowns by their hydrated ability objects. */

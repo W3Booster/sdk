@@ -9,3 +9,7 @@ export const normalizeAssetBaseUrl = runtime.normalizeAssetBaseUrl;
 export const countryFlagFileName = runtime.countryFlagFileName;
 export const countryFlagUrl = runtime.countryFlagUrl;
 export const countryFlagManifestUrl = runtime.countryFlagManifestUrl;
+export const bnetLeagueCatalogVersion = runtime.bnetLeagueCatalogVersion;
+/** Unknown/missing division IDs return undefined. Does not infer division from MMR. */
+export const bnetLeagueIconUrl = runtime.bnetLeagueIconUrl;
+export const bnetLeagueManifestUrl = runtime.bnetLeagueManifestUrl;

@@ -12,7 +12,7 @@ export interface StandardGameModeMetadata {
   readonly kind: 'head-to-head' | 'team' | 'ffa';
   readonly playerCount: number;
   readonly teamSize: number;
-  readonly stats: 'solo' | 'team' | 'team4' | 'ffa';
+  readonly ladderMode: PlayerStats['gameMode'];
 }
 export interface DayNightState {
   readonly hour: number;
@@ -44,8 +44,11 @@ export function modeInfo(mode: string | undefined): StandardGameModeMetadata | u
 export function playerColor(colorId?: number): string;
 export function normalizeUpgradeRawcode(rawcode: string): string;
 export function isWeaponOrArmorUpgrade(rawcode: string): boolean;
-export function statsForMode(player: Player, mode?: string): PlayerStats | undefined;
-export function preferredStats(player: Player, mode?: string): PlayerStats | undefined;
+/** Select an exact record. No fallback across modes, races, seasons or teams. */
+export function statsForMode(player: Player, mode?: string, options?: {
+  readonly provider?: PlayerStats['provider']; readonly season?: number; readonly race?: Race;
+  readonly queue?: PlayerStats['queue']; readonly teamId?: string;
+}): PlayerStats | undefined;
 export function formatGameTime(gameTime: number, options?: { readonly compactHours?: boolean }): string;
 export function dayNightState(gameTime: number): DayNightState;
 export function heroExperienceState(experience?: number): HeroExperienceState;
