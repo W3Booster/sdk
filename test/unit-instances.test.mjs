@@ -12,20 +12,98 @@ const baseline = (caps = ['match', 'heroes', 'units', 'buildings', 'production']
   players: [{ id: '0', units: {}, heroes: {}, buildings: {} }, { id: '1', units: {}, heroes: {}, buildings: {} }]
 });
 const hp = (n, typeId = 'hfoo', targetFlags = 2, extra = {}) => ({
-  class: 'W3UnitHealth', matchId: 42, id: id(n), typeId, slotId: 0, targetFlags,
+  class: 'W3UnitHealth', matchId: 42, id: id(n), typeId, isIllusion: false, slotId: 0, targetFlags,
   hitpoints: { current: 250, max: 420 }, ...extra
 });
 const queue = (n, entries = ['hfoo', 'hfoo'], extra = {}) => ({
-  class: 'W3ProductionQueue', matchId: 42, id: id(n), typeId: 'hbar', slotId: 0,
+  class: 'W3ProductionQueue', matchId: 42, id: id(n), typeId: 'hbar', isIllusion: false, slotId: 0,
   queue: entries.map((typeId, position) => ({ typeId, position, progress: null, remainingSeconds: null, totalSeconds: null })), ...extra
 });
-const hero = (n, typeId = 'Hamg', extra = {}) => ({ class: 'W3Unit', matchId: 42, id: id(n), typeId,
+const hero = (n, typeId = 'Hamg', extra = {}) => ({ class: 'W3Unit', matchId: 42, id: id(n), typeId, isIllusion: false,
   slotId: 0, isHero: true, experience: 500, inventory: ['', 'ratf', 'ratf'], ...extra });
 const apply = (state, updates) => {
   const next = applyLocalRecorderUpdates(state, updates);
   validateState(next, undefined, false);
   return next;
 };
+test('unit selectors order complete IDs deterministically across snapshot permutations without numeric precision loss', () => {
+  const ids = ['0020000000000000', '0020000000000001', '0020000080000000'];
+  for (const [collection, select] of [['units', playerUnits], ['heroes', playerHeroes], ['buildings', playerBuildings]]) {
+    const values = ids.map((id, index) => Object.freeze({ id, typeId: 'Hmkg', isIllusion: index === 1 }));
+    for (const permutation of [[2, 1, 0], [0, 2, 1], [1, 0, 2]]) {
+      const map = Object.freeze(Object.fromEntries(permutation.map(i => [ids[i], values[i]])));
+      const player = Object.freeze({ [collection]: map });
+      assert.deepEqual(select(player).map(unit => unit.id), [ids[0], ids[2]]);
+      const all = select(player, { includeIllusions: true });
+      assert.deepEqual(all, values);
+      assert.equal(all[0], values[0]);
+      assert.equal(select(player, { includeIllusions: true }), all);
+      assert.ok(Object.isFrozen(all));
+      assert.deepEqual(Object.keys(map), permutation.map(i => ids[i]), 'Raw snapshots must remain untouched');
+    }
+  }
+});
+test('hero health removal, recovery and changed XP cannot swap surviving hero identities', () => {
+  let state = apply(baseline(), [hero(1), hero(2), hero(3), hp(1, 'Hamg'), hp(2, 'Hamg'), hp(3, 'Hamg')]);
+  const order = () => playerHeroes(state.players[0]).map(unit => unit.id);
+  assert.deepEqual(order(), [id(1), id(2), id(3)]);
+  state = apply(state, [hp(2, 'Hamg', 2, { removed: true })]);
+  assert.deepEqual(order(), [id(1), id(2), id(3)]);
+  state = apply(state, [hero(2, 'Hamg', { removed: true })]);
+  assert.deepEqual(order(), [id(1), id(3)]);
+  state = apply(state, [hero(2, 'Hamg', { experience: 9000 }), hp(2, 'Hamg')]);
+  assert.deepEqual(Object.keys(state.players[0].heroes), [id(1), id(3), id(2)]);
+  assert.deepEqual(order(), [id(1), id(2), id(3)]);
+  assert.equal(playerHeroes(state.players[0])[1].experience, 9000);
+});
+test('illusions remain in raw collections; every unit selector excludes them by default and supports opt-in', () => {
+  for (const [type, flags, collection, select] of [
+    ['hfoo', 2, 'units', playerUnits], ['Hmkg', 2, 'heroes', playerHeroes], ['hbar', 8, 'buildings', playerBuildings]
+  ]) {
+    const state = deepFreeze(apply(baseline(), [hp(1, type, flags), hp(2, type, flags, { isIllusion: true }), hp(3, type, flags)]));
+    const player = state.players[0];
+    assert.deepEqual(Object.keys(player[collection]), [id(1), id(2), id(3)]);
+    const ordinary = select(player);
+    assert.deepEqual(ordinary.map(unit => unit.id), [id(1), id(3)]);
+    assert.equal(select(player, { includeIllusions: false }), ordinary);
+    const all = select(player, { includeIllusions: true });
+    assert.deepEqual(all.map(unit => unit.id), [id(1), id(2), id(3)]);
+    assert.equal(all[1], player[collection][id(2)]);
+    assert.equal(select(player, { includeIllusions: true }), all);
+    assert.ok(Object.isFrozen(all));
+  }
+});
+test('required illusion classification survives either packet order and flag-only updates without stale tombstones', () => {
+  for (const observations of [
+    [hp(1, 'Hmkg', 2, { isIllusion: true }), hero(1, 'Hmkg', { isIllusion: true })],
+    [hero(1, 'Hmkg', { isIllusion: true }), hp(1, 'Hmkg', 2, { isIllusion: true })],
+    [queue(1, [], { isIllusion: true }), hp(1, 'hbar', 8, { isIllusion: true })],
+    [hp(1, 'hbar', 8, { isIllusion: true }), queue(1, [], { isIllusion: true })]
+  ]) {
+    const collection = observations[0].typeId === 'Hmkg' ? 'heroes' : 'buildings';
+    const state = apply(baseline(), observations);
+    assert.equal(state.players[0][collection][id(1)].isIllusion, true);
+  }
+  let state = apply(baseline(), [hp(1)]);
+  const updated = apply(state, [hp(1, 'hfoo', 2, { isIllusion: true })]);
+  assert.notEqual(updated, state);
+  assert.equal(updated.players[0].units[id(1)].isIllusion, true);
+  state = apply(updated, [hp(1, 'hfoo', 2, { removed: true })]);
+  assert.deepEqual(state.players[0].units, {});
+  state = apply(state, [hp(2)]);
+  assert.equal(state.players[0].units[id(2)].isIllusion, false);
+});
+test('missing and nonboolean illusion flags cannot introduce or replace an observation', () => {
+  const state = apply(baseline(), [hp(1, 'Hmkg', 2, { isIllusion: true }), hero(1, 'Hmkg', { isIllusion: true })]);
+  for (const invalid of [undefined, null, 0, 1, 'false', 'true']) {
+    for (const update of [hp(2), hp(1, 'Hmkg'), hero(1, 'Hmkg'), queue(3)]) {
+      assert.equal(apply(state, [{ ...update, isIllusion: invalid }]), state);
+    }
+    const invalidSnapshot = structuredClone(state);
+    invalidSnapshot.players[0].heroes[id(1)].isIllusion = invalid;
+    assert.throws(() => validateState(invalidSnapshot), /isIllusion/);
+  }
+});
 test('instances split exclusively into ordinary units, heroes and structures, independent of queue presence', () => {
   const state = apply(baseline(), [hp(1), hp(2), hp(3, 'hgyr', 4), hp(4, 'hhou', 8), hp(5, 'Hamg'), hp(6, 'Hamg')]);
   assert.deepEqual(Object.keys(state.players[0].units), [id(1), id(2), id(3)]);
@@ -236,4 +314,36 @@ test('building read access cannot bypass a withheld production capability', () =
   assert.ok(state.players[0].buildings[id(1)].hitpoints);
   assert.equal(state.players[0].buildings[id(1)].construction, undefined);
   assert.equal(state.players[0].buildings[id(1)].production, undefined);
+});
+test('native hero order survives partial observations and is updated independently of XP', () => {
+  let state = apply(baseline(), [hero(3, 'Hamg', { heroOrder: 1 }), hero(1, 'Hmkg', { heroOrder: 2 }), hero(2, 'Hpal', { heroOrder: 3 })]);
+  assert.equal(state.players[0].heroes[id(3)].heroOrder, 1);
+  // General SDK selectors retain their documented deterministic ID default.
+  assert.deepEqual(playerHeroes(state.players[0]).map(h => h.id), [id(1), id(2), id(3)]);
+  for (const value of [undefined, 0, -1, 1.5, '4', null, 0x80000000, NaN]) {
+    state = apply(state, [hero(1, 'Hmkg', { heroOrder: value }), hp(1, 'Hmkg', 2, { removed: true })]);
+    assert.equal(state.players[0].heroes[id(1)].heroOrder, 2);
+  }
+  for (const current of [0, 450]) {
+    state = apply(state, [hp(1, 'Hmkg', 2, { hitpoints: { current, max: 450 } }), hero(1, 'Hmkg', { experience: 900 })]);
+    assert.equal(state.players[0].heroes[id(1)].heroOrder, 2);
+  }
+  state = apply(state, [hero(1, 'Hmkg', { heroOrder: 4 })]);
+  assert.equal(state.players[0].heroes[id(1)].heroOrder, 4);
+  const invalid = structuredClone(state); invalid.players[0].heroes[id(1)].heroOrder = 0;
+  assert.throws(() => validateState(invalid), /heroOrder/);
+});
+
+test('hero order does not leak across ownership, removal or match reset', () => {
+  let state = apply(baseline(), [hero(1, 'Hamg', { heroOrder: 3 })]);
+  state = apply(state, [hero(1, 'Hamg', { slotId: 1 })]);
+  assert.equal(state.players[0].heroes[id(1)], undefined);
+  assert.equal(state.players[1].heroes[id(1)].heroOrder, undefined);
+  state = apply(state, [hero(1, 'Hamg', { slotId: 1, heroOrder: 1 })]);
+  assert.equal(state.players[1].heroes[id(1)].heroOrder, 1);
+  state = apply(state, [hero(1, 'Hamg', { slotId: 1, removed: true })]);
+  state = apply(state, [hero(1, 'Hamg', { slotId: 1 })]);
+  assert.equal(state.players[1].heroes[id(1)].heroOrder, undefined);
+  const fresh = apply(baseline(), [hero(1)]);
+  assert.equal(fresh.players[0].heroes[id(1)].heroOrder, undefined);
 });

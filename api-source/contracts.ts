@@ -223,6 +223,8 @@ export interface HeroAbility {
 }
 /** An observed unit instance. IDs are opaque strings scoped to match.id. */
 export interface Unit {
+  /** Always observed by the reader. Raw collections retain illusions; selectors exclude them by default. */
+  readonly isIllusion: boolean;
   readonly id: string;
   /** Actual Warcraft unit type rawcode; never an instance identity. */
   readonly typeId: string;
@@ -235,6 +237,10 @@ export interface Unit {
 /** Inventory is ordered by slot, including empty strings and repeated item types. */
 export type InventorySlot = string;
 export interface Hero extends Unit {
+  /** Native player-relative hero-bar ordering key. Lower values come first.
+   * Not a spawn timestamp or immutable slot; ownership/lifecycle changes can reassign it.
+   * Omitted until observed. Use the full instance ID as a deterministic fallback/tie-breaker. */
+  readonly heroOrder?: number;
   readonly level?: number;
   readonly experience?: number;
   readonly abilities?: readonly HeroAbility[];

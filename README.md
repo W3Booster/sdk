@@ -687,12 +687,45 @@ use them across matches without the match ID.
 ```js
 import { playerUnits, playerHeroes, playerBuildings } from '@w3booster/sdk/selectors';
 
-const heroes = playerHeroes(player); // Memoized immutable array in observed order
+const heroes = playerHeroes(player); // Real heroes, in ascending instance-ID order
+const allHeroes = playerHeroes(player, { includeIllusions: true });
+const copies = allHeroes.filter(hero => hero.isIllusion);
 const hero = player.heroes?.[instanceId];
 const hp = hero?.hitpoints;           // { current, max }, already in game HP
 const buildings = playerBuildings(player);
 const queue = buildings[0]?.production?.queue;
 ```
+
+Every observed unit, hero and building has a required `isIllusion: boolean`.
+Raw instance maps retain illusions in their normal type collection with their
+own IDs; there is no separate illusion model or collection. `playerUnits`,
+`playerHeroes` and `playerBuildings` exclude illusions by default. Pass
+`{ includeIllusions: true }` to any of them when you need every instance. Selector
+results remain immutable and memoized; they do not modify the raw maps.
+
+All three selectors return ascending full instance-ID order, including when
+illusions are included. This order is independent of snapshot insertion order
+and health/XP changes. It is deterministic, not a guarantee of spawn order or
+Warcraft's native hero-panel order. Do not convert the 64-bit IDs to JavaScript
+numbers to sort them, as that can lose precision.
+
+For Warcraft's hero ordering, use optional `hero.heroOrder`. Lower keys come
+first within a player. This is an engine ordering key, not a spawn timestamp or
+an immutable F-key slot; ownership and lifecycle changes can reassign it. Missing
+means not observed. Keys can have gaps (illusions can consume keys too); do not
+use a key directly as an array index or F-key number. Sort a copy, keep missing
+keys last, and break ties by full ID:
+
+```ts
+const orderedHeroes = [...playerHeroes(player)].sort((a, b) =>
+  (a.heroOrder ?? Number.MAX_SAFE_INTEGER) - (b.heroOrder ?? Number.MAX_SAFE_INTEGER)
+  || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+```
+
+The reader always supplies the boolean. Invalid/missing classifications do not
+create public observations. When constructing typed demo/test units yourself,
+include `isIllusion: false` or `true`. Existing SDK versions can still consume
+the extended API snapshots, but only updated selectors provide the new defaults.
 
 Pools, hero XP/level, and production can arrive independently. Missing data is
 unknown; never substitute zero. A missing production object means unavailable;

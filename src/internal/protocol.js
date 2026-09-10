@@ -240,6 +240,9 @@ function validateUnit(unit, key) {
   if (!isPlainObject(unit) || !isInstanceId(key) || unit.id !== key || !isTypeId(unit.typeId)) {
     throw new ProtocolError('INVALID_STATE', `Unit ${key} has an invalid identity or typeId.`);
   }
+  if (typeof unit.isIllusion !== 'boolean') {
+    throw new ProtocolError('INVALID_STATE', `Unit ${key} must contain a boolean isIllusion.`);
+  }
   for (const field of ['hitpoints', 'mana']) {
     if (unit[field] !== undefined && !validPool(unit[field])) throw new ProtocolError('INVALID_STATE', `Unit ${key} has invalid ${field}.`);
   }
@@ -257,6 +260,9 @@ function validateHero(hero, playerId) {
   }
   if (hero.inventory !== undefined && (!Array.isArray(hero.inventory) || hero.inventory.some(item => typeof item !== 'string'))) {
     throw new ProtocolError('INVALID_STATE', `Hero ${String(hero.id)} inventory must be an array of rawcodes.`);
+  }
+  if (hero.heroOrder !== undefined && (!Number.isInteger(hero.heroOrder) || hero.heroOrder < 1 || hero.heroOrder > 0x7fffffff)) {
+    throw new ProtocolError('INVALID_STATE', `Hero ${String(hero.id)} heroOrder must be a positive signed 32-bit integer.`);
   }
   if (hero.experience !== undefined && !Number.isFinite(hero.experience)) {
     throw new ProtocolError('INVALID_STATE', `Hero ${String(hero.id)} experience must be a finite number.`);

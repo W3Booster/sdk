@@ -344,3 +344,41 @@ is not source-compatible with the breaking instance, stats and timer contracts.
 Consumer registry dependencies only advance after SDK 3 is published. The SDK
 package includes MIGRATION_3.md; website previews type-check against an unpacked
 npm artifact and keep the stable published reference separate.
+
+## 2026-09-10: Required illusion metadata with opt-in selectors
+
+`Unit.isIllusion` is a required boolean inherited by heroes and buildings. The
+current reader always supplies it; missing/invalid observations are rejected,
+never guessed false. Keep every instance in its existing type collection with
+its own identity. Do not introduce an illusion union or separate collection.
+
+`playerUnits`, `playerHeroes`, and `playerBuildings` exclude illusions by default;
+`{ includeIllusions: true }` returns every instance. Both modes preserve immutable
+object identities. The deterministic-order decision below supersedes observed order. Applications can read the raw maps directly.
+These are cross-application selector defaults; an app may enforce stronger
+presentation policy, as Match Vision does with an explicit additional filter.
+The wire extension does not change the protocol major. Required properties affect
+application-created typed fixtures; do not promise universal source compatibility.
+
+
+## 2026-09-10: Deterministic unit selector ordering
+
+Unit, hero and building selectors sort by ascending full instance ID in both
+default and includeIllusions modes. Compare fixed-width lowercase hex strings,
+not JavaScript numbers or locale collation. Never mutate input maps or entities;
+keep memoized immutable output arrays. This stabilizes presentation across
+transport/snapshot insertion order and removal/reinsertion, but does not promise
+spawn order: Warcraft uses separate serial counters for its two agent tables.
+
+
+## 2026-09-11: Optional native hero order
+
+`Hero.heroOrder` is the positive player-relative key used by Warcraft's hero-bar
+comparator. It is not original spawn time or a permanently assigned F-key slot.
+Keep it optional until a valid native observation arrives. Preserve the last
+valid value across missing/invalid order observations and health-only updates;
+clear it with the owning hero on removal, ownership transfer or match reset.
+Native and API projections must agree. General selectors retain their documented
+full-ID order; presentations may sort by this key with a full-ID tie-breaker.
+This additive field does not change the protocol major or require old consumers
+to upgrade. The SDK 3.1.0 release remains paused for review.

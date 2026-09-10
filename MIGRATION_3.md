@@ -30,10 +30,17 @@ The maps contain observations, not authoritative army totals. Missing collection
 mean unavailable; an observed empty map or production queue means empty. Queued
 items have a type and a snapshot slot, not an already spawned unit instance ID.
 
+The unit, hero and building selectors use ascending full instance-ID order.
+Raw map insertion order is not a presentation contract. ID sorting stabilizes
+snapshots and reconnects but does not establish unit creation time or native
+hero slots.
+
 ## Health, mana, and positions
 
 `Unit.hitpoints` and hero `mana` expose `{ current, max }` in player-facing units.
-Use the unit/building/hero selectors or `Object.values(collection ?? {})`.
+Use the unit/building/hero selectors for real instances by default. Pass
+`{ includeIllusions: true }` or read the raw map to include copies. Every observed
+unit has `isIllusion: boolean`; include it in application-owned typed fixtures.
 Hero vitals use the fast hero update cadence; other health and hero positions
 use 200 ms sampling. Structures retain their first observed position. Ordinary
 units omit position. Updates are sent on change; don't create another polling
@@ -78,3 +85,8 @@ For self-play, the platform reports a recorded victory as won and otherwise
 reports lost when the match ends; a loss is not independent defeat confirmation.
 
 See [CHANGELOG.md](CHANGELOG.md) and [README.md](README.md) for the API examples.
+
+`Hero.heroOrder` optionally exposes Warcraft’s player-relative hero ordering key.
+It is not a spawn time. General selectors retain deterministic ID order; see the
+README for sorting by native order with an ID fallback. It requires no protocol
+major change or consumer upgrade to keep using existing fields.

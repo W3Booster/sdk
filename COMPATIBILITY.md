@@ -1,10 +1,12 @@
 # Release and compatibility policy
 
-SDK 3.0 uses protocol 3.0. It does not negotiate protocol 2 or
-preserve the previous unit, hero, statistics, or timer shapes. SDK 2 remains the
-published contract until the coordinated rollout. Publish the SDK and update the platform, generated bindings, and apps as
-a coordinated release. Applications consume registry artifacts; packed SDK HEAD
-is the development verification lane.
+SDK 3.x uses protocol 3.0. It does not negotiate protocol 2 or preserve the
+previous unit, hero, statistics, or timer shapes. SDK 3.1 adds illusion flags,
+selector options, and optional hero ordering without requiring existing SDK 3.0
+applications to upgrade. The current platform supplies `isIllusion` on observed
+entities; new application-owned typed fixtures must include that boolean.
+Applications consume registry artifacts; packed SDK HEAD is the development
+verification lane.
 
 The hydrated state always contains `gameContext.hudScale`; the producer uses 1
 when no measurement exists. Optional `chatbarOpen` and `teamColors` are delivered

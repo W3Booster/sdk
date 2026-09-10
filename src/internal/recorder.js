@@ -387,7 +387,10 @@ function applyLocalHeroUpdate(player, update) {
     ...(previousHero || {}),
     id: heroId,
     typeId: update.typeId,
+    isIllusion: update.isIllusion,
     experience,
+    ...(Number.isInteger(update.heroOrder) && update.heroOrder > 0 && update.heroOrder <= 0x7fffffff
+      ? { heroOrder: update.heroOrder } : {}),
     level: localHeroLevel(experience),
     abilities,
     inventory,

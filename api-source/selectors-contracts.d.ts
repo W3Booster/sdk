@@ -41,9 +41,14 @@ export function playerDisplayIdentity(
   options?: { readonly stripBattleTagDiscriminator?: boolean }
 ): PlayerDisplayIdentity;
 export function heroInventory(hero: Pick<Hero, 'inventory'> | null | undefined): readonly string[];
-export function playerUnits(player: Pick<Player, 'units'> | null | undefined): readonly Unit[];
-export function playerBuildings(player: Pick<Player, 'buildings'> | null | undefined): readonly Building[];
-export function playerHeroes(player: Pick<Player, 'heroes'> | null | undefined): readonly Hero[];
+/** Unit selectors exclude illusions unless explicitly requested; raw collections retain all instances. */
+export interface UnitSelectionOptions { readonly includeIllusions?: boolean }
+/** Ascending full instance ID; deterministic, not a creation-time or native-slot order. */
+export function playerUnits(player: Pick<Player, 'units'> | null | undefined, options?: UnitSelectionOptions): readonly Unit[];
+/** Ascending full instance ID; deterministic, not a creation-time or native-slot order. */
+export function playerBuildings(player: Pick<Player, 'buildings'> | null | undefined, options?: UnitSelectionOptions): readonly Building[];
+/** Ascending full instance ID; deterministic, not a creation-time or native-slot order. */
+export function playerHeroes(player: Pick<Player, 'heroes'> | null | undefined, options?: UnitSelectionOptions): readonly Hero[];
 export function playerResources(player: Pick<Player, 'resources'> | null | undefined): Readonly<Resources> | undefined;
 export function playerResourcesOrZero(player: Pick<Player, 'resources'> | null | undefined): Readonly<Resources>;
 /** Shared game context with a stable scale-1 fallback before hydration. No scope required. */

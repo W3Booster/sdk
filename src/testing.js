@@ -64,7 +64,7 @@ export function createDemoState(options = {}) {
         controlgroups: { 1: { frontunit: 'hfoo', size: 8 } },
         units: {}, buildings: {},
         heroes: /** @type {Record<string, import('./index.js').Hero>} */ ({ '0000000048616d67': {
-          id: '0000000048616d67', typeId: 'Hamg', level: 4, experience: 900,
+          id: '0000000048616d67', typeId: 'Hamg', isIllusion: false, level: 4, experience: 900,
           hitpoints: { current: 575, max: 650 }, mana: { current: 310, max: 420 },
           abilities: [{ id: 'A0AHwe', name: 'AHwe', level: 2 }], inventory: ['stwp']
         } }),
@@ -81,7 +81,7 @@ export function createDemoState(options = {}) {
         controlgroups: { 1: { frontunit: 'ogru', size: 6 } },
         units: {}, buildings: {},
         heroes: /** @type {Record<string, import('./index.js').Hero>} */ ({ '000000004f626c61': {
-          id: '000000004f626c61', typeId: 'Obla', level: 4, experience: 900,
+          id: '000000004f626c61', typeId: 'Obla', isIllusion: false, level: 4, experience: 900,
           hitpoints: { current: 610, max: 700 }, mana: { current: 190, max: 300 },
           abilities: [{ id: 'A1AOwk', name: 'AOwk', level: 2 }], inventory: ['phea']
         } }),

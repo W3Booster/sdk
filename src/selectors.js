@@ -12,8 +12,11 @@ export const broadcasterFirstTeams = runtime.broadcasterFirstTeams;
 export const playerRelationship = runtime.playerRelationship;
 export const playerDisplayIdentity = runtime.playerDisplayIdentity;
 export const heroInventory = runtime.heroInventory;
+/** Ascending full instance ID; deterministic, not a creation-time or native-slot order. */
 export const playerUnits = runtime.playerUnits;
+/** Ascending full instance ID; deterministic, not a creation-time or native-slot order. */
 export const playerBuildings = runtime.playerBuildings;
+/** Ascending full instance ID; deterministic, not a creation-time or native-slot order. */
 export const playerHeroes = runtime.playerHeroes;
 export const playerResources = runtime.playerResources;
 export const playerResourcesOrZero = runtime.playerResourcesOrZero;

@@ -87,6 +87,8 @@ async function useSdk() {
   const resources: Readonly<import('../src/index.js').Resources> | undefined = playerResources(state.players[0]);
   const resourcesOrZero: Readonly<import('../src/index.js').Resources> = playerResourcesOrZero(state.players[0]);
   const heroes = playerHeroes(state.players[0]);
+  const allHeroes = playerHeroes(state.players[0], { includeIllusions: true });
+  const illusion: boolean | undefined = allHeroes[0]?.isIllusion;
   const inventoryKey: string = inventorySlotIdentity(0, inventory[0]);
   const firstAbility = heroes[0]?.abilities?.[0];
   const cooldown = firstAbility

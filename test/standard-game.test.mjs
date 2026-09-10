@@ -270,7 +270,7 @@ test('standard-game owns cooldown timestamp and day/night clock semantics', () =
   const state = {gameContext: { hudScale: 1 },
     match: { id: 'match', status: 'running', gameTime: 12, mode: '1v1' },
     capabilities: ['match', 'players', 'heroes'],
-    players: [{ id: '0', heroes: { '0000000048616d67': { id: '0000000048616d67', typeId: 'Hamg', name: 'Archmage', level: 1, abilities: [
+    players: [{ id: '0', heroes: { '0000000048616d67': { id: '0000000048616d67', typeId: 'Hamg', isIllusion: false, name: 'Archmage', level: 1, abilities: [
       { id: 'AHbz', name: 'AHbz', level: 1, lastActivation: 10_000 }
     ] } } }]
   };

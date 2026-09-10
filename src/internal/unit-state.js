@@ -23,6 +23,7 @@ export function healthCollection(update) {
 export function validUnitUpdate(update) {
   if (!isInstanceId(update.id) || !isTypeId(update.typeId) || !Number.isInteger(update.slotId) || update.slotId < 0 || update.slotId >= 24) return false;
   if (update.removed === true) return true;
+  if (typeof update.isIllusion !== 'boolean') return false;
   if (update.class === 'W3UnitHealth') return Number.isInteger(update.targetFlags) && update.targetFlags > 0 &&
     update.targetFlags < 2048 && validPool(update.hitpoints) && update.hitpoints.max > 0 &&
     (update.construction === undefined || !/^[A-Z]/.test(update.typeId) && (update.targetFlags & 8) &&
@@ -44,6 +45,7 @@ export function applyUnitObservation(player, update, capabilities) {
   if (!canRead) return player;
   let unit = previous ? { ...previous } : { id, typeId: update.typeId };
   unit.typeId = update.typeId;
+  if (!update.removed) unit.isIllusion = update.isIllusion;
   if (update.class === 'W3ProductionQueue') {
     if (update.removed) delete unit.production;
     else unit.production = { queue: update.queue.map(item => ({ position: item.position, typeId: item.typeId, ...timedProgress(item) })) };
@@ -63,7 +65,7 @@ export function applyUnitObservation(player, update, capabilities) {
   if (previous) for (const key of Object.keys(unit)) {
     if (deepEqual(previous[key], unit[key])) unit[key] = previous[key];
   }
-  if (update.removed && (!previous || Object.keys(unit).every(key => key === 'id' || key === 'typeId'))) unit = undefined;
+  if (update.removed && (!previous || Object.keys(unit).every(key => key === 'id' || key === 'typeId' || key === 'isIllusion'))) unit = undefined;
   if (deepEqual(previous, unit)) return player;
   const values = { ...(player[collection] || {}) };
   if (unit) values[id] = unit;
