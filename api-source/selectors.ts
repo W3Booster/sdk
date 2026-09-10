@@ -16,8 +16,11 @@ export const broadcasterFirstTeams: typeof Contract.broadcasterFirstTeams = runt
 export const playerRelationship: typeof Contract.playerRelationship = runtime.playerRelationship;
 export const playerDisplayIdentity: typeof Contract.playerDisplayIdentity = runtime.playerDisplayIdentity;
 export const heroInventory: typeof Contract.heroInventory = runtime.heroInventory;
+/** Ascending full instance ID; deterministic, not a creation-time or native-slot order. */
 export const playerUnits: typeof Contract.playerUnits = runtime.playerUnits;
+/** Ascending full instance ID; deterministic, not a creation-time or native-slot order. */
 export const playerBuildings: typeof Contract.playerBuildings = runtime.playerBuildings;
+/** Ascending full instance ID; deterministic, not a creation-time or native-slot order. */
 export const playerHeroes: typeof Contract.playerHeroes = runtime.playerHeroes;
 export const playerResources: typeof Contract.playerResources = runtime.playerResources;
 export const playerResourcesOrZero: typeof Contract.playerResourcesOrZero = runtime.playerResourcesOrZero;

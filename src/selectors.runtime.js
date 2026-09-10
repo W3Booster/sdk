@@ -3,8 +3,6 @@ import { createImmutableSelector } from './internal/immutable-selector.js';
 
 /** @type {readonly string[]} */
 const EMPTY_INVENTORY = Object.freeze([]);
-/** @type {readonly import('./contracts.js').Hero[]} */
-const EMPTY_HEROES = Object.freeze([]);
 const EMPTY_RESOURCES = Object.freeze({ gold: 0, lumber: 0, supply: 0, supplyCap: 0, workerSupply: 0 });
 
 const selectHeadToHeadPair = createImmutableSelector(players => players.length === 2
@@ -111,14 +109,20 @@ export function heroInventory(hero) {
   return hero?.inventory ?? EMPTY_INVENTORY;
 }
 
-const selectHeroValues = createImmutableSelector(values => values ? Object.freeze(Object.values(values)) : EMPTY_HEROES);
-const selectUnitValues = createImmutableSelector(values => Object.freeze(Object.values(values || {})));
-const selectBuildingValues = createImmutableSelector(values => Object.freeze(Object.values(values || {})));
-export function playerUnits(player) { return selectUnitValues(player?.units); }
-export function playerBuildings(player) { return selectBuildingValues(player?.buildings); }
-/** Read a player's heroes in first-observed order through a memoized immutable array. */
-export function playerHeroes(player) {
-  return selectHeroValues(player?.heroes);
+const visibleUnits = (values, includeIllusions) => Object.freeze(
+  Object.values(values || {}).filter(unit => includeIllusions || unit.isIllusion !== true)
+    // IDs are fixed-width lowercase hex. Compare the full strings without losing
+    // 64-bit precision or depending on the browser's locale. This is not spawn order.
+    .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+const selectHeroValues = createImmutableSelector(visibleUnits);
+const selectUnitValues = createImmutableSelector(visibleUnits);
+const selectBuildingValues = createImmutableSelector(visibleUnits);
+/** Real units by default; opt in to include illusion instances. */
+export function playerUnits(player, options = {}) { return selectUnitValues(player?.units, options.includeIllusions === true); }
+export function playerBuildings(player, options = {}) { return selectBuildingValues(player?.buildings, options.includeIllusions === true); }
+/** Heroes in ascending instance-ID order, excluding illusions unless explicitly requested. */
+export function playerHeroes(player, options = {}) {
+  return selectHeroValues(player?.heroes, options.includeIllusions === true);
 }
 
 /** Read player resources without collapsing unavailable scoped data into zeroes. */

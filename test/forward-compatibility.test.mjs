@@ -12,7 +12,7 @@ const snapshot = () => ({
     mainAccount: { name: 'Player' },
     stats: { status: 'ready', records: [{ provider: 'w3champions', gameMode: '1v1', queue: 'individual', wins: 2, losses: 1, winRate: 66 }] },
     controlgroups: { 1: { frontunit: 'hpea', size: 5 } },
-    heroes: { '0000000048616d67': { id: '0000000048616d67', typeId: 'Hamg', name: 'Hamg', level: 1,
+    heroes: { '0000000048616d67': { id: '0000000048616d67', typeId: 'Hamg', isIllusion: false, name: 'Hamg', level: 1,
       hitpoints: { current: 400, max: 500 }, mana: { current: 100, max: 300 },
       abilities: [{ id: 'ability', name: 'AHbz', level: 1 }] } },
     upgrades: { upgrades: [{ name: 'Rhme', level: 1, gametime: 20 }], active: [], researching: [] }

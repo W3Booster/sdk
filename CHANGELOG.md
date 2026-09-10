@@ -1,5 +1,20 @@
 # Changelog
 
+## 3.1.0 — 2026-09-11
+
+- Add `isIllusion: boolean` to observed units, heroes, and buildings. Raw instance
+  maps retain copies; `playerUnits`, `playerHeroes`, and `playerBuildings` exclude
+  them by default. Pass `{ includeIllusions: true }` to include them.
+- Return these selectors in deterministic full instance-ID order. IDs are not
+  spawn timestamps; selector arrays remain immutable and memoized.
+- Add optional `Hero.heroOrder`, Warcraft's player-relative hero ordering key.
+  Sort ascending for native hero order, with the full instance ID as a fallback
+  and tie-breaker. Keys may have gaps and can change with ownership; they are not
+  permanent hero slots or spawn times.
+- Protocol remains 3.0. Existing SDK 3.0 applications can continue running
+  without rebuilding or upgrading. When adopting 3.1, add `isIllusion` to typed
+  fixtures and review any code that relied on selector insertion order or copies.
+
 ## 3.0.0
 
 - Breaking: statistics are now `player.stats = { status, records }`; render

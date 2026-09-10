@@ -10,8 +10,11 @@ export declare const broadcasterFirstTeams: typeof Contract.broadcasterFirstTeam
 export declare const playerRelationship: typeof Contract.playerRelationship;
 export declare const playerDisplayIdentity: typeof Contract.playerDisplayIdentity;
 export declare const heroInventory: typeof Contract.heroInventory;
+/** Ascending full instance ID; deterministic, not a creation-time or native-slot order. */
 export declare const playerUnits: typeof Contract.playerUnits;
+/** Ascending full instance ID; deterministic, not a creation-time or native-slot order. */
 export declare const playerBuildings: typeof Contract.playerBuildings;
+/** Ascending full instance ID; deterministic, not a creation-time or native-slot order. */
 export declare const playerHeroes: typeof Contract.playerHeroes;
 export declare const playerResources: typeof Contract.playerResources;
 export declare const playerResourcesOrZero: typeof Contract.playerResourcesOrZero;
