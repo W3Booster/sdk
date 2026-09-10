@@ -21,6 +21,8 @@
   ability cooldown helpers. Remove cooldown total/remaining/elapsed aliases and
   research start/finish timestamps. Unknown timers are explicitly null.
 
+- Breaking: remove `Hero.name`, make observed hero level optional, and replace
+  `modeInfo().stats` with `modeInfo().ladderMode`.
 - Breaking: player units/heroes/buildings are instance maps; Hero.id now means
   engine instance identity and typeId carries its rawcode. Protocol major is 3.
 - Add ordinary-unit/building health, production queues, scoped local-recorder

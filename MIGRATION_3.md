@@ -8,7 +8,9 @@ rebuild before switching the platform and app together.
 | SDK 2 usage | SDK 3 replacement |
 | --- | --- |
 | Hero rawcode in `hero.id` | `hero.typeId`; `hero.id` is an opaque instance ID |
-| Hero arrays / unit type counts | `player.heroes`, `player.units`, `player.buildings`: separate instance maps |
+| Hero arrays | `player.heroes` is an instance map; units and buildings have their own maps |
+| `hero.name` / required `hero.level` | Display text comes from app metadata keyed by `typeId`; level is optional until observed |
+| `modeInfo(mode).stats` | `modeInfo(mode).ladderMode` identifies the exact ladder mode |
 | A rawcode as a rendering key | `(match.id, entity.id)`; rawcodes can repeat or change on transformation |
 | Legacy solo/team statistics and `preferredStats` | `player.stats.status`, `player.stats.records`, `statsForMode(player, mode, options)` |
 | Cooldown `total`, `remaining`, `elapsed` | `totalSeconds`, `remainingSeconds`; derive elapsed if both are known |
