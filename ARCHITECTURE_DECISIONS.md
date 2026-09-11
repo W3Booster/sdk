@@ -382,3 +382,18 @@ Native and API projections must agree. General selectors retain their documented
 full-ID order; presentations may sort by this key with a full-ID tie-breaker.
 This additive field does not change the protocol major or require old consumers
 to upgrade. The SDK 3.1.0 release remains paused for review.
+
+## 2026-09-12: Forward the native applied HUD scale without reconstruction
+
+The user explicitly authorizes the coordinated removal of the native raw 0–128
+HUD transport. `W3HudScale.value` is now the applied finite float in 0.5–1.0;
+`initialRuntime.hudScale` supplies the platform's initial snapshot. SDK local
+recorder projection validates and forwards the number unchanged. Remove the
+piecewise percentage calculation, rounding and clamping. Invalid observations
+preserve current state; public gameContext and its default 1 are unchanged.
+
+This changes the recorder transport meaning and requires upgrading SDK consumers
+with the native library/platform. Older SDKs must not consume new recorder frames:
+raw integer 1 and normalized float 1 cannot be distinguished heuristically. A
+production audit found only six first-party-owned app registrations; it cannot
+rule out unregistered public SDK experiments. No release is authorized here.

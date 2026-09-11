@@ -8,6 +8,15 @@ entities; new application-owned typed fixtures must include that boolean.
 Applications consume registry artifacts; packed SDK HEAD is the development
 verification lane.
 
+The applied-HUD-scale change requires a coordinated recorder/SDK update.
+Current native `W3HudScale.value` is a finite multiplier in 0.5–1.0, and
+`W3Game.initialRuntime.hudScale` provides the initial value to the platform.
+The previous 0–128 encoding and `hudScaleRaw` initial field are removed. Older
+SDKs misinterpret float recorder updates; rebuild bundled first-party consumers
+with this SDK before enabling the new native library. Public protocol 3
+`gameContext.hudScale` keeps the same shape and meaning. No value-based legacy
+format detection or percentage reconstruction is performed.
+
 The hydrated state always contains `gameContext.hudScale`; the producer uses 1
 when no measurement exists. Optional `chatbarOpen` and `teamColors` are delivered
 when known. None requires a scope. Scores are application-owned data.

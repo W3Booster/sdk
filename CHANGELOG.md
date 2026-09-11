@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — applied HUD scale
+
+- Forward Warcraft’s applied HUD scale unchanged, including sidepanel overrides.
+- Remove raw 0–128 percentage reconstruction from recorder updates. This requires
+  a coordinated native-library/platform/SDK consumer update; older SDKs cannot
+  interpret the new recorder values correctly. Public `gameContext.hudScale`
+  remains the same 0.5–1.0 multiplier.
+
 ## 3.1.0 — 2026-09-11
 
 - Add `isIllusion: boolean` to observed units, heroes, and buildings. Raw instance

@@ -1300,7 +1300,7 @@ test('observer and replay sessions use the low-latency recorder transport locall
     sockets[0].emit('open');
     sockets[0].emit('message', JSON.stringify([
       { class: 'W3GameTime', matchId: 'observer-match', value: 12 },
-      { class: 'W3HudScale', matchId: 'observer-match', value: 70 },
+      { class: 'W3HudScale', matchId: 'observer-match', value: 0.75 },
       { class: 'W3Resource', matchId: 'observer-match', slotId: 0, type: 1, value: 1230 },
       { class: 'W3Resource', matchId: 'observer-match', slotId: 0, type: 2, value: 670 },
       { class: 'W3Resource', matchId: 'observer-match', slotId: 0, type: 5, value: 31 },
@@ -1541,7 +1541,7 @@ test('the local recorder feed cannot bypass SDK capabilities', async () => {
     await waitForDeferredModule(() => socket !== undefined);
     socket.emit('open');
     socket.emit('message', JSON.stringify([
-      { class: 'W3HudScale', value: 70 },
+      { class: 'W3HudScale', value: 0.75 },
       { class: 'W3Resource', slotId: 0, type: 1, value: 9990 }
     ]));
     await waitForRecorderFrame();

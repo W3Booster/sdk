@@ -346,7 +346,7 @@ Recorder bursts are deduplicated and published at most once per display frame. R
 
 - `match.gameTime` is elapsed in-game time in whole seconds and excludes paused time.
 - `match.map` is a human-readable, display-ready name; the SDK decodes producer transport escaping once at snapshot/patch ingress.
-- `gameContext.hudScale` is a CSS scale multiplier normalized by W3Booster from `0.5` through `1.0`. Apply it as a scale/zoom value; it is not a percentage.
+- `gameContext.hudScale` is the applied Warcraft HUD scale multiplier from `0.5` through `1.0`, forwarded unchanged by W3Booster. Apply it as a scale/zoom value; it is not a percentage.
 - `player.startPosition` uses Warcraft III map coordinates, not pixels. It is suitable for relative map placement and player ordering; transforming it onto an image depends on that map's bounds.
 - Gold, lumber, supply, and worker supply are already normalized player-facing values; applications do not divide recorder values themselves.
 - `match.realm` identifies the recorder realm: `Reforged`, `W3Champions`, `W3Champions@EU`, or `W3Champions@NA` are current examples. `match.isReforged` describes graphics, not the stats provider.

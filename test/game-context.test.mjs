@@ -40,10 +40,10 @@ test('hydration rejects missing game context and removed overlay state shapes', 
 test('recorder context updates need no overlay permission and retain protected data gates', () => {
   const initial = { ...base(), gameContext: { hudScale: 1 }, players: [{ id: '0' }] };
   const state = applyLocalRecorderUpdates(initial, [
-    { class: 'W3HudScale', value: 64 }, { class: 'W3ChatbarState', value: 1 }, { class: 'W3TeamColor', value: 0 },
+    { class: 'W3HudScale', value: 0.875 }, { class: 'W3ChatbarState', value: 1 }, { class: 'W3TeamColor', value: 0 },
     { class: 'W3Resource', slotId: 0, type: 1, value: 5000 }
   ]);
-  assert.deepEqual(state.gameContext, { hudScale: 0.725, chatbarOpen: true, teamColors: false });
+  assert.deepEqual(state.gameContext, { hudScale: 0.875, chatbarOpen: true, teamColors: false });
   assert.equal(state.players[0].resources, undefined);
   assert.deepEqual(initial.gameContext, { hudScale: 1 });
 });
@@ -68,4 +68,21 @@ test('removed client aliases, host score primitives, and scope cannot be used', 
   assert.equal('resetMatchScore' in client.host, false);
   assert.throws(() => createClient({ clientId: 'context_test', scopes: ['overlay:read'] }));
   assert.equal(sdk.canUseHostCapability({ available: true, capabilityStatus: 'legacy', capabilities: [] }, 'window:open'), false);
+});
+
+test('recorder HUD scale forwards all applied floats without percentage reconstruction', () => {
+  let state = base();
+  for (let slider = 0; slider <= 100; slider++) {
+    const value = Math.fround((slider * 0.5 + 50) / 100);
+    state = applyLocalRecorderUpdates(state, [{ class: 'W3HudScale', value }]);
+    assert.equal(state.gameContext.hudScale, value);
+    assert.equal(applyLocalRecorderUpdates(state, [{ class: 'W3HudScale', value }]), state);
+  }
+});
+test('invalid HUD readings and old raw integers cannot corrupt the current scale', () => {
+  const state = { ...base(), gameContext: { hudScale: 0.875 } };
+  for (const value of [undefined, null, NaN, Infinity, -1, 0, 0.499, 1.001, 64, 128, '0.75', true]) {
+    assert.equal(applyLocalRecorderUpdates(state, [{ class: 'W3HudScale', value }]), state);
+  }
+  assert.equal(applyLocalRecorderUpdates(state, [{ class: 'W3HudScale', matchId: 'stale', value: 0.5 }]), state);
 });

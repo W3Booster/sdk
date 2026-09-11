@@ -289,7 +289,7 @@ export function applyLocalRecorderUpdates(state, updates) {
     } else if (update.class === 'W3ChatbarState') {
       updateContext('chatbarOpen', Number(update.value) === 1);
     } else if (update.class === 'W3HudScale') {
-      const hudScale = normalizedHudScale(update.value);
+      const hudScale = validHudScale(update.value);
       if (hudScale !== null) updateContext('hudScale', hudScale);
     } else if (update.class === 'W3TeamColor') {
       const value = Number(update.value);
@@ -450,10 +450,6 @@ function localResourceName(type) {
   }
 }
 
-function normalizedHudScale(value) {
-  const raw = Number(value);
-  if (!Number.isFinite(raw) || raw < 0 || raw > 128) return null;
-  let percent = ((raw <= 24 ? raw / 2.4 : 10 + (raw - 24) / 1.15) * 10) / 10;
-  percent = percent < 50 ? Math.round(percent) : Math.ceil(percent);
-  return Math.max(0.5, Math.min(1, (percent / 100) * 0.5 + 0.5));
+function validHudScale(scale) {
+  return typeof scale === 'number' && Number.isFinite(scale) && scale >= 0.5 && scale <= 1 ? scale : null;
 }
