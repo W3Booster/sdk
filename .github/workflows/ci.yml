@@ -62,7 +62,7 @@ jobs:
         with:
           repository: W3Booster/app-match-vision
           # Reviewed SDK 4 catalog consumer; install this SDK artifact below.
-          ref: 5a475830263489f77def82454fc2621a079293a1
+          ref: 8ab4d1db3ab07f9b6743e9fe243e30aed4d86960
           path: app
       - uses: actions/setup-node@v6
         with:
