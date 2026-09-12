@@ -51,3 +51,6 @@ SDK 4 breaking changes:
 
 SDK publication and static/native/platform releases are separate authorized actions.
 A local packed SDK verifies the candidate without implying that it is published.
+
+The catalog loader requires browser Web Crypto (`crypto.subtle`) for integrity verification.
+Node 18 tools can supply `globalThis.crypto` from `node:crypto` before loading a catalog.

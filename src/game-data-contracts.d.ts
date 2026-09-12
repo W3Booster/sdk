@@ -57,4 +57,4 @@ export function loadGameData(id: string, options?: GameDataLoadOptions): Promise
 export interface AbilityCooldownState extends TimedProgress { readonly active: boolean; readonly totalSeconds: number; readonly remainingSeconds: number; readonly progress: number }
 /** A standard-game estimate derived from this revision's ability configuration and observed game time. */
 export function abilityCooldown(ability: HeroAbility, gameTime: number, data: GameData): AbilityCooldownState | undefined;
-export function abilityCooldownsForState(state: MatchState, data: GameData): ReadonlyMap<HeroAbility, AbilityCooldownState>;
+export function abilityCooldownsForState(state: Pick<MatchState, 'match' | 'players'>, data: GameData): ReadonlyMap<HeroAbility, AbilityCooldownState>;

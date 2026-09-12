@@ -1,5 +1,11 @@
 # Changelog
 
+## 4.0.1 — 2026-09-12
+
+- Accept typed application settings in the whole-state cooldown helper on TypeScript 5.0.
+- Run the complete compatibility matrix before npm publication, including Node 18
+  browser-environment fixtures and the packed Match Vision consumer.
+
 ## 4.0.0 — 2026-09-12
 
 - Add optional `/game-data` loading for exact build catalogs, typed unit/ability/item/

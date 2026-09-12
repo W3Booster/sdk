@@ -1,4 +1,7 @@
 import test from 'node:test';
+import { webcrypto } from 'node:crypto';
+// Node 18's test runner needs the browser Web Crypto environment supplied.
+globalThis.crypto ??= webcrypto;
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
