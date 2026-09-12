@@ -14,8 +14,8 @@ const snapshot = () => ({
     controlgroups: { 1: { frontunit: 'hpea', size: 5 } },
     heroes: { '0000000048616d67': { id: '0000000048616d67', typeId: 'Hamg', isIllusion: false, name: 'Hamg', level: 1,
       hitpoints: { current: 400, max: 500 }, mana: { current: 100, max: 300 },
-      abilities: [{ id: 'ability', name: 'AHbz', level: 1 }] } },
-    upgrades: { upgrades: [{ name: 'Rhme', level: 1, gametime: 20 }], active: [], researching: [] }
+      abilities: [{ id: 'ability', typeId: 'AHbz', level: 1 }] } },
+    upgrades: { upgrades: [{ typeId: 'Rhme', level: 1, gametime: 20 }], active: [], researching: [] }
   }],
   application: { clientId: 'future_test', settings: {}, data: {} },
   transport: { recorderUrls: [] }
@@ -33,7 +33,7 @@ async function stream(t) {
   client.on('issue', issue => issues.push(issue));
   await client.open();
   return { client, issues, get resyncs() { return resyncs; },
-    send(type, data, version = '3.99') {
+    send(type, data, version = '4.99') {
       context.onMessage(JSON.stringify({ version, sequence: ++sequence, type, data, futureEnvelopeField: true }));
     } };
 }
@@ -130,7 +130,7 @@ for (const [name, change] of [
 
 test('a new protocol major still requires an explicit SDK migration', async t => {
   const connection = await stream(t);
-  connection.send('state.snapshot', snapshot(), '4.0');
+  connection.send('state.snapshot', snapshot(), '5.0');
   assert.equal(connection.client.state.get(), null);
   assert.equal(connection.client.status, 'error');
   assert.equal(connection.issues[0].error.code, 'UNSUPPORTED_PROTOCOL');

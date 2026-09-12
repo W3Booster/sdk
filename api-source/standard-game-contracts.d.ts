@@ -34,7 +34,6 @@ export type UpkeepState = 'none' | 'low' | 'high';
 
 export const races: Readonly<Record<Race, StandardGameRaceMetadata>>;
 export const playerColors: readonly string[];
-export const weaponOrArmorUpgradeRawcodes: readonly string[];
 export const meleeModes: Readonly<Record<StandardGameMode, StandardGameModeMetadata>>;
 
 export function raceInfo(race: string | undefined): StandardGameRaceMetadata;
@@ -42,8 +41,6 @@ export function normalizeMode(mode: string | undefined): string;
 export function isMode(mode: string | undefined, expected: string): boolean;
 export function modeInfo(mode: string | undefined): StandardGameModeMetadata | undefined;
 export function playerColor(colorId?: number): string;
-export function normalizeUpgradeRawcode(rawcode: string): string;
-export function isWeaponOrArmorUpgrade(rawcode: string): boolean;
 /** Select an exact record. No fallback across modes, races, seasons or teams. */
 export function statsForMode(player: Player, mode?: string, options?: {
   readonly provider?: PlayerStats['provider']; readonly season?: number; readonly race?: Race;

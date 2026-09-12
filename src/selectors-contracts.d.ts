@@ -54,7 +54,7 @@ export function playerResourcesOrZero(player: Pick<Player, 'resources'> | null |
 /** Shared game context with a stable scale-1 fallback before hydration. No scope required. */
 export function gameContext<TSettings extends object>(state: Pick<MatchState<TSettings>, 'gameContext'> | null | undefined): GameContext;
 export function inventorySlotIdentity(index: number, item: string | null | undefined): string;
-export function upgradeIdentity(upgrade: Pick<ActiveUpgrade, 'name' | 'level'>): string;
+export function upgradeIdentity(upgrade: Pick<ActiveUpgrade, 'typeId' | 'level'>): string;
 export function currentUpgrades(
   player: Pick<Player, 'upgrades'> | null | undefined,
   options?: { readonly includeResearching?: boolean }

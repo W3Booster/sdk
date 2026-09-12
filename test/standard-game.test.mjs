@@ -1,24 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as standardGame from '../src/standard-game.js';
-import * as standardGameIcons from '../src/standard-game-icons.js';
-import * as standardGameCooldowns from '../src/standard-game-cooldowns.js';
 
-test('standard-game object namespace exposes optional shipped metadata and asset URLs', () => {
-  assert.equal(standardGameIcons.getIcon('Hamg'), 'btnheroarchmage.png');
-  assert.equal(standardGameIcons.iconFileName('Hamg'), 'btnheroarchmage.png');
-  assert.equal(standardGameIcons.iconUrl('Hamg'), 'https://static.w3booster.com/assets/wc3/standard-game/v1/reforged/icons/btnheroarchmage.png');
-  assert.equal(standardGameIcons.heroIconUrl({ typeId: 'Hamg' }), standardGameIcons.iconUrl('Hamg'));
-  assert.equal(standardGameIcons.abilityIconUrl({ name: 'AHbz' }), standardGameIcons.iconUrl('AHbz'));
-  assert.equal(standardGameIcons.upgradeIconUrl({ name: 'Rhme' }), standardGameIcons.iconUrl('Rhme'));
-  assert.equal(standardGameIcons.itemIconUrl('ratf'), standardGameIcons.iconUrl('ratf'));
-  assert.equal(standardGameIcons.iconUrl('ZZZZ'), undefined);
-  assert.equal(standardGameIcons.heroIconUrl({ id: 'ZZZZ' }), undefined);
-  assert.equal(standardGameIcons.iconFilenameUrl('btnblood&ghostkey', { graphics: 'classic', baseUrl: 'http://localhost:8080/assets/' }), 'http://localhost:8080/assets/wc3/standard-game/v1/classic/icons/btnblood%26ghostkey.png');
-  assert.equal(standardGameIcons.iconUrl('../secret'), undefined);
-  assert.equal(standardGameIcons.assetManifestUrl(), 'https://static.w3booster.com/assets/wc3/standard-game/v1/manifest.json');
-  assert.equal(standardGameCooldowns.getAbilityCooldown('AHbz', 2), 6);
-});
 
 test('standard-game helpers normalize melee modes, races, colors, and hero progression', () => {
   assert.equal(standardGame.normalizeMode('1v1'), 'gm-1v1');
@@ -82,46 +65,10 @@ test('standard-game order selectors recompute for mutable frontend-owned collect
   );
 });
 
-test('specialized standard-game entry points preserve the combined API values', () => {
-  assert.equal(standardGameIcons.getIcon('Hamg'), 'btnheroarchmage.png');
-  assert.equal(standardGameIcons.getIcon('Rema3'), standardGameIcons.getIcon('Rema'));
-  assert.equal(standardGameCooldowns.getAbilityCooldown('AHbz', 2), 6);
-});
 
-test('standard-game asset resolvers bind the catalog and derive graphics from match state', () => {
-  const assets = standardGameIcons.createAssetResolver({ baseUrl: 'http://localhost:8083/' });
-  assert.equal(Object.isFrozen(assets), true);
-  assert.equal(
-    assets.hero({ isReforged: false }, { typeId: 'Hamg' }),
-    'http://localhost:8083/wc3/standard-game/v1/classic/icons/btnheroarchmage.png'
-  );
-  assert.equal(
-    assets.ability({ isReforged: true }, { name: 'AHbz' }),
-    'http://localhost:8083/wc3/standard-game/v1/reforged/icons/btnblizzard.png'
-  );
-  assert.equal(
-    assets.countryFlag('DE'),
-    'http://localhost:8083/country-flags/v1/flags/de.png'
-  );
-  const launchAssets = standardGameIcons.createAssetResolver({
-    location: { search: '?backend=local&assetBaseUrl=http%3A%2F%2Flocalhost%3A9090%2Fassets' }
-  });
-  assert.equal(
-    launchAssets.hero({ isReforged: true }, { typeId: 'Hamg' }),
-    'http://localhost:9090/assets/wc3/standard-game/v1/reforged/icons/btnheroarchmage.png'
-  );
-  assert.equal(
-    launchAssets.countryFlag('GB-ENG'),
-    'http://localhost:9090/assets/country-flags/v1/flags/gb-eng.png'
-  );
-});
 
 test('standard-game derives upgrade categories and statistics without application presentation rules', () => {
   const broadcaster = { id: 'me', team: 0, colorId: 0, stats: { status: 'ready', records: [{ provider: 'w3champions', gameMode: '1v1', queue: 'individual', wins: 4, losses: 2, winRate: 66.7 }] } };
-  assert.equal(standardGame.normalizeUpgradeRawcode('Rema3'), 'Rema');
-  assert.equal(standardGameIcons.getIcon('Rema3'), standardGameIcons.getIcon('Rema'));
-  assert.equal(standardGame.isWeaponOrArmorUpgrade('Rema3'), true);
-  assert.equal(standardGame.isWeaponOrArmorUpgrade('Rhde'), false);
   assert.equal(standardGame.statsForMode(broadcaster, '1v1')?.wins, 4);
   assert.equal(standardGame.statsForMode({ stats: { status: 'ready', records: [{ provider: 'w3champions', gameMode: '2v2', queue: 'individual', wins: 7, losses: 1, winRate: 87.5 }] } }, 'custom'), undefined);
   assert.equal(standardGame.formatGameTime(65), '01:05');
@@ -253,60 +200,7 @@ test('standard-game provides canonical frontend team ordering and presentation v
   assert.equal(standardGame.formatHeroLevelProgress({ level: 10, experience: 9_999 }), '10');
 });
 
-test('standard-game owns cooldown timestamp and day/night clock semantics', () => {
-  assert.deepEqual(standardGameCooldowns.abilityCooldown(
-    { id: 'AHbz', name: 'AHbz', level: 1, lastActivation: 10_000 },
-    12
-  ), { totalSeconds: 6, remainingSeconds: 4, progress: 1 / 3, active: true });
-  assert.equal(standardGameCooldowns.abilityCooldown({ id: 'AHbz', name: 'AHbz', level: 1 }, 12), undefined);
-  assert.equal(standardGameCooldowns.abilityCooldown(
-    { id: 'AHbz', name: 'AHbz', level: 1, lastActivation: 0 },
-    0
-  ), undefined);
-  assert.deepEqual(standardGameCooldowns.abilityCooldown(
-    { id: 'AHbz', name: 'AHbz', level: 1, lastActivation: 10_500 },
-    12
-  ), { totalSeconds: 6, remainingSeconds: 4.5, progress: 0.25, active: true });
-  const state = {gameContext: { hudScale: 1 },
-    match: { id: 'match', status: 'running', gameTime: 12, mode: '1v1' },
-    capabilities: ['match', 'players', 'heroes'],
-    players: [{ id: '0', heroes: { '0000000048616d67': { id: '0000000048616d67', typeId: 'Hamg', isIllusion: false, name: 'Archmage', level: 1, abilities: [
-      { id: 'AHbz', name: 'AHbz', level: 1, lastActivation: 10_000 }
-    ] } } }]
-  };
-  const cooldowns = standardGameCooldowns.abilityCooldownsForState(state);
-  const cooldown = cooldowns.get(Object.values(state.players[0].heroes ?? {})[0].abilities[0]);
-  assert.deepEqual(
-    cooldown,
-    { totalSeconds: 6, remainingSeconds: 4, progress: 1 / 3, active: true }
-  );
-  assert.equal(Object.isFrozen(cooldown), true);
-  assert.equal(Object.isFrozen(cooldowns), true);
-  assert.equal(cooldowns instanceof Map, false);
-  assert.throws(() => cooldowns.set(Object.values(state.players[0].heroes ?? {})[0].abilities[0], cooldown), /immutable/);
-  assert.throws(
-    () => Map.prototype.set.call(cooldowns, Object.values(state.players[0].heroes ?? {})[0].abilities[0], cooldown),
-    /incompatible receiver|incompatible|Map/
-  );
-  assert.equal(cooldowns.size, 1);
-  assert.equal(standardGameCooldowns.abilityCooldownsForState(state).size, 1);
-
-  const immutableAbility = Object.freeze({ id: 'AHbz', name: 'AHbz', level: 1, lastActivation: 10_000 });
-  const immutableState = Object.freeze({
-    match: Object.freeze({ id: 'match', status: 'running', gameTime: 12, mode: '1v1' }),
-    capabilities: Object.freeze(['match', 'players', 'heroes']),
-    players: Object.freeze([Object.freeze({
-      id: '0',
-      heroes: Object.freeze([Object.freeze({
-        id: 'Hamg', name: 'Archmage', level: 1, abilities: Object.freeze([immutableAbility])
-      })])
-    })])
-  });
-  assert.equal(
-    standardGameCooldowns.abilityCooldownsForState(immutableState),
-    standardGameCooldowns.abilityCooldownsForState(immutableState)
-  );
-
+test('standard-game owns day/night clock semantics', () => {
   assert.deepEqual(standardGame.dayNightState(0), {
     hour: 6,
     isDay: true,

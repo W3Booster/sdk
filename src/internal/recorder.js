@@ -6,20 +6,6 @@ import { assertSafeValue, deepEqual, structuredCloneSafe } from './values.js';
 import { createReconnectBackoff } from './websocket.js';
 
 const MAX_MESSAGE_LENGTH = 5 * 1024 * 1024;
-const LOCAL_HERO_ALIASES = new Map([
-  ['Edmm', 'Edem'], ['Nrob', 'Ntin'], ['Nalm', 'Nalc'], ['Nal2', 'Nalc'], ['Nal3', 'Nalc']
-]);
-const LOCAL_ABILITY_ALIASES = new Map([
-  ['AUfa', 'AUfu'], ['ANc1', 'ANcs'], ['ANc2', 'ANcs'], ['ANc3', 'ANcs'],
-  ['ANs1', 'ANsy'], ['ANs2', 'ANsy'], ['ANs3', 'ANsy'],
-  ['ANg1', 'ANrg'], ['ANg2', 'ANrg'], ['ANg3', 'ANrg'], ['ANia', 'ANic']
-]);
-const LOCAL_UTILITY_ABILITIES = new Set([
-  'AEtq', 'AHav', 'AEme', 'AEsf', 'AEsv', 'AHmt', 'AHpx', 'AHre', 'ANch', 'ANtm',
-  'AOeq', 'AOre', 'AOvd', 'AOww', 'AUan', 'AUdd', 'AUin', 'ANef', 'ANrg', 'ANvc',
-  'ANdo', 'ANst', 'ANto', 'AUls'
-]);
-
 /**
  * Low-latency transport for the recorder's observer/replay socket.
  * The platform snapshot remains authoritative for identity, permissions, and
@@ -361,14 +347,14 @@ function applyLocalHeroUpdate(player, update) {
     : (previousHero?.experience ?? 0);
   let abilities = Array.isArray(update.abilities)
     ? [...update.abilities]
-      .sort((left, right) => left?.order < right?.order ? 1 : -1)
       .filter(isPlainObject)
+      .sort((left, right) => Number(right.order ?? 0) - Number(left.order ?? 0))
       .map(ability => {
-        const name = LOCAL_ABILITY_ALIASES.get(String(ability.type)) || String(ability.type || '');
+        const typeId = String(ability.type || '');
         return {
-          id: `A${heroId}${name}`,
-          name,
-          level: LOCAL_UTILITY_ABILITIES.has(name) ? 0 : Number(ability.level) || 0,
+          id: `A${heroId}${typeId}`,
+          typeId,
+          level: Number(ability.level) || 0,
           ...(Number.isFinite(Number(ability.lastActivation)) && Number(ability.lastActivation) > 0
             ? { lastActivation: Number(ability.lastActivation) } : {})
         };
@@ -402,26 +388,26 @@ function applyLocalHeroUpdate(player, update) {
 }
 
 function applyLocalResearchUpdate(player, update) {
-  const name = String(update.type || '');
+  const typeId = String(update.type || '');
   const level = Number(update.level);
-  if (!name || !Number.isFinite(level)) return player;
+  if (!typeId || !Number.isFinite(level)) return player;
   const gametime = Number(update.__w3boosterReceivedAt) || Date.now();
   const current = player.upgrades || { upgrades: [], active: [], researching: [] };
   let upgrades = current.upgrades || [];
   let active = current.active || [];
   const researching = current.researching || [];
   let changed = false;
-  if (!upgrades.some(upgrade => upgrade.name === name && upgrade.level === level)) {
-    upgrades = [...upgrades, { name, level, gametime }];
+  if (!upgrades.some(upgrade => upgrade.typeId === typeId && upgrade.level === level)) {
+    upgrades = [...upgrades, { typeId, level, gametime }];
     changed = true;
   }
-  const activeIndex = active.findIndex(upgrade => upgrade.name === name);
+  const activeIndex = active.findIndex(upgrade => upgrade.typeId === typeId);
   if (activeIndex >= 0 && active[activeIndex].level !== level) {
     active = [...active];
     active[activeIndex] = { ...active[activeIndex], level };
     changed = true;
   } else if (activeIndex < 0) {
-    active = [...active, { name, gametime, level }];
+    active = [...active, { typeId, gametime, level }];
     changed = true;
   }
   if (!changed) return player;

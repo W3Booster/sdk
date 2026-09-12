@@ -56,7 +56,7 @@ export function validateState(value, clientId, cloneState = true) {
     throw new ProtocolError('INVALID_STATE', 'An active or completed match must have a non-empty ID.');
   }
   validateOptionalFields(state.match, {
-    map: 'string', realm: 'string', paused: 'boolean', isReplay: 'boolean', isReforged: 'boolean', isObserver: 'boolean',
+    gameDataId: 'string', gameVersion: 'string', map: 'string', realm: 'string', paused: 'boolean', isReplay: 'boolean', isReforged: 'boolean', isObserver: 'boolean',
     broadcasterPlayerId: 'string', realBroadcasterPlayerId: 'string', startedAt: 'string', endedAt: 'string'
   }, 'State match');
   if (state.match.startedAt !== undefined && !isIsoTimestamp(state.match.startedAt)) {
@@ -276,7 +276,7 @@ function validateHero(hero, playerId) {
     if (!Array.isArray(hero.abilities)) throw new ProtocolError('INVALID_STATE', `Hero ${String(hero.id)} abilities must be an array.`);
     const abilityIds = new Set();
     for (const ability of hero.abilities) {
-      if (!isPlainObject(ability) || typeof ability.id !== 'string' || !ability.id || typeof ability.name !== 'string' || !ability.name || !Number.isFinite(ability.level) ||
+      if (!isPlainObject(ability) || typeof ability.id !== 'string' || !ability.id || typeof ability.typeId !== 'string' || !ability.typeId || !Number.isFinite(ability.level) ||
           (ability.lastActivation !== undefined && (!Number.isFinite(ability.lastActivation) || ability.lastActivation <= 0))) {
         throw new ProtocolError('INVALID_STATE', `Hero ${String(hero.id)} contains an invalid ability.`);
       }
@@ -293,12 +293,12 @@ function validateUpgrades(upgrades, playerId) {
       throw new ProtocolError('INVALID_STATE', `Player ${playerId} upgrades.${collection} must be an array.`);
     }
     for (const upgrade of upgrades[collection]) {
-      if (!isPlainObject(upgrade) || typeof upgrade.name !== 'string' || !upgrade.name ||
+      if (!isPlainObject(upgrade) || typeof upgrade.typeId !== 'string' || !upgrade.typeId ||
           !Number.isFinite(upgrade.level) || upgrade.level < 1 || !Number.isFinite(upgrade.gametime)) {
         throw new ProtocolError('INVALID_STATE', `Player ${playerId} contains an invalid ${collection} upgrade.`);
       }
-      if (upgrade.name.length > 4 && /^\d+$/.test(upgrade.name.slice(4))) {
-        throw new ProtocolError('INVALID_STATE', `Upgrade ${upgrade.name} must carry its level separately.`);
+      if (upgrade.typeId.length > 4 && /^\d+$/.test(upgrade.typeId.slice(4))) {
+        throw new ProtocolError('INVALID_STATE', `Upgrade ${upgrade.typeId} must carry its level separately.`);
       }
       if (collection === 'researching') {
         if (!validTimedProgress(upgrade)) {

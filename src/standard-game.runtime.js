@@ -17,13 +17,6 @@ const PLAYER_COLORS = Object.freeze([
   '#bfff80', '#dcb9eb', '#282828', '#ebf0ff', '#00781e', '#a46f33'
 ]);
 
-const WEAPON_OR_ARMOR_UPGRADE_RAWCODES = Object.freeze([
-  'Rema', 'Rerh', 'Resm', 'Resw',
-  'Rhar', 'Rhla', 'Rhme', 'Rhra',
-  'Roar', 'Rome', 'Rora',
-  'Ruar', 'Rucr', 'Rume', 'Rura'
-]);
-const WEAPON_OR_ARMOR_UPGRADES = new Set(WEAPON_OR_ARMOR_UPGRADE_RAWCODES);
 const DAY_NIGHT_CYCLE_SECONDS = 480;
 const HERO_MAX_LEVEL = 10;
 const selectHeadToHeadPlayers = createImmutableSelector((players, reverse) => {
@@ -87,7 +80,6 @@ const MELEE_MODES = Object.freeze({
 
 export const races = RACES;
 export const playerColors = PLAYER_COLORS;
-export const weaponOrArmorUpgradeRawcodes = WEAPON_OR_ARMOR_UPGRADE_RAWCODES;
 export const meleeModes = MELEE_MODES;
 
 /** Resolve locale-neutral metadata without choosing application display copy. */
@@ -113,17 +105,6 @@ export function modeInfo(mode) {
 
 export function playerColor(colorId) {
   return PLAYER_COLORS[colorId] || '#959697';
-}
-
-/** Strip the synthetic level suffix used by W3Booster upgrade events. */
-export function normalizeUpgradeRawcode(rawcode) {
-  if (typeof rawcode !== 'string') return '';
-  const candidate = rawcode.length > 4 && /^\d+$/.test(rawcode.slice(4)) ? rawcode.slice(0, 4) : rawcode;
-  return candidate;
-}
-
-export function isWeaponOrArmorUpgrade(rawcode) {
-  return WEAPON_OR_ARMOR_UPGRADES.has(normalizeUpgradeRawcode(rawcode));
 }
 
 /** Select one exact ladder; unavailable or ambiguous records have no fallback. */

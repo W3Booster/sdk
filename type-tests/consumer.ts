@@ -1,3 +1,4 @@
+import { loadGameData, abilityCooldown, abilityCooldownsForState } from '../src/game-data.js';
 import type {
   MatchState,
   GameContext,
@@ -13,8 +14,6 @@ import type { ApplicationRuntimeStartOptions } from '../src/app.js';
 import { broadcasterFirstTeams, broadcasterPlayer, currentUpgrades, groupPlayersByTeam, hasCapability, headToHeadPair, heroInventory, inventorySlotIdentity, gameContext as selectGameContext, playerDisplayIdentity, playerHeroes, playerResources, playerResourcesOrZero, upgradeIdentity } from '../src/selectors.js';
 import type { PlayerTeam } from '../src/selectors.js';
 import * as standardGame from '../src/standard-game.js';
-import * as standardGameIcons from '../src/standard-game-icons.js';
-import * as standardGameCooldowns from '../src/standard-game-cooldowns.js';
 import { countryFlagUrl } from '../src/assets.js';
 import { getOverlayComposition } from '../src/compositor.js';
 import { createDemoState, createDemoTransport } from '../src/testing.js';
@@ -53,10 +52,11 @@ async function useSdk() {
   const store: StateStore<ExampleSettings> = client.state;
   const scopes: Scope[] = ['match:read', 'players:read'];
   const context: GameContext = state.gameContext;
-  const archmageIcon: string | undefined = standardGameIcons.getIcon('Hamg');
-  const archmageIconUrl: string | undefined = standardGameIcons.iconUrl('Hamg', { graphics: 'reforged' });
-  const specializedIconUrl: string | undefined = standardGameIcons.iconUrl('Hamg', { graphics: 'reforged' });
-  const specializedCooldown: number | undefined = standardGameCooldowns.getAbilityCooldown('AHbz', 1);
+  const data = await loadGameData(state.match.gameDataId!);
+  const archmageIcon = data.units.get('Hamg');
+  const archmageIconUrl = data.assets.unitIcon('Hamg', { graphics: 'reforged' });
+  const specializedIconUrl = data.assets.upgradeIcon('Rhar', { graphics: 'classic', level: 3 });
+  const specializedCooldown = data.abilities.get('AHbz')?.levels[0].cooldownSeconds;
   const germanFlagUrl: string | undefined = countryFlagUrl('DE');
   const heroLevel: number = standardGame.heroExperienceState(500).level;
   const heroHealth: number = standardGame.valuePoolRatio({ current: 50, max: 100 });
@@ -92,10 +92,10 @@ async function useSdk() {
   const inventoryKey: string = inventorySlotIdentity(0, inventory[0]);
   const firstAbility = heroes[0]?.abilities?.[0];
   const cooldown = firstAbility
-    ? standardGameCooldowns.abilityCooldown(firstAbility, state.match.gameTime)
+    ? abilityCooldown(firstAbility, state.match.gameTime, data)
     : undefined;
-  const cooldowns = standardGameCooldowns.abilityCooldownsForState(state);
-  const heroIcon = standardGameIcons.heroIconUrl(playerHeroes(state.players[0])[0]);
+  const cooldowns = abilityCooldownsForState(state, data);
+  const heroIcon = data.assets.unitIcon(playerHeroes(state.players[0])[0]?.typeId ?? '', { graphics: 'classic' });
   const current = currentUpgrades(state.players[0]);
   const upgradeKey: string | undefined = current[0] ? upgradeIdentity(current[0]) : undefined;
   const presentationColor: string = standardGame.presentationPlayerColor(state.players[0], state.match, state.players, stableRuntime);

@@ -66,11 +66,11 @@ export function createDemoState(options = {}) {
         heroes: /** @type {Record<string, import('./index.js').Hero>} */ ({ '0000000048616d67': {
           id: '0000000048616d67', typeId: 'Hamg', isIllusion: false, level: 4, experience: 900,
           hitpoints: { current: 575, max: 650 }, mana: { current: 310, max: 420 },
-          abilities: [{ id: 'A0AHwe', name: 'AHwe', level: 2 }], inventory: ['stwp']
+          abilities: [{ id: 'A0AHwe', typeId: 'AHwe', level: 2 }], inventory: ['stwp']
         } }),
         upgrades: {
-          upgrades: [{ name: 'Rhme', level: 1, gametime: observedAt }],
-          active: [{ name: 'Rhme', level: 1, gametime: observedAt }], researching: []
+          upgrades: [{ typeId: 'Rhme', level: 1, gametime: observedAt }],
+          active: [{ typeId: 'Rhme', level: 1, gametime: observedAt }], researching: []
         }
       },
       {
@@ -83,7 +83,7 @@ export function createDemoState(options = {}) {
         heroes: /** @type {Record<string, import('./index.js').Hero>} */ ({ '000000004f626c61': {
           id: '000000004f626c61', typeId: 'Obla', isIllusion: false, level: 4, experience: 900,
           hitpoints: { current: 610, max: 700 }, mana: { current: 190, max: 300 },
-          abilities: [{ id: 'A1AOwk', name: 'AOwk', level: 2 }], inventory: ['phea']
+          abilities: [{ id: 'A1AOwk', typeId: 'AOwk', level: 2 }], inventory: ['phea']
         } }),
         upgrades: { upgrades: [], active: [], researching: [] }
       }

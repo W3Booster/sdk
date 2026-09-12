@@ -150,10 +150,10 @@ export function inventorySlotIdentity(index, item) {
 
 /** Stable identity for one upgrade level. */
 export function upgradeIdentity(upgrade) {
-  if (!upgrade || typeof upgrade.name !== 'string' || !upgrade.name || !Number.isFinite(upgrade.level)) {
+  if (!upgrade || typeof upgrade.typeId !== 'string' || !upgrade.typeId || !Number.isFinite(upgrade.level)) {
     throw new TypeError('upgrade must contain a name and finite level');
   }
-  return `${upgrade.name}:${upgrade.level}`;
+  return `${upgrade.typeId}:${upgrade.level}`;
 }
 
 /**

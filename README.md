@@ -446,47 +446,44 @@ const round = client.state.get()?.overlay?.tournament.round;
 const runtime = w3boosterApp.createRuntime<TournamentOverlay>();
 ```
 
-## Warcraft III standard-game data
+## Warcraft III game data
 
-Lightweight Warcraft III rules live in `@w3booster/sdk/standard-game`. Icon metadata and cooldown metadata use separate opt-in entry points so frontends pay only for the data they use. Import only the dataset your application uses:
+Load the exact generated catalog advertised by the current match. No unit tables or
+artwork are bundled with the SDK. The optional `/game-data` entry fetches and verifies
+the catalog; images remain hosted and load when displayed.
 
 ```js
+import { loadGameData, abilityCooldownsForState } from '@w3booster/sdk/game-data';
 import * as standardGame from '@w3booster/sdk/standard-game';
-import * as standardGameIcons from '@w3booster/sdk/standard-game/icons';
-import * as standardGameCooldowns from '@w3booster/sdk/standard-game/cooldowns';
 
-const icon = standardGameIcons.iconUrl('Hamg', { graphics: 'reforged' });
-const cooldown = standardGameCooldowns.abilityCooldown(ability, state.match.gameTime);
-const cooldowns = standardGameCooldowns.abilityCooldownsForState(state); // frozen ReadonlyMap facade
-const selectedCooldown = cooldowns.get(ability); // keyed by the hydrated ability object
-// cooldowns and selectedCooldown are immutable; the facade has no set/delete methods
-const progress = standardGame.heroExperienceState(heroState.experience);
+const data = await loadGameData(state.match.gameDataId);
+const type = data.units.get(unit.typeId);
+const gold = type?.cost.gold;
+const supply = type?.supply.used;
+const icon = data.assets.unitIcon(unit.typeId, { graphics: 'classic' });
+const upgrade = data.upgrades.get(research.typeId)?.levels[research.level - 1];
+const upgradeIcon = data.assets.upgradeIcon(research.typeId, {
+  graphics: state.match.isReforged ? 'reforged' : 'classic', level: research.level
+});
+const cooldowns = abilityCooldownsForState(state, data);
 const clock = standardGame.dayNightState(state.match.gameTime);
-const gameTime = standardGame.formatGameTime(state.match.gameTime, { compactHours: true });
-const stats = standardGame.statsForMode(player, state.match.mode);
-const health = standardGame.valuePoolRatio(heroState.hitpoints);
-const defeated = standardGame.isValuePoolDepleted(heroState.hitpoints);
-const leftToRight = standardGame.orderHeadToHeadPlayers(players);
-const presentationTeams = standardGame.orderMatchTeams(state.players, state.match, { reverse: false });
-const presentationColor = standardGame.presentationPlayerColor(player, state.match, state.players, runtime);
-const raceLabelKey = standardGame.raceInfo(player.race)?.localizationKey;
-const displayLevel = standardGame.formatHeroLevelProgress(heroState);
-const assets = standardGameIcons.createAssetResolver(); // launch-aware by default
-const heroIcon = assets.hero(state.match, heroState);
-const countryFlag = assets.countryFlag(player.mainAccount?.country);
+const progress = standardGame.heroExperienceState(hero.experience);
 ```
 
-Rawcode and typed entity helpers are strict: missing shipped metadata returns `undefined` rather than guessing a filename. Tooling that intentionally owns a catalog filename can opt into `iconFilenameUrl(filename)` explicitly.
+Rawcodes are case-sensitive and identify types; unit instance IDs identify individual
+live units. Abilities and upgrades use `typeId` and a separate `level`. Missing types
+or artwork return `undefined`. Catalog load failures never substitute another patch.
+Static base stats do not replace observed HP, mana or production progress. The catalog
+covers current standard melee definitions; custom map modifications remain outside its scope.
 
-The lightweight namespace includes upgrade classification, locale-neutral race identifiers and localization keys, player colors, melee modes, preferred statistics selection, game-time formatting, the day/night clock, hero progression, safe current/max ratios, standard upkeep classification, canonical mode-aware team ordering, and native or simplified presentation colors. Team ordering keeps the broadcaster first on player and team-observer surfaces, uses map positions for 1v1 observers/replays, and preserves FFA team order; explicit match mode prevents incomplete scoped state from being misclassified. Applications own translated race copy; the SDK does not choose a display language. The icon namespace adds Classic/Reforged URLs and a match-aware resolver; the cooldown namespace adds immutable individual and whole-state cooldown derivation. Custom maps can replace these objects and rules; live recorder values remain authoritative.
-
-The trusted W3Booster server masks W3Champions four-player FFA opponent identities before issuing the scoped application stream. The current broadcaster remains identifiable; other players arrive with positional labels, random race, and no main-account metadata. Applications and the consumer-controlled SDK do not implement or enforce this privacy boundary.
-
-Icons default to the immutable `https://static.w3booster.com/assets/wc3/standard-game/v1/` catalog. Pass `baseUrl` for a local asset mirror. The npm package contains metadata and URL helpers, not Blizzard artwork.
+See [GAME_DATA.md](GAME_DATA.md) for the API, generated source policy and SDK 4 migration.
+Lightweight presentation rules, race localization keys, colors, team ordering and
+statistics selection remain in `/standard-game`. Upgrade categories and ability
+cooldowns come from the generated catalog.
 
 ## Shared asset URLs
 
-The match-aware resolver above binds the launch-selected asset host once for both standard-game icons and country flags. Lower-level reusable URL helpers remain available from `@w3booster/sdk/assets` when a frontend does not need Warcraft icons:
+Country flags and provider badges use the independent `@w3booster/sdk/assets` helpers:
 
 ```js
 import { countryFlagUrl, resolveAssetBaseUrl } from '@w3booster/sdk/assets';
@@ -644,8 +641,7 @@ const lifecycle$ = new Observable(subscriber => {
 
 - `@w3booster/sdk/assets` contains versioned URL helpers for shared hosted assets such as country flags.
 - `@w3booster/sdk/app` owns typed application bindings created from generated public metadata.
-- `@w3booster/sdk/standard-game/icons` contains only standard-game icon metadata and URL resolvers.
-- `@w3booster/sdk/standard-game/cooldowns` contains only standard-game ability cooldown metadata and derivation.
+- `@w3booster/sdk/game-data` loads versioned generated types, cooldowns and artwork references on demand.
 - `@w3booster/sdk/compositor` contains browser-source composition APIs used by W3Booster's platform compositor. Its watcher renews expired browser-source sessions and reauthorizes reconnects automatically. Returned child launch URLs require HTTPS except for exact loopback development hosts and may not contain URL user information, because their fragments can carry launch credentials. Ordinary applications do not import it.
 - `@w3booster/sdk/settings` contains settings-schema types, validation, default derivation, and database-definition code generation.
 - `@w3booster/sdk/testing` contains `createDemoTransport` and custom transport types for SDK and integration tests. Application demo mode normally uses `startClient({ demo: true })` instead.
@@ -781,7 +777,7 @@ SDK processing adds no poller. Ordinary health and queues follow the native
 200 ms cycle; hero HP/mana follows the XP loop. Unchanged observations do not
 publish a new snapshot, and untouched instance objects retain identity.
 
-SDK 3 uses protocol 3 and rejects protocol 2. Migrate `Hero.id` rawcode lookups to
+SDK 4 uses protocol 4 and rejects earlier protocol majors. Migrate `Hero.id` rawcode lookups to
 `Hero.typeId`, replace array access with selectors or instance-map lookup, and
 keep DOM keys based on instance IDs. API, native recorder, desktop relay, and
 consumer SDK releases need a coordinated rollout. This branch is not published.

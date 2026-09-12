@@ -21,7 +21,6 @@
     "src/compositor.js",
     "src/testing.js",
     "src/react.js",
-    "src/standard-game-icons.js",
-    "src/standard-game-cooldowns.js"
+    "src/game-data.runtime.js"
   ]
 }

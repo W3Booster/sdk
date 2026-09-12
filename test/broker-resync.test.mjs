@@ -15,13 +15,13 @@ test('broker coalesces repeated resync requests and cancels queued work on close
     close() { this.readyState = 3; this.listeners.get('close')?.(); }
   }
   t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({
-    protocolVersion: '3.0', websocketUrl: 'wss://example.com/apps'
+    protocolVersion: '4.0', websocketUrl: 'wss://example.com/apps'
   }), { status: 200 }));
   const original = globalThis.WebSocket;
   globalThis.WebSocket = FakeWebSocket;
   const transport = createBrokerTransport('test', 'https://example.com', () => '', null);
   try {
-    await transport.open({ clientId: 'test_app', scopes: [], protocolVersions: ['3.0'], onMessage() {}, onError() {}, onStatus() {} });
+    await transport.open({ clientId: 'test_app', scopes: [], protocolVersions: ['4.0'], onMessage() {}, onError() {}, onStatus() {} });
     // Mock only the stable timer functions: node:test's MockTimers API differs
     // between our supported Node 18 and Node 22 CI runtimes.
     let now = 10000;

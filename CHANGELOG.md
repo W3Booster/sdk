@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased — applied HUD scale
+## 4.0.0 — 2026-09-12
+
+- Add optional `/game-data` loading for exact build catalogs, typed unit/ability/item/
+  upgrade definitions, content-hashed artwork and level-specific upgrade values.
+- Replace ability/upgrade `name` rawcodes with `typeId`; keep actual variant IDs and
+  levels. Protocol 4 requires coordinated producer and application updates.
+- Remove manual icons, cooldowns, aliases and upgrade category tables and their old
+  entry points. Catalog payloads and images are hosted outside the npm package.
+- See `GAME_DATA.md` for migration and `UNIT_CATALOG.md` for retained field policy.
+
+### Applied HUD scale
 
 - Forward Warcraft’s applied HUD scale unchanged, including sidepanel overrides.
 - Remove raw 0–128 percentage reconstruction from recorder updates. This requires

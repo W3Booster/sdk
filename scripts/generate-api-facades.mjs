@@ -6,6 +6,7 @@ import ts from 'typescript';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const checkOnly = process.argv.includes('--check');
 const modules = [
+  { name: 'game-data', contract: 'game-data-contracts.d.ts', runtime: 'game-data.runtime.js' },
   { name: 'index', contract: 'contracts.ts', runtime: 'index.runtime.js', version: true },
   { name: 'selectors', contract: 'selectors-contracts.d.ts', runtime: 'selectors.runtime.js' },
   { name: 'store', contract: 'store-contracts.d.ts', runtime: 'store.runtime.js' },

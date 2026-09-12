@@ -46,7 +46,7 @@ for (const kind of ['composition', 'match data']) {
     t.mock.method(globalThis, 'fetch', async () => {
       requests++;
       if (requests === 2 || requests === 3) throw new TypeError('Failed to fetch');
-      return new Response(JSON.stringify({ protocolVersion: '3.0', websocketUrl: 'wss://example.com/stream' }));
+      return new Response(JSON.stringify({ protocolVersion: '4.0', websocketUrl: 'wss://example.com/stream' }));
     });
     const original = globalThis.WebSocket;
     globalThis.WebSocket = class FakeWebSocket {
@@ -74,7 +74,7 @@ for (const kind of ['composition', 'match data']) {
         }, message => received.push(message));
       } else {
         transport = createBrokerTransport('test', 'https://example.com', () => 'session', { initialDelay: 10, maxDelay: 20 });
-        await transport.open({ clientId: 'test', scopes: [], protocolVersions: ['3.0'],
+        await transport.open({ clientId: 'test', scopes: [], protocolVersions: ['4.0'],
           onError: error => failures.push(error), onStatus() {}, onMessage: message => received.push(JSON.parse(message)) });
       }
       sockets[0].close();

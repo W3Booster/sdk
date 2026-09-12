@@ -1,6 +1,6 @@
 {
   "name": "@w3booster/sdk",
-  "version": "3.1.0",
+  "version": "4.0.0",
   "description": "One SDK for realtime W3Booster match data in overlays and web apps.",
   "type": "module",
   "main": "./src/index.js",
@@ -23,14 +23,6 @@
     "./standard-game": {
       "types": "./src/standard-game.d.ts",
       "import": "./src/standard-game.js"
-    },
-    "./standard-game/icons": {
-      "types": "./src/standard-game-icons.d.ts",
-      "import": "./src/standard-game-icons.js"
-    },
-    "./standard-game/cooldowns": {
-      "types": "./src/standard-game-cooldowns.d.ts",
-      "import": "./src/standard-game-cooldowns.js"
     },
     "./assets": {
       "types": "./src/assets.d.ts",
@@ -59,6 +51,10 @@
     "./store": {
       "types": "./src/store.d.ts",
       "import": "./src/store.js"
+    },
+    "./game-data": {
+      "types": "./src/game-data.d.ts",
+      "import": "./src/game-data.js"
     }
   },
   "files": [
@@ -68,7 +64,9 @@
     "COMPATIBILITY.md",
     "CHANGELOG.md",
     "LICENSE",
-    "MIGRATION_3.md"
+    "MIGRATION_3.md",
+    "GAME_DATA.md",
+    "UNIT_CATALOG.md"
   ],
   "scripts": {
     "build:api": "node scripts/generate-api-facades.mjs && tsc -p tsconfig.build.json && node scripts/publish-generated-api.mjs",

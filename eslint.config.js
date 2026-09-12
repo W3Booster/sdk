@@ -3,8 +3,7 @@ import compat from 'eslint-plugin-compat';
 export default [
   {
     ignores: [
-      'src/standard-game-icon-data.js',
-      'src/standard-game-cooldown-data.js'
+
     ]
   },
   {

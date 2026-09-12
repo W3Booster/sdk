@@ -1,5 +1,28 @@
 # SDK architecture decisions
 
+## 2026-09-11: Current gameplay configuration and bounded optional data
+
+The user wants current melee unit-type configuration and explicitly authorizes
+dropping World Editor fields unlikely to serve SDK use cases. Keep economy,
+base stats, combat, hero attributes, abilities, tech relationships and identity.
+Drop legacy balance, editor metadata, cosmetic assets/settings, long tooltips,
+AI/editor placement controls and derived/debug spreadsheet columns. Preserve
+current unit types rather than hand-maintaining a list of popular ladder units.
+UNIT_CATALOG.md and the extraction policy record the detailed selection.
+
+Store repeated source keys, values and defaults once, preserving missing values
+and sentinels exactly. The resulting gameplay catalog is small enough for an
+optional SDK entry; a smaller stats projection can support costs/supply/HP alone.
+Neither belongs in the eager SDK core. Pin the game build and avoid eagerly
+expanding every unit's full record. Keep the original full source dump offline
+for regeneration and audits; there is no requirement to ship every editor field
+or add a hosted full-data asset for the narrowed scope.
+
+UNIT_CATALOG.md records measured compact artifacts, regeneration, lossless
+round-trip checks and size budgets. This is preparation only: the source
+snapshot is not a resolved World Editor model, and no runtime loader, hosted
+asset, public API or deployment is introduced by the compaction work.
+
 ## 2026-09-10: Provider MMR and Battle.net league artwork
 
 Expose optional finite `PlayerStats.mmr` consistently with the shared platform
@@ -397,3 +420,20 @@ with the native library/platform. Older SDKs must not consume new recorder frame
 raw integer 1 and normalized float 1 cannot be distinguished heuristically. A
 production audit found only six first-party-owned app registrations; it cannot
 rule out unregistered public SDK experiments. No release is authorized here.
+
+## 2026-09-12: Generated game data, actual rawcodes, SDK/protocol 4
+
+The user explicitly favors a clean breaking API over compatibility with unused
+external consumers. `/game-data` loads an immutable exact `match.gameDataId` from
+hosted generated output. Unit, ability, item and upgrade collections share type IDs
+with observed data; artwork is derived from object fields and content-hashed. Keep
+level-specific names/costs/images ordered. Preserve actual variant ability rawcodes
+and actual ultimate levels; remove manual alias, icon, cooldown and upgrade tables.
+
+Static data stays outside the eager SDK graph and npm payload. The loader verifies
+checksums, caches successful revisions and never substitutes another patch. The
+broad retained unit projection is separately lazy. Unknown object art returns
+undefined; no filename guesses or Cancel placeholders. Live stats remain authoritative.
+Game conventions unrelated to object configuration remain in `/standard-game`.
+Version 4.0.0 / protocol 4.0 coordinates the breaking field and metadata changes;
+publication is separate from local packed-package validation.

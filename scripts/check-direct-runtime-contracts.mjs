@@ -9,9 +9,7 @@ const entries = [
   ['settings', 'Settings'],
   ['compositor', 'Compositor'],
   ['testing', 'Testing'],
-  ['react', 'React'],
-  ['standard-game-icons', 'StandardGameIcons'],
-  ['standard-game-cooldowns', 'StandardGameCooldowns']
+  ['react', 'React']
 ];
 const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'w3booster-runtime-contracts-'));
 

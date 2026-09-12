@@ -148,6 +148,9 @@ export interface MatchState<TSettings extends object = JsonObject, TOverlayExten
     readonly application?: ApplicationState<TSettings>;
 }
 export interface Match {
+    /** Exact generated catalog/artwork revision of the recorder. Absent when unavailable. */
+    readonly gameDataId?: string;
+    readonly gameVersion?: string;
     /** Recorder-confirmed outcome for the actual local player; absent when unknown, observing, or replaying. */
     readonly result?: {
         readonly playerId: string;
@@ -234,8 +237,8 @@ export interface ValuePool {
 export interface HeroAbility {
     /** Stable identity within its owning hero. */
     readonly id: string;
-    /** Standard-game ability rawcode used for metadata and artwork lookup. */
-    readonly name: string;
+    /** Actual Warcraft ability rawcode used for catalog lookup. */
+    readonly typeId: string;
     readonly level: number;
     /** Positive millisecond timestamp on the match game-time clock; absence means never activated. */
     readonly lastActivation?: number;
@@ -288,8 +291,8 @@ export interface Building extends Unit {
     };
 }
 export interface CompletedUpgrade {
-    /** Standard-game upgrade rawcode. */
-    readonly name: string;
+    /** Actual Warcraft upgrade rawcode; level is separate. */
+    readonly typeId: string;
     readonly level: number;
     /** Unix timestamp in milliseconds when W3Booster observed the upgrade. */
     readonly gametime: number;

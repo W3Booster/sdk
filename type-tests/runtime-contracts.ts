@@ -24,3 +24,8 @@ const standardGameRuntime: typeof PublicStandardGame = RuntimeStandardGame;
 const assetsRuntime: typeof PublicAssets = RuntimeAssets;
 
 void [rootRuntime, selectorsRuntime, storeRuntime, appRuntime, standardGameRuntime, assetsRuntime];
+
+import * as PublicGameData from '../src/game-data.js';
+import * as RuntimeGameData from '../src/game-data.runtime.js';
+const gameDataRuntime: typeof PublicGameData = RuntimeGameData;
+void gameDataRuntime;

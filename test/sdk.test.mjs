@@ -1201,15 +1201,15 @@ test('canonical upgrade rawcodes and explicit levels are preserved at state ingr
     players: [{
       id: '0',
       upgrades: {
-        upgrades: [{ name: 'Rema', level: 3, gametime: 1 }],
-        active: [{ name: 'Rhme', gametime: 1, level: 2 }],
+        upgrades: [{ typeId: 'Rema', level: 3, gametime: 1 }],
+        active: [{ typeId: 'Rhme', gametime: 1, level: 2 }],
         researching: []
       }
     }]
   } });
 
-  assert.equal(client.state.get().players[0].upgrades.upgrades[0].name, 'Rema');
-  assert.equal(client.state.get().players[0].upgrades.active[0].name, 'Rhme');
+  assert.equal(client.state.get().players[0].upgrades.upgrades[0].typeId, 'Rema');
+  assert.equal(client.state.get().players[0].upgrades.active[0].typeId, 'Rhme');
 });
 
 test('non-canonical hero inventory and upgrade suffixes are rejected', async () => {
@@ -1228,7 +1228,7 @@ test('non-canonical hero inventory and upgrade suffixes are rejected', async () 
   context.onMessage({ version: PROTOCOL_VERSION, sequence: 2, type: 'state.snapshot', data: {capabilities: [],
     gameContext: { hudScale: 1 }, match: { id: 'match', status: 'running', gameTime: 1, mode: '1v1' },
     players: [{ id: '0', upgrades: {
-      upgrades: [{ name: 'Rema2', level: 2, gametime: 1 }], active: [], researching: []
+      upgrades: [{ typeId: 'Rema2', level: 2, gametime: 1 }], active: [], researching: []
     } }]
   } });
   assert.equal(client.state.get(), null);
@@ -1327,7 +1327,7 @@ test('observer and replay sessions use the low-latency recorder transport locall
     assert.equal(Object.values(state.players[0].heroes ?? {})[0].id, '000000004564656d');
     assert.equal(Object.values(state.players[0].heroes ?? {})[0].name, 'Demon Hunter');
     assert.equal(Object.values(state.players[0].heroes ?? {})[0].level, 3);
-    assert.equal(Object.values(state.players[0].heroes ?? {})[0].abilities[0].name, 'AUfu');
+    assert.equal(Object.values(state.players[0].heroes ?? {})[0].abilities[0].typeId, 'AUfa');
     assert.deepEqual(Object.values(state.players[0].heroes ?? {})[0].inventory, ['ratf']);
     assert.deepEqual(Object.values(state.players[0].heroes ?? {})[0].platformMetadata, { portrait: 'demon-hunter' });
     assert.deepEqual(Object.values(state.players[0].heroes ?? {})[0].hitpoints, { current: 400, max: 500 });
@@ -3245,23 +3245,23 @@ test('unsafe patch paths cannot mutate object prototypes', async () => {
   client.on('issue', issue => { error = issue.error; });
   await client.open();
   context.onMessage({
-    version: '3.0', sequence: 1, type: 'state.snapshot',
+    version: '4.0', sequence: 1, type: 'state.snapshot',
     data: {capabilities: [],  gameContext: { hudScale: 1 }, match: { id: '', status: 'none', gameTime: 0, mode: 'undefined' }, players: [] }
   });
   context.onMessage({
-    version: '3.0', sequence: 2, type: 'state.patch',
+    version: '4.0', sequence: 2, type: 'state.patch',
     data: [{ op: 'add', path: '/__proto__/w3boosterPolluted', value: true }]
   });
   assert.equal(Object.prototype.w3boosterPolluted, undefined);
   assert.ok(error instanceof ProtocolError);
   assert.equal(error.code, 'UNSAFE_PATCH');
   context.onMessage({
-    version: '3.0', sequence: 3, type: 'state.patch',
+    version: '4.0', sequence: 3, type: 'state.patch',
     data: [{ op: 'replace', path: '/match/gameTime', value: 999 }]
   });
   assert.equal(client.state.get().match.gameTime, 0);
   context.onMessage({
-    version: '3.0', sequence: 4, type: 'state.snapshot',
+    version: '4.0', sequence: 4, type: 'state.snapshot',
     data: {capabilities: [],  gameContext: { hudScale: 1 }, match: { id: '', status: 'none', gameTime: 4, mode: 'undefined' }, players: [] }
   });
   assert.equal(client.state.get().match.gameTime, 4);

@@ -4,15 +4,12 @@
 import * as runtime from './standard-game.runtime.js';
 export const races = runtime.races;
 export const playerColors = runtime.playerColors;
-export const weaponOrArmorUpgradeRawcodes = runtime.weaponOrArmorUpgradeRawcodes;
 export const meleeModes = runtime.meleeModes;
 export const raceInfo = runtime.raceInfo;
 export const normalizeMode = runtime.normalizeMode;
 export const isMode = runtime.isMode;
 export const modeInfo = runtime.modeInfo;
 export const playerColor = runtime.playerColor;
-export const normalizeUpgradeRawcode = runtime.normalizeUpgradeRawcode;
-export const isWeaponOrArmorUpgrade = runtime.isWeaponOrArmorUpgrade;
 /** Select an exact record. No fallback across modes, races, seasons or teams. */
 export const statsForMode = runtime.statsForMode;
 export const formatGameTime = runtime.formatGameTime;

@@ -1,19 +1,16 @@
 # Release and compatibility policy
 
-SDK 3.x uses protocol 3.0. It does not negotiate protocol 2 or preserve the
-previous unit, hero, statistics, or timer shapes. SDK 3.1 adds illusion flags,
-selector options, and optional hero ordering without requiring existing SDK 3.0
-applications to upgrade. The current platform supplies `isIllusion` on observed
-entities; new application-owned typed fixtures must include that boolean.
-Applications consume registry artifacts; packed SDK HEAD is the development
-verification lane.
+SDK 4.x uses protocol 4.0. Ability and upgrade identities are `typeId` with a
+separate level; catalog joins use `match.gameDataId`. SDK 3 cannot consume this
+breaking contract. See [GAME_DATA.md](GAME_DATA.md). Applications consume registry
+artifacts; packed SDK 4 is the prerelease verification lane until publication.
 
 The applied-HUD-scale change requires a coordinated recorder/SDK update.
 Current native `W3HudScale.value` is a finite multiplier in 0.5–1.0, and
 `W3Game.initialRuntime.hudScale` provides the initial value to the platform.
 The previous 0–128 encoding and `hudScaleRaw` initial field are removed. Older
 SDKs misinterpret float recorder updates; rebuild bundled first-party consumers
-with this SDK before enabling the new native library. Public protocol 3
+with this SDK before enabling the new native library. Public protocol 4
 `gameContext.hudScale` keeps the same shape and meaning. No value-based legacy
 format detection or percentage reconstruction is performed.
 
@@ -33,7 +30,7 @@ response never enables controls. Typed `host.command` results require `parse`;
 unparsed acknowledgements return `unknown`. Match Vision score commands and
 capabilities are no longer SDK primitives.
 
-Use `/standard-game/icons` and `/standard-game/cooldowns` for optional datasets.
+Use `/game-data` for optional generated catalogs and artwork references. SDK 4 uses protocol 4 and removes the old static metadata entries; see GAME_DATA.md.
 The combined `/standard-game/objects` entry is removed. SDK data can evolve with
 supported Warcraft patches; map-specific custom data is outside that contract.
 
@@ -60,7 +57,7 @@ that the installed SDK does not know. Private `transport` metadata stays hidden.
 New fields can trigger ordinary state/change subscriptions; they are not stripped
 or guaranteed to be invisible to selectors that compare whole objects.
 
-The broker and stream accept later minor versions of protocol 3, such as `3.1`.
+The broker and stream accept later minor versions of protocol 4, such as `4.1`.
 Unknown stream events maintain sequencing and are delivered only to explicit
 `onUnknown` subscribers. Additional advertised data capabilities are accepted;
 unknown host capabilities are filtered out rather than enabling unsupported

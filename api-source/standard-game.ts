@@ -8,15 +8,12 @@ export type * from './standard-game-contracts.js';
 
 export const races: typeof Contract.races = runtime.races;
 export const playerColors: typeof Contract.playerColors = runtime.playerColors;
-export const weaponOrArmorUpgradeRawcodes: typeof Contract.weaponOrArmorUpgradeRawcodes = runtime.weaponOrArmorUpgradeRawcodes;
 export const meleeModes: typeof Contract.meleeModes = runtime.meleeModes;
 export const raceInfo: typeof Contract.raceInfo = runtime.raceInfo;
 export const normalizeMode: typeof Contract.normalizeMode = runtime.normalizeMode;
 export const isMode: typeof Contract.isMode = runtime.isMode;
 export const modeInfo: typeof Contract.modeInfo = runtime.modeInfo;
 export const playerColor: typeof Contract.playerColor = runtime.playerColor;
-export const normalizeUpgradeRawcode: typeof Contract.normalizeUpgradeRawcode = runtime.normalizeUpgradeRawcode;
-export const isWeaponOrArmorUpgrade: typeof Contract.isWeaponOrArmorUpgrade = runtime.isWeaponOrArmorUpgrade;
 /** Select an exact record. No fallback across modes, races, seasons or teams. */
 export const statsForMode: typeof Contract.statsForMode = runtime.statsForMode;
 export const formatGameTime: typeof Contract.formatGameTime = runtime.formatGameTime;

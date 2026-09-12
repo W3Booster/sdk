@@ -93,8 +93,8 @@ test('selectors expose common match and player derivations', () => {
 });
 
 test('current upgrades merge overlapping active and researching records', () => {
-  const active = { name: 'Rhme', level: 2, gametime: 1 };
-  const researching = { name: 'Rhar', level: 1, gametime: 2, progress: null, remainingSeconds: null, totalSeconds: null };
+  const active = { typeId: 'Rhme', level: 2, gametime: 1 };
+  const researching = { typeId: 'Rhar', level: 1, gametime: 2, progress: null, remainingSeconds: null, totalSeconds: null };
   const player = { upgrades: { upgrades: [], active: [active], researching: [active, researching] } };
   assert.deepEqual(currentUpgrades(player), [active, researching]);
   assert.deepEqual(currentUpgrades(player, { includeResearching: false }), [active]);
@@ -112,7 +112,7 @@ test('selectors expose canonical inventory and preserve non-BattleTag hashes', (
   assert.equal(playerResourcesOrZero(undefined), playerResourcesOrZero({}));
   assert.deepEqual(playerResourcesOrZero(undefined), { gold: 0, lumber: 0, supply: 0, supplyCap: 0, workerSupply: 0 });
   assert.equal(inventorySlotIdentity(0, 'ratf'), '0:ratf');
-  assert.equal(upgradeIdentity({ name: 'Rhme', level: 2 }), 'Rhme:2');
+  assert.equal(upgradeIdentity({ typeId: 'Rhme', level: 2 }), 'Rhme:2');
   assert.throws(() => inventorySlotIdentity(-1, 'ratf'), /non-negative integer/);
   assert.throws(() => upgradeIdentity({ name: '', level: 1 }), /name and finite level/);
 });
@@ -141,7 +141,7 @@ test('allocating selectors preserve identity for immutable structurally shared i
     broadcasterFirstTeams(players, { broadcasterPlayerId: 'one' })
   );
   const upgrades = Object.freeze({
-    active: Object.freeze([Object.freeze({ name: 'Rhme', level: 1 })]),
+    active: Object.freeze([Object.freeze({ typeId: 'Rhme', level: 1 })]),
     researching: Object.freeze([])
   });
   assert.equal(currentUpgrades({ upgrades }), currentUpgrades({ upgrades }));
@@ -159,8 +159,8 @@ test('allocating selectors recompute for mutable frontend-owned inputs', () => {
   const upgrades = { active: [], researching: [] };
   const player = { upgrades };
   assert.deepEqual(currentUpgrades(player), []);
-  upgrades.active.push({ name: 'Rhme', level: 1 });
-  assert.deepEqual(currentUpgrades(player), [{ name: 'Rhme', level: 1 }]);
+  upgrades.active.push({ typeId: 'Rhme', level: 1 });
+  assert.deepEqual(currentUpgrades(player), [{ typeId: 'Rhme', level: 1 }]);
 
   const identity = { id: 'one', name: 'First' };
   assert.equal(playerDisplayIdentity(identity).primaryName, 'First');

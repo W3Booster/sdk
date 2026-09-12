@@ -8,7 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { generateSettingsBinding } from '../src/settings.js';
 
-const run = promisify(execFile);
+const execute = promisify(execFile);
+const run = (...args) => execute(...args).catch(error => { throw new Error(error.message + '\n' + error.stdout + '\n' + error.stderr); });
 const repository = dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
 const typescript = join(repository, 'node_modules', 'typescript', 'bin', 'tsc');
 
@@ -65,10 +66,8 @@ test('the packed package resolves every public entry point for TypeScript consum
     await writeFile(join(consumerDirectory, 'consumer.ts'), `
 import { openClient, startClient, type MatchState } from '@w3booster/sdk';
 import { broadcasterPlayer } from '@w3booster/sdk/selectors';
+import { loadGameData } from '@w3booster/sdk/game-data';
 import { heroExperienceState } from '@w3booster/sdk/standard-game';
-import { iconUrl } from '@w3booster/sdk/standard-game/icons';
-import { heroIconUrl } from '@w3booster/sdk/standard-game/icons';
-import { getAbilityCooldown } from '@w3booster/sdk/standard-game/cooldowns';
 import { countryFlagUrl } from '@w3booster/sdk/assets';
 import { getOverlayComposition } from '@w3booster/sdk/compositor';
 import { createDemoTransport, type TestingConnectOptions } from '@w3booster/sdk/testing';
@@ -98,9 +97,10 @@ const startedClient = startClient({ clientId: 'package_consumer', demo: true });
 declare const state: MatchState<Settings>;
 const player = broadcasterPlayer(state.match, state.players);
 const experience = heroExperienceState(500);
-const icon = iconUrl('Hamg');
-const heroIcon = heroIconUrl({ typeId: 'Hamg' });
-const abilityCooldown = getAbilityCooldown('AHbz', 1);
+const data = await loadGameData(state.match.gameDataId!);
+const icon = data.assets.unitIcon('Hamg', { graphics: 'classic' });
+const heroIcon = data.assets.unitIcon('Hamg', { graphics: 'reforged' });
+const abilityCooldown = data.abilities.get('AHbz')?.levels[0].cooldownSeconds;
 const flag = countryFlagUrl('DE');
 const composition = getOverlayComposition({ surface: 'streamOverlay' });
 const schema = validateSettingsSchema<Settings>({ version: 1, sections: [] });
@@ -126,8 +126,7 @@ await Promise.all([
   '@w3booster/sdk',
   '@w3booster/sdk/selectors',
   '@w3booster/sdk/standard-game',
-  '@w3booster/sdk/standard-game/icons',
-  '@w3booster/sdk/standard-game/cooldowns',
+  '@w3booster/sdk/game-data',
   '@w3booster/sdk/assets',
   '@w3booster/sdk/compositor',
   '@w3booster/sdk/settings',

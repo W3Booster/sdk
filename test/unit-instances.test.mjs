@@ -186,7 +186,7 @@ test('unchanged observations preserve state and selector identity; changes do no
 });
 test('protocol rejects old hero arrays, mismatched IDs, duplicate ownership, impossible pools and queue progress', () => {
   assert.equal(supportsProtocolVersion('2.0'), false);
-  assert.equal(supportsProtocolVersion('3.99'), true);
+  assert.equal(supportsProtocolVersion('4.99'), true);
   const first = apply(baseline(), [hp(1), hero(2), hp(3, 'hbar', 8), queue(3)]);
   for (const mutate of [
     state => { state.players[0].heroes = Object.values(state.players[0].heroes); },
@@ -295,11 +295,11 @@ test('construction uses the same required timing fields through snapshots and lo
 test('researching upgrades use required timing instead of start/finish dates', () => {
   const state = baseline();
   state.players[0].upgrades = { upgrades: [], active: [], researching: [{
-    name: 'Rhar', level: 1, gametime: 20, progress: null, remainingSeconds: null, totalSeconds: null
+    typeId: 'Rhar', level: 1, gametime: 20, progress: null, remainingSeconds: null, totalSeconds: null
   }] };
   validateState(state);
   state.players[0].upgrades.researching[0] = {
-    name: 'Rhar', level: 1, gametime: 20, progress: 0.5, remainingSeconds: 30, totalSeconds: 60
+    typeId: 'Rhar', level: 1, gametime: 20, progress: 0.5, remainingSeconds: 30, totalSeconds: 60
   };
   validateState(state);
   delete state.players[0].upgrades.researching[0].remainingSeconds;
