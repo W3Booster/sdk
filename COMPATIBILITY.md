@@ -1,5 +1,11 @@
 # Release and compatibility policy
 
+The installed Electron 15 launcher uses Chromium 94. Catalog loading must work
+with its native `AbortSignal`, which has no `throwIfAborted()` method. Use the
+internal cancellation helper for catalog and gameplay reads. Test an actual
+installed launcher as well as modern browsers before releasing SDK consumers;
+the browser used to validate a standalone overlay may be newer than the desktop.
+
 SDK 4.x uses protocol 4.0. Ability and upgrade identities are `typeId` with a
 separate level; catalog joins use `match.gameDataId`. SDK 3 cannot consume this
 breaking contract. See [GAME_DATA.md](GAME_DATA.md). Applications consume registry

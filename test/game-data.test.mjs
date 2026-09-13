@@ -70,3 +70,18 @@ test('cooldowns use observed ability levels and only a matching match revision',
   result.forEach((value, key, map) => { assert.equal(key, ability); assert.equal(map, result); });
   assert.equal(abilityCooldownsForState({ ...state, match: { ...state.match, gameDataId: 'other' } }, data).size, 0);
 });
+test('catalog and gameplay load and cancel on the desktop launcher AbortSignal', async () => {
+  const http = server();
+  const controller = new AbortController();
+  // Electron 15 / Chromium 94 supplies AbortSignal without throwIfAborted.
+  Object.defineProperty(controller.signal, 'throwIfAborted', { value: undefined });
+  const options = { fetch: http.fetch, signal: controller.signal };
+  const data = await loadGameData(id, options);
+  assert.ok(data.assets.unitIcon('hfoo', { graphics: 'classic' }));
+  assert.ok(await data.unitGameplay('hfoo', options));
+  assert.equal(http.requests.length, 3);
+  controller.abort();
+  await assert.rejects(loadGameData(id, options), { name: 'AbortError' });
+  await assert.rejects(data.unitGameplay('hfoo', options), { name: 'AbortError' });
+  assert.equal(http.requests.length, 3, 'aborted cached reads must not fetch');
+});

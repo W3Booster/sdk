@@ -1,6 +1,7 @@
 import { normalizeAssetBaseUrl, resolveAssetBaseUrl } from './assets.js';
 import { createImmutableSelector } from './internal/immutable-selector.js';
 import { deepFreeze } from './internal/values.js';
+import { throwIfAborted } from './internal/network.js';
 
 const REVISION = /^\d+(?:\.\d+){3}-[a-f0-9]{16}$/;
 const HASH = /^[a-f0-9]{64}$/;
@@ -27,7 +28,7 @@ export async function loadGameData(id, options = {}) {
   const base = normalizeAssetBaseUrl(options.baseUrl ?? resolveAssetBaseUrl());
   const fetcher = options.fetch ?? globalThis.fetch;
   if (typeof fetcher !== 'function') throw new TypeError('fetch is unavailable');
-  options.signal?.throwIfAborted();
+  throwIfAborted(options.signal);
   let entries = cache.get(fetcher);
   if (!entries) { entries = new Map(); cache.set(fetcher, entries); }
   const key = `${base}/${id}`;
@@ -83,7 +84,7 @@ export async function loadGameData(id, options = {}) {
     /** @param {string} typeId @param {{signal?: AbortSignal}} options */
     async unitGameplay(typeId, { signal } = {}) {
       if (!Object.prototype.hasOwnProperty.call(catalog.units, typeId)) return undefined;
-      signal?.throwIfAborted();
+      throwIfAborted(signal);
       const source = gameplay ?? await jsonFile(fetcher, `${root}/unit-gameplay.json`, signal,
         manifest.files['unit-gameplay.json'].sha256, 320 * 1024);
       if (source.format !== 'w3-unit-source-columns-v1' || source.gameVersion !== manifest.gameVersion) throw new Error('Invalid gameplay projection');
@@ -101,7 +102,7 @@ export async function loadGameData(id, options = {}) {
       return Object.freeze(result);
     }
   };
-  options.signal?.throwIfAborted();
+  throwIfAborted(options.signal);
   Object.freeze(data);
   entries.set(key, data);
   return data;

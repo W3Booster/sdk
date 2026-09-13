@@ -1,5 +1,12 @@
 # Changelog
 
+## 4.0.2 — 2026-09-13
+
+- Restore catalog and icon loading in the Electron 15 desktop launcher by using
+  the SDK cancellation helper instead of `AbortSignal.throwIfAborted()`.
+- Cover cancellation and catalog reads on older AbortSignal implementations,
+  and reject direct calls to the unsupported method in compatibility checks.
+
 ## 4.0.1 — 2026-09-12
 
 - Accept typed application settings in the whole-state cooldown helper on TypeScript 5.0.
