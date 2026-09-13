@@ -437,3 +437,14 @@ undefined; no filename guesses or Cancel placeholders. Live stats remain authori
 Game conventions unrelated to object configuration remain in `/standard-game`.
 Version 4.0.0 / protocol 4.0 coordinates the breaking field and metadata changes;
 publication is separate from local packed-package validation.
+
+## 2026-09-13: Share timed progress across building upgrades and item cooldowns
+
+`Building.upgrade` carries the observed destination type and `TimedProgress`,
+separate from `production.queue`. `Hero.inventoryCooldowns` aligns with inventory
+slots and contains direct engine `TimedProgress` observations or null. Duplicate
+item rawcodes must never merge timers. Inventory replacement without timers clears
+old associations. Both transports validate the same bounds and slot occupancy.
+The ability cooldown helper uses the same progress/remaining/total fields but
+continues deriving them from activation and catalog data; its `active` flag is
+helper output, not a new live protocol requirement.

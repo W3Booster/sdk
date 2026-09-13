@@ -1,5 +1,12 @@
 # Changelog
 
+## 4.1.0 — 2026-09-13
+
+- Add optional `Hero.inventoryCooldowns`, aligned with inventory slots and read directly from game timers.
+- Add optional `Building.upgrade` with its destination type and the existing `TimedProgress` shape.
+- Preserve both fields in local recorder and streamed state, with validation and lifecycle regression coverage.
+- Additive update; protocol remains 4.0. Existing consumers can continue using SDK 4.0.x.
+
 ## 4.0.2 — 2026-09-13
 
 - Restore catalog and icon loading in the Electron 15 desktop launcher by using

@@ -1,4 +1,4 @@
-import { UNIT_COLLECTIONS, isInstanceId, isTypeId, validPool, validTimedProgress, validQueue } from './unit-state.js';
+import { UNIT_COLLECTIONS, isInstanceId, isTypeId, validPool, validTimedProgress, validQueue, validInventoryCooldowns } from './unit-state.js';
 import { SUPPORTED_PROTOCOL_VERSIONS } from '../version.js';
 import { ProtocolError } from './errors.js';
 import { isPlainObject } from './network.js';
@@ -96,6 +96,9 @@ export function validateState(value, clientId, cloneState = true) {
           }
           if (unit.construction !== undefined && !validTimedProgress(unit.construction)) {
             throw new ProtocolError('INVALID_STATE', `Building ${key} has invalid construction progress.`);
+          }
+          if (unit.upgrade !== undefined && (!validTimedProgress(unit.upgrade) || !isTypeId(unit.upgrade.typeId))) {
+            throw new ProtocolError('INVALID_STATE', `Building ${key} has invalid upgrade progress.`);
           }
         }
       }
@@ -260,6 +263,9 @@ function validateHero(hero, playerId) {
   }
   if (hero.inventory !== undefined && (!Array.isArray(hero.inventory) || hero.inventory.some(item => typeof item !== 'string'))) {
     throw new ProtocolError('INVALID_STATE', `Hero ${String(hero.id)} inventory must be an array of rawcodes.`);
+  }
+  if (hero.inventoryCooldowns !== undefined && !validInventoryCooldowns(hero.inventoryCooldowns, hero.inventory)) {
+    throw new ProtocolError('INVALID_STATE', `Hero ${String(hero.id)} has invalid inventory cooldowns.`);
   }
   if (hero.heroOrder !== undefined && (!Number.isInteger(hero.heroOrder) || hero.heroOrder < 1 || hero.heroOrder > 0x7fffffff)) {
     throw new ProtocolError('INVALID_STATE', `Hero ${String(hero.id)} heroOrder must be a positive signed 32-bit integer.`);

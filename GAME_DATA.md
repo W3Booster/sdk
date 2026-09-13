@@ -54,3 +54,29 @@ A local packed SDK verifies the candidate without implying that it is published.
 
 The catalog loader requires browser Web Crypto (`crypto.subtle`) for integrity verification.
 Node 18 tools can supply `globalThis.crypto` from `node:crypto` before loading a catalog.
+
+## Building upgrades and item cooldowns
+
+Static configuration and live observations share Warcraft type IDs. Resolve
+`building.upgrade.typeId` through `data.units` / `data.assets.unitIcon()` for the
+destination being upgraded to. Keep this activity separate from the building's
+training/research `production.queue`.
+
+```ts
+const upgrade = building.upgrade;
+const itemTypeId = hero.inventory?.[slot];
+const cooldown = hero.inventoryCooldowns?.[slot];
+// Both activities have progress (completed 0..1), remainingSeconds, totalSeconds.
+```
+
+`inventoryCooldowns` contains directly read engine timers aligned with inventory
+slots, including duplicates and empty slots. A missing array means unavailable;
+a null slot means no observed active cooldown. Timing members may be null when
+unavailable. Do not advance snapshots using wall-clock time while Warcraft is
+paused. The ability cooldown helper produces the same timing fields plus `active`,
+but currently derives its values from the last activation and catalog duration.
+
+Items sharing an icon still have independent `typeId` values. The compact item
+catalog currently exposes names, costs and linked abilities, not normalized
+numeric damage/armor effects. Do not parse names or legacy rawcode suffixes as
+balance values (for example, `rat6` is named Claws of Attack +5 in 3.0.0.24268).

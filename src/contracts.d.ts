@@ -267,6 +267,8 @@ export interface Hero extends Unit {
     readonly experience?: number;
     readonly abilities?: readonly HeroAbility[];
     readonly inventory?: readonly InventorySlot[];
+    /** Direct engine cooldown observations, aligned with inventory slots. Null means no observed active cooldown. */
+    readonly inventoryCooldowns?: readonly (TimedProgress | null)[];
 }
 /** A game-time snapshot. Null means unobserved/uninitialized; never advance on a wall clock. */
 export interface TimedProgress {
@@ -285,6 +287,10 @@ export interface ProductionQueueItem extends TimedProgress {
 export interface Building extends Unit {
     /** Present while a construction component is observed; progress is 0..1, or null if unreadable. */
     readonly construction?: TimedProgress;
+    /** The building's own upgrade, separate from training/research production. typeId identifies its destination. */
+    readonly upgrade?: TimedProgress & {
+        readonly typeId: string;
+    };
     /** Missing means unavailable; an empty queue means observed idle production. */
     readonly production?: {
         readonly queue: readonly ProductionQueueItem[];

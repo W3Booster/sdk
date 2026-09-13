@@ -14,6 +14,9 @@ export const validTimedProgress = value => isPlainObject(value) && validProgress
     Number.isFinite(value.remainingSeconds) && value.remainingSeconds >= 0 &&
     Number.isFinite(value.totalSeconds) && value.totalSeconds > 0 && value.remainingSeconds <= value.totalSeconds);
 export const timedProgress = value => ({ progress: value.progress, remainingSeconds: value.remainingSeconds, totalSeconds: value.totalSeconds });
+export const validInventoryCooldowns = (value, inventory) => Array.isArray(value) && Array.isArray(inventory) &&
+  value.length === inventory.length && value.length <= 6 && value.every((cooldown, slot) =>
+    cooldown === null || !!inventory[slot] && validTimedProgress(cooldown));
 export const validQueue = value => Array.isArray(value) && value.length <= 16 && value.every((item, index) =>
   validTimedProgress(item) && item.position === index && isTypeId(item.typeId) &&
   (index === 0 || item.remainingSeconds === null && item.totalSeconds === null));
@@ -28,11 +31,14 @@ export function validUnitUpdate(update) {
     update.targetFlags < 2048 && validPool(update.hitpoints) && update.hitpoints.max > 0 &&
     (update.construction === undefined || !/^[A-Z]/.test(update.typeId) && (update.targetFlags & 8) &&
       validTimedProgress(update.construction)) &&
+    (update.upgrade === undefined || !/^[A-Z]/.test(update.typeId) && (update.targetFlags & 8) &&
+      validTimedProgress(update.upgrade) && isTypeId(update.upgrade.typeId)) &&
     (update.position === undefined || (/^[A-Z]/.test(update.typeId) || update.targetFlags & 8) && validPosition(update.position)) &&
     (update.mana === undefined || /^[A-Z]/.test(update.typeId) && validPool(update.mana));
   if (update.class === 'W3ProductionQueue') return validQueue(update.queue);
   return update.class === 'W3Unit' && update.isHero === true && /^[A-Z]/.test(update.typeId) &&
-    Number.isFinite(update.experience) && update.experience >= 0;
+    Number.isFinite(update.experience) && update.experience >= 0 &&
+    (update.inventoryCooldowns === undefined || validInventoryCooldowns(update.inventoryCooldowns, update.inventory));
 }
 
 /** Replace one observation while preserving unrelated fields and object identities. */
@@ -50,10 +56,12 @@ export function applyUnitObservation(player, update, capabilities) {
     if (update.removed) delete unit.production;
     else unit.production = { queue: update.queue.map(item => ({ position: item.position, typeId: item.typeId, ...timedProgress(item) })) };
   } else if (update.class === 'W3UnitHealth') {
-    if (update.removed) { delete unit.hitpoints; delete unit.mana; delete unit.position; delete unit.construction; }
+    if (update.removed) { delete unit.hitpoints; delete unit.mana; delete unit.position; delete unit.construction; delete unit.upgrade; }
     else {
       if (capabilities.includes('production') && update.construction !== undefined) unit.construction = timedProgress(update.construction);
       else delete unit.construction;
+      if (capabilities.includes('production') && update.upgrade !== undefined) unit.upgrade = { ...timedProgress(update.upgrade), typeId: update.upgrade.typeId };
+      else delete unit.upgrade;
       if (update.position !== undefined) unit.position = { x: update.position.x, y: update.position.y };
       else delete unit.position;
       unit.hitpoints = { current: update.hitpoints.current, max: update.hitpoints.max };

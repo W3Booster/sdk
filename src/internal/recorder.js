@@ -380,9 +380,12 @@ function applyLocalHeroUpdate(player, update) {
     level: localHeroLevel(experience),
     abilities,
     inventory,
+    ...(update.inventoryCooldowns !== undefined ? { inventoryCooldowns: structuredCloneSafe(update.inventoryCooldowns) } :
+      update.inventory === undefined && previousHero?.inventoryCooldowns ? { inventoryCooldowns: previousHero.inventoryCooldowns } : {}),
     ...(hitpoints !== undefined ? { hitpoints } : {}),
     ...(mana !== undefined ? { mana } : {})
   };
+  if (update.inventory !== undefined && update.inventoryCooldowns === undefined) delete hero.inventoryCooldowns;
   if (previousHero && deepEqual(previousHero, hero)) return player;
   return { ...player, heroes: { ...heroes, [heroId]: hero } };
 }

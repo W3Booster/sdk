@@ -347,3 +347,50 @@ test('hero order does not leak across ownership, removal or match reset', () => 
   const fresh = apply(baseline(), [hero(1)]);
   assert.equal(fresh.players[0].heroes[id(1)].heroOrder, undefined);
 });
+
+
+test('building upgrades stay separate from queues and disappear on cancel, completion and lost access', () => {
+  const upgrade = { typeId: 'hkee', progress: 0.5, remainingSeconds: 70, totalSeconds: 140 };
+  const observation = hp(301, 'htow', 8, { upgrade });
+  let state = apply(baseline(), [observation, queue(301, [], { typeId: 'htow' })]);
+  const building = () => state.players[0].buildings[id(301)];
+  assert.deepEqual(building().upgrade, upgrade);
+  assert.deepEqual(building().production.queue, []);
+  assert.equal(apply(state, [observation]), state);
+  state = apply(state, [hp(301, 'htow', 8)]);
+  assert.equal(building().upgrade, undefined);
+  state = apply(state, [observation]);
+  state = apply(state, [hp(301, 'hkee', 8)]);
+  assert.equal(building().upgrade, undefined);
+  assert.equal(building().typeId, 'hkee');
+  const limited = apply(baseline(['match', 'buildings']), [observation]);
+  assert.equal(limited.players[0].buildings[id(301)].upgrade, undefined);
+  for (const bad of [{ ...upgrade, typeId: 'bad' }, { ...upgrade, remainingSeconds: 141 }, { ...upgrade, progress: NaN }]) {
+    const invalid = baseline();
+    assert.equal(apply(invalid, [hp(301, 'htow', 8, { upgrade: bad })]), invalid);
+    const snapshot = baseline(); snapshot.players[0].buildings[id(301)] = { id: id(301), typeId: 'htow', isIllusion: false, upgrade: bad };
+    assert.throws(() => validateState(snapshot, undefined, false));
+  }
+});
+
+test('direct inventory cooldowns retain duplicate slots and clear with expiry or changed inventory', () => {
+  const cooldown = { progress: 0.5, remainingSeconds: 15, totalSeconds: 30 };
+  const observation = hero(302, 'Hamg', { inventory: ['spre', 'spre', '', '', '', ''], inventoryCooldowns: [null, cooldown, null, null, null, null] });
+  let state = apply(baseline(), [observation]);
+  assert.deepEqual(state.players[0].heroes[id(302)].inventoryCooldowns, observation.inventoryCooldowns);
+  assert.equal(apply(state, [observation]), state); // No wall-clock advancement during a pause.
+  const swapped = { ...observation, inventoryCooldowns: [cooldown, null, null, null, null, null] };
+  state = apply(state, [swapped]);
+  assert.deepEqual(state.players[0].heroes[id(302)].inventoryCooldowns, swapped.inventoryCooldowns);
+  state = apply(state, [{ ...observation, inventoryCooldowns: Array(6).fill(null) }]);
+  assert.deepEqual(state.players[0].heroes[id(302)].inventoryCooldowns, Array(6).fill(null));
+  state = apply(state, [observation]);
+  state = apply(state, [{ ...observation, inventory: ['ratf', '', '', '', '', ''], inventoryCooldowns: undefined }]);
+  assert.equal(state.players[0].heroes[id(302)].inventoryCooldowns, undefined);
+  for (const invalid of [[cooldown], [null, null, cooldown, null, null, null], [null, { ...cooldown, remainingSeconds: 31 }, null, null, null, null]]) {
+    const original = baseline();
+    assert.equal(apply(original, [{ ...observation, inventoryCooldowns: invalid }]), original);
+    const snapshot = baseline(); snapshot.players[0].heroes[id(302)] = { id: id(302), typeId: 'Hamg', isIllusion: false, inventory: observation.inventory, inventoryCooldowns: invalid };
+    assert.throws(() => validateState(snapshot, undefined, false));
+  }
+});
