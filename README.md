@@ -780,7 +780,7 @@ publish a new snapshot, and untouched instance objects retain identity.
 SDK 4 uses protocol 4 and rejects earlier protocol majors. Migrate `Hero.id` rawcode lookups to
 `Hero.typeId`, replace array access with selectors or instance-map lookup, and
 keep DOM keys based on instance IDs. API, native recorder, desktop relay, and
-consumer SDK releases need a coordinated rollout. This branch is not published.
+consumer SDK releases need a coordinated rollout. See the [SDK 4 migration guide](https://w3booster.com/developer/sdk-4/).
 
 ### Ladder records
 
@@ -791,4 +791,28 @@ a player's random-team rating. Unknown values remain absent.
 `standardGame.statsForMode(player, mode, { queue, teamId })` selects one exact
 record and returns undefined for unavailable or ambiguous ladders. There is no
 fallback to another mode or race. `preferredStats` and the old solo/team slots
-are removed in this unreleased major version.
+are removed in SDK 3 and later.
+
+
+### APM, mana recovery, combat and local economy (SDK 4.2)
+
+`Player.apm` is Warcraft’s average APM under `resources:read`.
+`player.apm.changed` reports changes; zero is valid and absence means unavailable.
+Self-play resources and APM belong to the real local player, independently of
+the selected player; observer/replay access covers participating players.
+
+`Hero.mana.regenerationPerSecond` is an optional observed net rate per game
+second. It may be zero or negative; only a positive reading supports a recovery
+estimate. Use the current catalog ability level’s mana cost. Do not extrapolate
+actual mana or run a wall-clock countdown through a paused replay.
+
+`Hero.combat` carries cumulative damage dealt, self-damage, damage received and
+healing dealt. Self-damage is included in both damage totals. Healing includes
+self-healing and excludes ordinary regeneration; a separate healing-to-others
+total is not available. Treat these as observations for the hero instance, not
+a guarantee of full-match coverage when recording starts late.
+
+`PlayerStatsCollection.source` and `observedAt` identify live/cache results and
+the original Unix-millisecond observation time. Older producers may omit them.
+See the [SDK 4.2 guide](https://w3booster.com/developer/sdk-4-2/) for access and
+lifecycle details, checked examples and the changes since the SDK 3 announcement.

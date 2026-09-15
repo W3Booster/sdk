@@ -66,6 +66,7 @@ export function emitDomainEvents(previous, state, emit) {
     if (!deepEqual(previousPlayer, player)) {
       emit('player.changed', { ...playerContext, changedFields: changedKeys(previousPlayer, player) });
     }
+    emitValueChange('player.apm.changed', playerContext, 'apm', previousPlayer.apm, player.apm, emit);
     emitValueChange('player.resources.changed', playerContext, 'resources', previousPlayer.resources, player.resources, emit);
     emitValueChange('player.stats.changed', playerContext, 'stats', previousPlayer.stats, player.stats, emit);
     emitValueChange('player.upgrades.changed', playerContext, 'upgrades', previousPlayer.upgrades, player.upgrades, emit);

@@ -220,6 +220,10 @@ export interface PlayerStats {
 export interface PlayerStatsCollection {
     readonly status: 'loading' | 'ready' | 'unavailable';
     readonly records: readonly PlayerStats[];
+    /** Unix milliseconds when these stats were observed, retained across cache reuse. */
+    readonly observedAt?: number;
+    /** Cached results are a fallback after fresh lookup retries fail. Absent on older providers. */
+    readonly source?: 'live' | 'cache';
 }
 export interface MainAccount {
     readonly name: string;
@@ -233,6 +237,8 @@ export interface ControlGroup {
 export interface ValuePool {
     readonly current: number;
     readonly max: number;
+    /** Observed net change per game second, currently available for hero mana. May be zero or negative; absent when unavailable. */
+    readonly regenerationPerSecond?: number;
 }
 export interface HeroAbility {
     /** Stable identity within its owning hero. */
@@ -258,7 +264,20 @@ export interface Unit {
 }
 /** Inventory is ordered by slot, including empty strings and repeated item types. */
 export type InventorySlot = string;
+/** Engine lifetime totals for this hero instance, in actual HP after mitigation and overkill/overheal caps.
+ * Damage includes neutral targets and friendly fire. Summons are separate instances.
+ * Survives death/revival; replay seeks replace observations. Missing means unavailable. */
+export interface HeroCombatTotals {
+    readonly damageDealt: number;
+    /** Damage where source and target are this same unit. Included in both damage totals. */
+    readonly selfDamage: number;
+    readonly damageReceived: number;
+    /** Actual healing attributed by Warcraft to this unit, including self-healing; excludes ordinary regeneration.
+     * No exact healing-to-others partition is currently available. */
+    readonly healingDealt: number;
+}
 export interface Hero extends Unit {
+    readonly combat?: HeroCombatTotals;
     /** Native player-relative hero-bar ordering key. Lower values come first.
      * Not a spawn timestamp or immutable slot; ownership/lifecycle changes can reassign it.
      * Omitted until observed. Use the full instance ID as a deterministic fallback/tie-breaker. */
@@ -323,6 +342,8 @@ export interface Player {
     readonly mainAccount?: MainAccount;
     readonly controlgroups?: Readonly<Record<string, ControlGroup>>;
     readonly resources?: Resources;
+    /** Warcraft's own average actions per minute. Requires resources access; absent when unavailable. */
+    readonly apm?: number;
     /** Mutually exclusive observed collections, keyed by instance ID. Not authoritative counts. */
     readonly units?: Readonly<Record<string, Unit>>;
     readonly heroes?: Readonly<Record<string, Hero>>;
@@ -405,6 +426,10 @@ export interface W3BoosterEventMap<TSettings extends object = JsonObject, TOverl
     'player.added': PlayerEvent<TSettings, TOverlayExtensions>;
     'player.changed': PlayerChangedEvent<TSettings, TOverlayExtensions>;
     'player.removed': PlayerEvent<TSettings, TOverlayExtensions>;
+    'player.apm.changed': PlayerEvent<TSettings, TOverlayExtensions> & {
+        readonly apm?: number;
+        readonly previousApm?: number;
+    };
     'player.resources.changed': PlayerEvent<TSettings, TOverlayExtensions> & {
         readonly resources?: Resources;
         readonly previousResources?: Resources;

@@ -239,6 +239,7 @@ function updateMatchesMatch(update, matchId) {
 function localUpdateKey(update) {
   const playerId = localUpdatePlayerId(update);
   if (update.class === 'W3Resource') return `${update.class}:${playerId}:${String(update.type)}`;
+  if (update.class === 'W3PlayerMetrics') return `${update.class}:${playerId}`;
   if (update.class === 'W3Player') return `${update.class}:${playerId}`;
   if (['W3Unit', 'W3UnitHealth', 'W3ProductionQueue'].includes(update.class)) return `${update.class}:${String(update.id)}`;
   if (update.class === 'W3Research') return `${update.class}:${playerId}:${String(update.type)}:${String(update.level)}`;
@@ -280,12 +281,23 @@ export function applyLocalRecorderUpdates(state, updates) {
     } else if (update.class === 'W3TeamColor') {
       const value = Number(update.value);
       if (value === 0 || value === 1) updateContext('teamColors', value === 1);
+    } else if (update.class === 'W3PlayerMetrics' && hasCapability(next, 'resources')) {
+      if (update.apm !== null && (!Number.isSafeInteger(update.apm) || update.apm < 0)) continue;
+      updatePlayer(localUpdatePlayerId(update), player => {
+        if (!isObserverOrReplayMatch(next.match) && String(player.id) !== String(next.match?.realBroadcasterPlayerId)) return player;
+        if (Object.is(player.apm, update.apm ?? undefined)) return player;
+        const updated = { ...player };
+        if (update.apm === null) delete updated.apm;
+        else updated.apm = update.apm;
+        return updated;
+      });
     } else if (update.class === 'W3Resource' && hasCapability(next, 'resources')) {
       const resource = localResourceName(update.type);
       const value = Number(update.value);
       if (!resource || !Number.isFinite(value)) continue;
       const normalized = resource === 'gold' || resource === 'lumber' ? value / 10 : value;
       updatePlayer(localUpdatePlayerId(update), player => {
+        if (!isObserverOrReplayMatch(next.match) && String(player.id) !== String(next.match?.realBroadcasterPlayerId)) return player;
         if (Object.is(player.resources?.[resource], normalized)) return player;
         const resources = {
           gold: 0, lumber: 0, supply: 0, supplyCap: 0, workerSupply: 0,

@@ -5,7 +5,13 @@ export const UNIT_COLLECTIONS = ['units', 'heroes', 'buildings'];
 export const isInstanceId = value => typeof value === 'string' && /^[0-9a-f]{16}$/.test(value);
 export const isTypeId = value => typeof value === 'string' && /^[A-Za-z0-9]{4}$/.test(value);
 export const validPool = value => isPlainObject(value) && Number.isFinite(value.current) &&
-  Number.isFinite(value.max) && value.max >= 0 && value.current >= 0 && value.current <= value.max;
+  Number.isFinite(value.max) && value.max >= 0 && value.current >= 0 && value.current <= value.max &&
+  (value.regenerationPerSecond === undefined || Number.isFinite(value.regenerationPerSecond));
+export const validCombat = value => isPlainObject(value) &&
+  ['damageDealt', 'selfDamage', 'damageReceived', 'healingDealt'].every(key => Number.isFinite(value[key]) && value[key] >= 0) &&
+  value.selfDamage <= value.damageDealt && value.selfDamage <= value.damageReceived;
+export const combatTotals = value => ({ damageDealt: value.damageDealt, selfDamage: value.selfDamage,
+  damageReceived: value.damageReceived, healingDealt: value.healingDealt });
 export const validPosition = value => isPlainObject(value) && Number.isFinite(value.x) && Number.isFinite(value.y) &&
   Math.abs(value.x) <= 1000000 && Math.abs(value.y) <= 1000000;
 export const validProgress = value => value === null || Number.isFinite(value) && value >= 0 && value <= 1;
@@ -34,6 +40,7 @@ export function validUnitUpdate(update) {
     (update.upgrade === undefined || !/^[A-Z]/.test(update.typeId) && (update.targetFlags & 8) &&
       validTimedProgress(update.upgrade) && isTypeId(update.upgrade.typeId)) &&
     (update.position === undefined || (/^[A-Z]/.test(update.typeId) || update.targetFlags & 8) && validPosition(update.position)) &&
+    (update.combat === undefined || /^[A-Z]/.test(update.typeId) && validCombat(update.combat)) &&
     (update.mana === undefined || /^[A-Z]/.test(update.typeId) && validPool(update.mana));
   if (update.class === 'W3ProductionQueue') return validQueue(update.queue);
   return update.class === 'W3Unit' && update.isHero === true && /^[A-Z]/.test(update.typeId) &&
@@ -56,7 +63,7 @@ export function applyUnitObservation(player, update, capabilities) {
     if (update.removed) delete unit.production;
     else unit.production = { queue: update.queue.map(item => ({ position: item.position, typeId: item.typeId, ...timedProgress(item) })) };
   } else if (update.class === 'W3UnitHealth') {
-    if (update.removed) { delete unit.hitpoints; delete unit.mana; delete unit.position; delete unit.construction; delete unit.upgrade; }
+    if (update.removed) { delete unit.combat; delete unit.hitpoints; delete unit.mana; delete unit.position; delete unit.construction; delete unit.upgrade; }
     else {
       if (capabilities.includes('production') && update.construction !== undefined) unit.construction = timedProgress(update.construction);
       else delete unit.construction;
@@ -64,8 +71,11 @@ export function applyUnitObservation(player, update, capabilities) {
       else delete unit.upgrade;
       if (update.position !== undefined) unit.position = { x: update.position.x, y: update.position.y };
       else delete unit.position;
+      if (update.combat !== undefined) unit.combat = combatTotals(update.combat);
+      else delete unit.combat;
       unit.hitpoints = { current: update.hitpoints.current, max: update.hitpoints.max };
-      if (update.mana !== undefined) unit.mana = { current: update.mana.current, max: update.mana.max };
+      if (update.mana !== undefined) unit.mana = { current: update.mana.current, max: update.mana.max,
+        ...(update.mana.regenerationPerSecond === undefined ? {} : { regenerationPerSecond: update.mana.regenerationPerSecond }) };
       else delete unit.mana;
     }
   }

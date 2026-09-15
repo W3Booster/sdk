@@ -1,4 +1,4 @@
-import { UNIT_COLLECTIONS, isInstanceId, isTypeId, validPool, validTimedProgress, validQueue, validInventoryCooldowns } from './unit-state.js';
+import { UNIT_COLLECTIONS, isInstanceId, isTypeId, validPool, validCombat, validTimedProgress, validQueue, validInventoryCooldowns } from './unit-state.js';
 import { SUPPORTED_PROTOCOL_VERSIONS } from '../version.js';
 import { ProtocolError } from './errors.js';
 import { isPlainObject } from './network.js';
@@ -172,6 +172,7 @@ function validatePlayer(player, id) {
     throw new ProtocolError('INVALID_STATE', `Player ${id} has an invalid race.`);
   }
   if (player.startPosition !== undefined) validatePoint(player.startPosition, `Player ${id} startPosition`);
+  if (player.apm !== undefined && (!Number.isSafeInteger(player.apm) || player.apm < 0)) throw new ProtocolError('INVALID_STATE', `Player ${id} apm must be a nonnegative integer.`);
   if (player.resources !== undefined) validateResources(player.resources, id);
   if (player.controlgroups !== undefined) validateControlGroups(player.controlgroups, id);
   if (player.stats !== undefined) validateStatsCollection(player.stats, id);
@@ -206,6 +207,8 @@ function validateControlGroups(controlgroups, playerId) {
 function validateStatsCollection(stats, playerId) {
   if (!isPlainObject(stats)) throw new ProtocolError('INVALID_STATE', `Player ${playerId} stats must be an object.`);
   if (!['loading', 'ready', 'unavailable'].includes(stats.status)) throw new ProtocolError('INVALID_STATE', 'Invalid stats status.');
+  if (stats.source !== undefined && !['live', 'cache'].includes(stats.source)) throw new ProtocolError('INVALID_STATE', 'Invalid stats source.');
+  if (stats.observedAt !== undefined && (!Number.isFinite(stats.observedAt) || stats.observedAt < 0)) throw new ProtocolError('INVALID_STATE', 'Invalid stats observation time.');
   if (!Array.isArray(stats.records) || stats.records.length > 128) throw new ProtocolError('INVALID_STATE', 'Stats records must be an array.');
   for (const value of stats.records) {
     if (!isPlainObject(value) || !['bnet', 'w3champions', 'netease'].includes(value.provider) ||
@@ -249,12 +252,18 @@ function validateUnit(unit, key) {
   for (const field of ['hitpoints', 'mana']) {
     if (unit[field] !== undefined && !validPool(unit[field])) throw new ProtocolError('INVALID_STATE', `Unit ${key} has invalid ${field}.`);
   }
+  if (unit.combat !== undefined && (!/^[A-Z]/.test(unit.typeId) || !validCombat(unit.combat))) {
+    throw new ProtocolError('INVALID_STATE', `Unit ${key} has invalid combat totals.`);
+  }
   if (unit.position !== undefined && (!isPlainObject(unit.position) || !Number.isFinite(unit.position.x) || !Number.isFinite(unit.position.y))) {
     throw new ProtocolError('INVALID_STATE', `Unit ${key} has invalid position.`);
   }
 }
 
 function validateHero(hero, playerId) {
+  if (hero?.combat !== undefined && !validCombat(hero.combat)) {
+    throw new ProtocolError('INVALID_STATE', `Hero ${String(hero.id)} has invalid combat totals.`);
+  }
   if (!isPlainObject(hero) || typeof hero.id !== 'string' || !hero.id || (hero.level !== undefined && (!Number.isInteger(hero.level) || hero.level < 1))) {
     throw new ProtocolError('INVALID_STATE', `Player ${playerId} contains a hero without a valid ID.`);
   }

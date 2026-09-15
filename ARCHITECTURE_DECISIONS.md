@@ -448,3 +448,63 @@ old associations. Both transports validate the same bounds and slot occupancy.
 The ability cooldown helper uses the same progress/remaining/total fields but
 continues deriving them from activation and catalog data; its `active` flag is
 helper output, not a new live protocol requirement.
+
+## 2026-09-14: Engine APM and live mana regeneration are optional observations
+
+`Player.apm` carries Warcraft's own nonnegative integer average under resources
+access, restricted to the real local player in self-play. Observer/replay data
+may include every participating player. `W3PlayerMetrics.apm: null` clears the
+observation; zero is valid. `player.apm.changed` follows normal domain events.
+Do not synthesize APM from browser input, action counting or elapsed wall time.
+
+`ValuePool.regenerationPerSecond` is optional, currently emitted for hero mana.
+It carries the finite current net rate, including zero/negative values; absent
+rates remain unavailable. Recorder updates preserve it and clear stale rates.
+Apps own mana-deficit labels and estimates, using observed rate and learned-level
+catalog mana cost. This additive contract works with older snapshots.
+
+## 2026-09-14: Hero combat totals are engine observations
+
+Publish optional `Hero.combat` under the existing hero scope, identity and
+self-play ownership boundary. Native code reads build/code-validated cumulative
+unit fields at the shared 200 ms cadence; hero-only vitals calls retain that
+observation. Unreadable values clear the observation. Never accumulate browser
+HP deltas or carry totals across unit identities or matches. Lower observations
+replace prior values on replay rewind. Death/revival can retain the same identity
+and engine counters.
+
+`damageDealt`, `selfDamage`, `damageReceived` and `healingDealt` count actual HP,
+with damage after mitigation and overkill caps, and healing after overheal caps.
+Subtract `selfDamage` from either damage total to obtain damage to/from other
+units. These categories still include friendly fire and neutral targets; they
+are not enemy-only damage. Summon attribution beyond the engine's own source
+resolution is not inferred.
+
+Live Paladin tests prove that `healingDealt` includes healing other units,
+self-targeted Healing Wave and self-used healing potions. Ordinary regeneration
+and direct SetWidgetLife changes do not increment it. No independently validated
+self-healing counter exists, so an exact healing-to-others total is unavailable.
+Do not relabel total healing as healing others or guess attribution from target
+HP changes. See `packages/w3blib/tools/hero-combat-probe` in the platform repository
+for code provenance and owned live evidence. No deployment is authorized by this
+implementation work.
+
+## 2026-09-15: Optional player-stats cache provenance
+
+PlayerStatsCollection may include source (live/cache) and observedAt (Unix
+milliseconds of the original observation). Cached Battle.net values are a
+bounded fallback after a new match lookup exhausts its retries. Preserve their actual age rather
+than stamping them as newly observed. Keep both fields optional for existing
+providers and older servers; validate supplied values and preserve them through
+normalization, freezing and stats change events. Exact ladder selection is
+unchanged. New consumers can choose how to present cache age; no SDK UI policy
+or protocol-major change is introduced.
+
+## 2026-09-15: Local economy respects self-play ownership
+
+The recorder now supplies the real local player's economy during self-play using
+existing W3Resource fields. Apply local resource updates only to the real
+broadcaster in self-play, as already done for APM and control groups. Observer and
+replay modes retain their participant resources. Keep the same resource capability,
+match-ID checks and gold/lumber normalization. No public type/version change is
+needed. API projection enforces the same boundary before state delivery.

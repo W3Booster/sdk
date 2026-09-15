@@ -394,3 +394,55 @@ test('direct inventory cooldowns retain duplicate slots and clear with expiry or
     assert.throws(() => validateState(snapshot, undefined, false));
   }
 });
+
+test('mana preserves observed net regeneration including zero and negative rates, and clears unavailable rates', () => {
+  let state = apply(baseline(), [hero(1)]);
+  for (const regenerationPerSecond of [2.5, 0, -3]) {
+    const mana = { current: 50, max: 300, regenerationPerSecond };
+    state = apply(state, [hp(1, 'Hamg', 2, { mana })]);
+    assert.deepEqual(state.players[0].heroes[id(1)].mana, mana);
+  }
+  const previous = state;
+  state = apply(state, [hp(1, 'Hamg', 2, { mana: { current: 50, max: 300, regenerationPerSecond: Infinity } })]);
+  assert.equal(state, previous);
+  state = apply(state, [hp(1, 'Hamg', 2, { mana: { current: 50, max: 300 } })]);
+  assert.deepEqual(state.players[0].heroes[id(1)].mana, { current: 50, max: 300 });
+});
+
+test('native APM preserves zero, validates observations and enforces resource capability and self-play ownership', () => {
+  const update = (slotId, apm) => ({ class: 'W3PlayerMetrics', matchId: 42, slotId, apm });
+  let state = apply(baseline(['resources']), [update(0, 0), update(1, 180)]);
+  assert.equal(state.players[0].apm, 0); assert.equal(state.players[1].apm, 180);
+  for (const apm of [-1, 1.5, Infinity, '3', undefined]) assert.equal(apply(state, [update(0, apm)]), state);
+  state = apply(state, [update(0, null)]); assert.equal(state.players[0].apm, undefined);
+  assert.equal(apply(baseline([]), [update(0, 50)]).players[0].apm, undefined);
+  const normal = baseline(['resources']); normal.match.isReplay = false; normal.match.realBroadcasterPlayerId = '0';
+  const self = apply(normal, [update(0, 90), update(1, 200)]);
+  assert.equal(self.players[0].apm, 90); assert.equal(self.players[1].apm, undefined);
+});
+
+test('combat totals preserve engine lifetime values, clear on unavailable data, and obey hero scope', () => {
+  const combat = { damageDealt: 400, selfDamage: 28, damageReceived: 98, healingDealt: 250 };
+  let state = apply(baseline(), [hp(1, 'Hpal', 2, { combat })]);
+  assert.deepEqual(state.players[0].heroes[id(1)].combat, combat);
+  state = apply(state, [hero(1, 'Hpal')]);
+  assert.deepEqual(state.players[0].heroes[id(1)].combat, combat);
+  const unchanged = apply(state, [hp(1, 'Hpal', 2, { combat })]);
+  assert.equal(unchanged.players[0].heroes[id(1)].combat, state.players[0].heroes[id(1)].combat);
+  for (const invalid of [null, { ...combat, selfDamage: 99 }, { ...combat, healingDealt: NaN }, { ...combat, damageDealt: -1 }]) {
+    assert.equal(apply(state, [hp(1, 'Hpal', 2, { combat: invalid })]), state);
+  }
+  assert.deepEqual(apply(baseline(['match','units']), [hp(1, 'Hpal', 2, { combat })]).players[0].heroes, {});
+  assert.deepEqual(apply(baseline(), [hp(1, 'hfoo', 2, { combat })]).players[0].units, {});
+  const own = { ...baseline(), match: { ...baseline().match, isReplay: false } };
+  assert.deepEqual(apply(own, [hp(1, 'Hpal', 2, { combat, slotId: 1 })]).players[1].heroes, {});
+  state = apply(state, [hp(1, 'Hpal')]);
+  assert.equal(state.players[0].heroes[id(1)].combat, undefined);
+  const zero = Object.fromEntries(Object.keys(combat).map(key => [key, 0]));
+  state = apply(state, [hp(1, 'Hpal', 2, { combat: zero })]);
+  assert.deepEqual(state.players[0].heroes[id(1)].combat, zero, 'replay rewind replaces totals rather than accumulating');
+  state = apply(state, [hp(1, 'Hpal', 2, { removed: true })]);
+  assert.equal(state.players[0].heroes[id(1)].combat, undefined);
+  const badSnapshot = baseline(); badSnapshot.players[0].heroes[id(1)] = { id: id(1), typeId: 'Hpal', isIllusion: false, combat: { ...combat, selfDamage: 500 } };
+  assert.throws(() => validateState(badSnapshot, undefined, false), /combat/);
+});

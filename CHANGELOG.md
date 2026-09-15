@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.2.0 — 2026-09-15
+
+- Add optional Warcraft-observed `Player.apm` and `player.apm.changed` events. Zero is a valid reading; absent means unavailable.
+- Add optional hero mana `regenerationPerSecond`, an observed net rate that may be zero or negative.
+- Add `Hero.combat`: cumulative `damageDealt`, `selfDamage`, `damageReceived` and `healingDealt`. Self-damage is included in both damage totals; subtract it to derive damage excluding self-harm. Healing includes self-healing and excludes ordinary regeneration; no exact healing-to-others partition is available.
+- Expose the real local player’s resources during self-play, with ownership checks independent of the selected player. Observer/replay access remains unchanged.
+- Add optional stats `source` and `observedAt` metadata to preserve live/cache provenance and the original observation time.
+- Preserve scoped local/cloud observations, removals and unchanged identities. SDK 4.2 is additive on protocol 4.0; existing SDK 4.x consumers remain compatible.
+- See [the metrics guide](https://w3booster.com/developer/sdk-4-2/) for access rules, event usage and checked examples.
+
 ## 4.1.0 — 2026-09-13
 
 - Add optional `Hero.inventoryCooldowns`, aligned with inventory slots and read directly from game timers.

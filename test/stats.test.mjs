@@ -54,3 +54,28 @@ test('ladder selection never falls back across modes, races or arranged teams', 
   const state = snapshot('Reforged', 3207); state.players[0] = player; validateState(state);
   state.players[0].stats = { solo }; assert.throws(() => validateState(state), /records|status/);
 });
+
+test('cached stats retain their source and observation time without changing ladder selection', async () => {
+  const state = snapshot('Reforged', 3207);
+  Object.assign(state.players[0].stats, { source: 'cache', observedAt: 1789488000000 });
+  const client = createClient({ clientId: 'stats_cache_test', demo: { state, interval: 0 } });
+  try {
+    await client.start();
+    const stats = client.state.get().players[0].stats;
+    assert.equal(stats.source, 'cache');
+    assert.equal(stats.observedAt, 1789488000000);
+    assert.equal(stats.records[0].mmr, 3207);
+    assert.ok(Object.isFrozen(stats));
+  } finally { await client.disconnect(); }
+  for (const value of [NaN, Infinity, -1, '1789488000000', null]) {
+    state.players[0].stats.observedAt = value;
+    assert.throws(() => validateState(state), /observation time|observedAt/);
+  }
+  delete state.players[0].stats.observedAt;
+  for (const source of [null, 'unknown', 1]) {
+    state.players[0].stats.source = source;
+    assert.throws(() => validateState(state), /stats source/);
+  }
+  delete state.players[0].stats.source;
+  assert.doesNotThrow(() => validateState(state), 'Older stats without cache metadata still work');
+});
