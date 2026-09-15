@@ -1,5 +1,8 @@
 # Generated Warcraft data (SDK 4)
 
+For practical app ideas and checked examples, explore the dedicated
+[Warcraft catalog and artwork guide](https://w3booster.com/developer/catalog-data/).
+
 `@w3booster/sdk/game-data` loads one immutable current-melee dataset by
 `state.match.gameDataId`, using `loadGameData(id, { baseUrl?, signal?, fetch? })`.
 The native recorder advertises its compiled catalog revision only when the running

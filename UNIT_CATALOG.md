@@ -1,9 +1,13 @@
-# Current unit catalog: size preparation
+# Unit gameplay projection: compaction policy and historical measurements
 
 This documents the broad unit-data compaction policy used by the platform patch
 workflow. SDK 4 exposes its generated output through `GameData.unitGameplay()`;
 [GAME_DATA.md](GAME_DATA.md) documents the unified typed/artwork API. Data comes from
-Warcraft III **2.0.4.23745**, not the retired unversioned platform JSON.
+Warcraft III **2.0.4.23745** in the historical measurements below. Current apps
+load the exact revision advertised by `match.gameDataId`; these old measurements
+are not a claim about the size or balance of that current revision.
+
+For application examples, see the [Warcraft catalog and artwork guide](https://w3booster.com/developer/catalog-data/).
 
 ## Scope
 
@@ -49,7 +53,7 @@ but are not emitted in this payload.
 
 ## Measured sizes
 
-Bytes below are the JSON artifact sizes, excluding any future public loader.
+Bytes below are the JSON artifact sizes, excluding public loader code.
 Gzip uses level 9 and Brotli uses quality 11; these are transfer sizes only when
 the server actually supplies the corresponding Content-Encoding.
 
@@ -81,10 +85,12 @@ small stats projection. Dynamic import can defer the broader gameplay catalog;
 hosting an external multi-megabyte World Editor dump is no longer needed for the
 chosen scope. Final module/loader overhead must be measured at runtime integration.
 
-There is no public loader or hosted URL yet. The generator, tests and this note
-are excluded by the SDK's existing npm files allowlist. An npm pack dry run
-confirmed zero added package files. No runtime or deployment contract changes
-are included in this preparation.
+SDK 4 now provides the public loader through `@w3booster/sdk/game-data`.
+`loadGameData(match.gameDataId)` resolves the immutable hosted catalog and
+`data.unitGameplay(typeId)` fetches this optional broader projection. See
+[GAME_DATA.md](GAME_DATA.md) for integrity checks, caching and the exact-build
+contract. The size measurements above describe the original extraction
+prototype, not the complete published SDK or its current hosted catalog.
 
 ## Reproduce and verify
 
