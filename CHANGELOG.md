@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.3.0 — 2026-09-16
+
+- Keep incomplete local economy unavailable instead of inventing zero values; preserve measured zero and recover after resource-read invalidation.
+- Add optional neutral POI contracts, the `pois:read` scope and `pointsOfInterest` selector. Self-play retains one initial snapshot, including starting inventories; only observer/replay accepts live updates. Native field availability depends on the recorder.
+- Add optional catalog sale lists and stock defaults, separate from observed inventories.
+- Add optional `Hero.combat.damage` with a summon-inclusive `total`, a breakdown by contributing unit types (with shared entries where Warcraft redirects damage), and a `complete` coverage flag. Preserve it through local recorder and streamed observations. Existing `damageDealt` keeps its original engine-counter meaning.
+- Validate reconciled, finite unit contributions and preserve immutable snapshots, scope restrictions and replay replacement behavior.
+- Report incomplete lower bounds for unrecoverable credit, including early Doom/Dark Arrow summon hits credited to a dying enemy. Exact all-summon lifetime totals are not guaranteed.
+
 ## 4.2.0 — 2026-09-15
 
 - Add optional Warcraft-observed `Player.apm` and `player.apm.changed` events. Zero is a valid reading; absent means unavailable.

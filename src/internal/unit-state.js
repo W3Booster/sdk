@@ -7,11 +7,36 @@ export const isTypeId = value => typeof value === 'string' && /^[A-Za-z0-9]{4}$/
 export const validPool = value => isPlainObject(value) && Number.isFinite(value.current) &&
   Number.isFinite(value.max) && value.max >= 0 && value.current >= 0 && value.current <= value.max &&
   (value.regenerationPerSecond === undefined || Number.isFinite(value.regenerationPerSecond));
+const finiteDamage = value => Number.isFinite(value) && value >= 0;
+export function validDamageSummary(value, engineTotal) {
+  if (!isPlainObject(value) || !finiteDamage(value.total) || typeof value.complete !== 'boolean' ||
+    !Array.isArray(value.breakdown) || !value.breakdown.length || value.breakdown.length > 256) return false;
+  const allTypes = new Set();
+  let sum = 0;
+  for (const contribution of value.breakdown) {
+    if (!isPlainObject(contribution) || !finiteDamage(contribution.damageDealt) || !Array.isArray(contribution.units) ||
+      !contribution.units.length || contribution.units.length > 128) return false;
+    for (const unit of contribution.units) {
+      if (!isPlainObject(unit) || typeof unit.typeId !== 'string' || !/^[A-Za-z0-9]{4}$/.test(unit.typeId) || typeof unit.isIllusion !== 'boolean') return false;
+      const key = unit.typeId + ':' + unit.isIllusion;
+      if (allTypes.has(key)) return false;
+      allTypes.add(key);
+    }
+    sum += contribution.damageDealt;
+  }
+  const tolerance = Math.max(0.00001, value.total * 0.000001);
+  return Number.isFinite(sum) && Math.abs(sum - value.total) <= tolerance && value.total + tolerance >= engineTotal;
+}
+export const damageSummary = value => ({ total: value.total, complete: value.complete,
+  breakdown: value.breakdown.map(contribution => ({ damageDealt: contribution.damageDealt,
+    units: contribution.units.map(unit => ({ typeId: unit.typeId, isIllusion: unit.isIllusion })) })) });
 export const validCombat = value => isPlainObject(value) &&
   ['damageDealt', 'selfDamage', 'damageReceived', 'healingDealt'].every(key => Number.isFinite(value[key]) && value[key] >= 0) &&
-  value.selfDamage <= value.damageDealt && value.selfDamage <= value.damageReceived;
+  value.selfDamage <= value.damageDealt && value.selfDamage <= value.damageReceived &&
+  (value.damage === undefined || validDamageSummary(value.damage, value.damageDealt));
 export const combatTotals = value => ({ damageDealt: value.damageDealt, selfDamage: value.selfDamage,
-  damageReceived: value.damageReceived, healingDealt: value.healingDealt });
+  damageReceived: value.damageReceived, healingDealt: value.healingDealt,
+  ...(value.damage === undefined ? {} : { damage: damageSummary(value.damage) }) });
 export const validPosition = value => isPlainObject(value) && Number.isFinite(value.x) && Number.isFinite(value.y) &&
   Math.abs(value.x) <= 1000000 && Math.abs(value.y) <= 1000000;
 export const validProgress = value => value === null || Number.isFinite(value) && value >= 0 && value <= 1;

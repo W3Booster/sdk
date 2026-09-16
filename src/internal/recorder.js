@@ -1,3 +1,4 @@
+import { validPoiCollection, validInitialPoiCollection } from './poi-state.js';
 import { UNIT_COLLECTIONS, validUnitUpdate, applyUnitObservation, healthCollection } from './unit-state.js';
 import { hasCapability, isObserverOrReplayMatch } from './domain.js';
 import { ConnectionError, ProtocolError } from './errors.js';
@@ -248,6 +249,9 @@ function localUpdateKey(update) {
 
 export function applyLocalRecorderUpdates(state, updates) {
   let next = state;
+  // The transport retains the latest observation for each resource across frames
+  // and reconnects. Collect a batch before exposing the complete public object.
+  const resourceObservations = new Map();
   const playerIndexes = new Map((state.players || []).map((player, index) => [String(player.id), index]));
 
   const updateMatch = (field, value) => {
@@ -271,7 +275,20 @@ export function applyLocalRecorderUpdates(state, updates) {
 
   for (const update of updates || []) {
     if (!isPlainObject(update) || !updateMatchesMatch(update, next.match?.id)) continue;
-    if (update.class === 'W3GameTime' && hasCapability(next, 'match') && Number.isFinite(Number(update.value))) {
+    if (update.class === 'W3PointsOfInterest') {
+      if (update.matchId == null || String(update.matchId) !== next.match?.id || !hasCapability(next, 'pois')) continue;
+      const observer = isObserverOrReplayMatch(next.match);
+      if (!observer) {
+        if (next.pois !== undefined || update.mode !== 'initial' || update.gameTime !== 0 || !validInitialPoiCollection(update.pois)) continue;
+        next = { ...next, poiMode: 'initial', pois: structuredCloneSafe(update.pois) };
+      } else if (update.mode === 'live' && update.pois === null) {
+        if (next.pois !== undefined) { next = { ...next }; delete next.pois; delete next.poiMode; }
+      } else if ((update.mode === 'live' && validPoiCollection(update.pois) ||
+          update.mode === 'initial' && validInitialPoiCollection(update.pois)) &&
+          (!deepEqual(next.pois, update.pois) || next.poiMode !== update.mode)) {
+        next = { ...next, poiMode: update.mode, pois: structuredCloneSafe(update.pois) };
+      }
+    } else if (update.class === 'W3GameTime' && hasCapability(next, 'match') && Number.isFinite(Number(update.value))) {
       updateMatch('gameTime', Number(update.value));
     } else if (update.class === 'W3ChatbarState') {
       updateContext('chatbarOpen', Number(update.value) === 1);
@@ -293,19 +310,16 @@ export function applyLocalRecorderUpdates(state, updates) {
       });
     } else if (update.class === 'W3Resource' && hasCapability(next, 'resources')) {
       const resource = localResourceName(update.type);
-      const value = Number(update.value);
-      if (!resource || !Number.isFinite(value)) continue;
-      const normalized = resource === 'gold' || resource === 'lumber' ? value / 10 : value;
-      updatePlayer(localUpdatePlayerId(update), player => {
-        if (!isObserverOrReplayMatch(next.match) && String(player.id) !== String(next.match?.realBroadcasterPlayerId)) return player;
-        if (Object.is(player.resources?.[resource], normalized)) return player;
-        const resources = {
-          gold: 0, lumber: 0, supply: 0, supplyCap: 0, workerSupply: 0,
-          ...(player.resources || {}),
-          [resource]: normalized
-        };
-        return { ...player, resources };
-      });
+      const value = update.value;
+      if (!resource || value !== null && (typeof value !== 'number' || !Number.isFinite(value) || value < 0)) continue;
+      const playerId = localUpdatePlayerId(update);
+      const index = playerIndexes.get(String(playerId));
+      if (index === undefined || !isObserverOrReplayMatch(next.match) &&
+          String(playerId) !== String(next.match?.realBroadcasterPlayerId)) continue;
+      const resources = resourceObservations.get(String(playerId)) || { ...(next.players[index].resources || {}) };
+      if (value === null) delete resources[resource];
+      else resources[resource] = resource === 'gold' || resource === 'lumber' ? value / 10 : value;
+      resourceObservations.set(String(playerId), resources);
     } else if (update.class === 'W3Player' && hasCapability(next, 'controlgroups') && isPlainObject(update.controlgroups)) {
       updatePlayer(localUpdatePlayerId(update), player => {
         if (!isObserverOrReplayMatch(next.match) && String(player.id) !== String(next.match?.realBroadcasterPlayerId)) return player;
@@ -340,6 +354,18 @@ export function applyLocalRecorderUpdates(state, updates) {
       updatePlayer(localUpdatePlayerId(update), player => applyLocalResearchUpdate(player, update));
     }
   }
+  for (const [playerId, resources] of resourceObservations) {
+    updatePlayer(playerId, player => {
+      if (!['gold', 'lumber', 'supply', 'supplyCap'].every(field => Number.isFinite(resources[field]))) {
+        if (player.resources === undefined) return player;
+        const updated = { ...player };
+        delete updated.resources;
+        return updated;
+      }
+      return deepEqual(player.resources, resources) ? player : { ...player, resources };
+    });
+  }
+
   return next;
 }
 

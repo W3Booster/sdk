@@ -6,6 +6,7 @@ const KNOWN_SCOPES = new Set([
   'units:read',
   'buildings:read',
   'production:read',
+  'pois:read',
   'upgrades:read',
   'resources:read',
   'controlgroups:read'

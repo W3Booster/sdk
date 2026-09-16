@@ -169,3 +169,13 @@ export function battleTagName(name) {
   if (typeof name !== 'string') return name;
   return name.replace(/#\d+$/, '') || name;
 }
+
+const selectPointsOfInterest = createImmutableSelector((pois, kind) => Object.freeze(
+  Object.values(pois || {}).filter(poi => kind === undefined || poi.kind === kind)
+    .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+));
+
+/** @type {import('./selectors.js').pointsOfInterest} */
+export function pointsOfInterest(state, options = {}) {
+  return selectPointsOfInterest(state?.pois, options.kind);
+}

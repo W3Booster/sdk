@@ -1,3 +1,4 @@
+import { validPoiCollection, validInitialPoiCollection } from './poi-state.js';
 import { UNIT_COLLECTIONS, isInstanceId, isTypeId, validPool, validCombat, validTimedProgress, validQueue, validInventoryCooldowns } from './unit-state.js';
 import { SUPPORTED_PROTOCOL_VERSIONS } from '../version.js';
 import { ProtocolError } from './errors.js';
@@ -69,6 +70,15 @@ export function validateState(value, clientId, cloneState = true) {
       typeof state.match.result.playerId !== 'string' || !state.match.result.playerId.trim() ||
       !['won', 'lost'].includes(state.match.result.outcome))) {
     throw new ProtocolError('INVALID_STATE', 'State match result must identify a player and a won/lost outcome.');
+  }
+  if (state.pois !== undefined) {
+    const validMode = state.poiMode === 'initial' ? validInitialPoiCollection(state.pois) :
+      state.poiMode === 'live' && (state.match.isObserver === true || state.match.isReplay === true) && validPoiCollection(state.pois);
+    if (!state.capabilities.includes('pois') || !validMode) {
+      throw new ProtocolError('INVALID_STATE', 'POIs require a valid initial snapshot or observer/replay live access.');
+    }
+  } else if (state.poiMode !== undefined) {
+    throw new ProtocolError('INVALID_STATE', 'POI mode requires a collection.');
   }
   if (!Array.isArray(state.players)) throw new ProtocolError('INVALID_STATE', 'State players must be an array.');
   const playerIds = new Set();

@@ -11,8 +11,8 @@ export type JsonObjectInput<T extends object> = T extends readonly unknown[] ? n
 export type DeepReadonly<T> = T extends JsonPrimitive ? T : T extends readonly (infer TValue)[] ? readonly DeepReadonly<TValue>[] : T extends object ? {
     readonly [TKey in keyof T]: DeepReadonly<T[TKey]>;
 } : T;
-export type Scope = 'match:read' | 'players:read' | 'stats:read' | 'heroes:read' | 'units:read' | 'buildings:read' | 'production:read' | 'upgrades:read' | 'resources:read' | 'controlgroups:read';
-export type KnownCapability = 'match' | 'players' | 'stats' | 'heroes' | 'units' | 'buildings' | 'production' | 'upgrades' | 'resources' | 'controlgroups';
+export type Scope = 'match:read' | 'players:read' | 'stats:read' | 'heroes:read' | 'units:read' | 'buildings:read' | 'production:read' | 'pois:read' | 'upgrades:read' | 'resources:read' | 'controlgroups:read';
+export type KnownCapability = 'match' | 'players' | 'stats' | 'heroes' | 'units' | 'buildings' | 'production' | 'pois' | 'upgrades' | 'resources' | 'controlgroups';
 export type Capability = KnownCapability | (string & {});
 export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'closed' | 'error';
 export type AppSurface = 'application' | 'streamOverlay' | 'ingameOverlay';
@@ -142,6 +142,10 @@ export interface MatchState<TSettings extends object = JsonObject, TOverlayExten
     readonly capabilities: readonly Capability[];
     readonly match: Match;
     readonly players: readonly Player[];
+    /** POIs under pois:read. Missing means unavailable, {} observed empty. */
+    readonly pois?: Readonly<Record<string, PointOfInterest>>;
+    /** Self-play is a frozen game-start snapshot; only observer/replay may be live. */
+    readonly poiMode?: 'initial' | 'live';
     /** Always delivered, including idle and scope-free state. */
     readonly gameContext: GameContext;
     readonly overlay?: OverlayState<TOverlayExtensions>;
@@ -264,10 +268,34 @@ export interface Unit {
 }
 /** Inventory is ordered by slot, including empty strings and repeated item types. */
 export type InventorySlot = string;
+/** Unit type contributing to damage. Illusions are distinct from real units of the same type. */
+export interface HeroDamageUnitType {
+    readonly typeId: string;
+    readonly isIllusion: boolean;
+}
+/** A measured contribution, grouped by unit type. Multiple unit types mean Warcraft
+ * merged their counters; their individual amounts cannot be separated. */
+export interface HeroDamageContribution {
+    readonly units: readonly HeroDamageUnitType[];
+    readonly damageDealt: number;
+}
+/** Recorder-owned damage accounting for a hero and its attributed summons. */
+export interface HeroDamageSummary {
+    /** Observed damage including attributed summons; a lower bound when complete is false. */
+    readonly total: number;
+    /** Contributions sum to total. Shared contributions must not be counted once per unit type. */
+    readonly breakdown: readonly HeroDamageContribution[];
+    /** False when recording history, source attribution or final observations have gaps,
+     * including unrecoverable dying-target credit from Doom/Dark Arrow summons. */
+    readonly complete: boolean;
+}
 /** Engine lifetime totals for this hero instance, in actual HP after mitigation and overkill/overheal caps.
- * Damage includes neutral targets and friendly fire. Summons are separate instances.
+ * Damage includes neutral targets and friendly fire. Engine summon attribution varies by ability.
  * Survives death/revival; replay seeks replace observations. Missing means unavailable. */
 export interface HeroCombatTotals {
+    /** Summon-inclusive summary when supplied by a supporting recorder. */
+    readonly damage?: HeroDamageSummary;
+    /** Warcraft's original source-attributed counter. Use damage.total for summon-inclusive accounting. */
     readonly damageDealt: number;
     /** Damage where source and target are this same unit. Included in both damage totals. */
     readonly selfDamage: number;
@@ -297,6 +325,85 @@ export interface TimedProgress {
     readonly remainingSeconds: number | null;
     /** Positive total game seconds, or null when unavailable. */
     readonly totalSeconds: number | null;
+}
+/** Neutral map services and strategic sites. IDs are opaque and scoped to match.id. */
+export type PointOfInterestKind = 'goblin-merchant' | 'marketplace' | 'mercenary-camp' | 'goblin-laboratory' | 'tavern' | 'fountain' | 'gold-mine' | 'way-gate' | 'dragon-roost' | 'goblin-shipyard' | 'creep-camp';
+export interface PoiOffer {
+    /** Stable within the owning POI; distinct from the offered Warcraft rawcode. */
+    readonly id: string;
+    readonly kind: 'item' | 'unit' | 'hero' | 'service';
+    readonly typeId: string;
+    readonly cost?: {
+        readonly gold: number;
+        readonly lumber: number;
+        readonly food?: number;
+    };
+    /** Omitted when unreadable. Zero means observed sold out. */
+    readonly stock?: {
+        readonly current: number;
+        readonly max?: number;
+    };
+    /** First availability, replenishment and ability cooldown are independent. */
+    readonly initialAvailability?: TimedProgress;
+    readonly restock?: TimedProgress;
+    readonly cooldown?: TimedProgress;
+    readonly stockPoolId?: string;
+    /** Stock alone does not establish whether a particular player can buy. */
+    readonly eligibility?: Readonly<Record<string, {
+        readonly available: boolean;
+        readonly reasons: readonly ('gold' | 'lumber' | 'food' | 'prerequisite' | 'hero-limit' | 'range' | 'stock' | 'cooldown' | 'unavailable')[];
+    }>>;
+}
+export interface PointOfInterest {
+    readonly id: string;
+    readonly kind: PointOfInterestKind;
+    /** Absent on aggregate creep camps. */
+    readonly typeId?: string;
+    readonly position: Point;
+    /** Game seconds of this observation; may decrease on replay seek. */
+    readonly observedAtGameTime: number;
+    readonly guardCampId?: string;
+    /** Full observed assortment. Missing means unavailable; [] means observed empty. */
+    readonly offers?: readonly PoiOffer[];
+    readonly nextStockUpdate?: TimedProgress;
+    readonly fountain?: {
+        readonly restores: readonly ('health' | 'mana')[];
+        readonly radius?: number;
+        readonly active?: boolean;
+        readonly healthPerSecond?: number;
+        readonly manaPerSecond?: number;
+        readonly healthFractionPerSecond?: number;
+        readonly manaFractionPerSecond?: number;
+    };
+    readonly mine?: {
+        readonly remainingGold?: number;
+        readonly initialGold?: number;
+        /** null is observed unoccupied; absent is unknown. */
+        readonly ownerPlayerId?: string | null;
+        readonly buildingId?: string;
+    };
+    readonly wayGate?: {
+        readonly enabled?: boolean;
+        readonly destination?: Point;
+        readonly destinationPoiId?: string;
+    };
+    readonly camp?: {
+        readonly state: 'alive' | 'partially-cleared' | 'cleared' | 'unknown';
+        readonly members: readonly {
+            readonly id: string;
+            readonly typeId: string;
+            readonly alive?: boolean;
+            readonly position?: Point;
+            readonly hitpoints?: ValuePool;
+        }[];
+        /** Configured possibilities, never a prediction of the item actually rolled. */
+        readonly dropTable?: readonly {
+            readonly typeId?: string;
+            readonly itemClass?: string;
+            readonly level?: number;
+            readonly probability?: number;
+        }[];
+    };
 }
 export interface ProductionQueueItem extends TimedProgress {
     /** Snapshot position, not a persistent job identity. */

@@ -60,3 +60,9 @@ export function currentUpgrades(
   options?: { readonly includeResearching?: boolean }
 ): readonly ActiveUpgrade[];
 export function battleTagName(name?: string): string | undefined;
+
+/** Stable ID ordering; an empty result does not distinguish unavailable from observed empty. */
+export function pointsOfInterest(
+  state: Pick<MatchState, 'pois'> | null | undefined,
+  options?: { readonly kind?: import('./contracts.js').PointOfInterestKind }
+): readonly import('./contracts.js').PointOfInterest[];

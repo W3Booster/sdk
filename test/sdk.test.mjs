@@ -1323,7 +1323,7 @@ test('observer and replay sessions use the low-latency recorder transport locall
     assert.equal(client.diagnostics.localTransport, 'recorder-local');
     assert.equal(state.match.gameTime, 12);
     assert.equal(state.gameContext.hudScale, 0.75);
-    assert.deepEqual(state.players[0].resources, { gold: 123, lumber: 67, supply: 31, supplyCap: 50, workerSupply: 0 });
+    assert.deepEqual(state.players[0].resources, { gold: 123, lumber: 67, supply: 31, supplyCap: 50 });
     assert.equal(Object.values(state.players[0].heroes ?? {})[0].id, '000000004564656d');
     assert.equal(Object.values(state.players[0].heroes ?? {})[0].name, 'Demon Hunter');
     assert.equal(Object.values(state.players[0].heroes ?? {})[0].level, 3);

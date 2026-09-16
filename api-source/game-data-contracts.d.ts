@@ -7,7 +7,18 @@ export interface ObjectType {
   readonly race?: string;
 }
 export interface Cost { readonly gold?: number; readonly lumber?: number }
+/** Public object configuration, not current stock. Maps may override these defaults. */
+export interface StockDefaults {
+  readonly initial?: number;
+  readonly maximum?: number;
+  readonly replenishSeconds?: number;
+  readonly firstAvailableSeconds?: number;
+}
 export interface UnitType extends ObjectType {
+  /** Public default offer lists; never the live Marketplace assortment. */
+  readonly sellsItems?: readonly string[];
+  readonly sellsUnits?: readonly string[];
+  readonly stock?: StockDefaults;
   readonly cost: Cost;
   readonly supply: { readonly used?: number; readonly provided?: number };
   readonly baseStats: { readonly hitpoints?: number; readonly mana?: number; readonly initialMana?: number; readonly armor?: number; readonly movementSpeed?: number; readonly hitpointRegeneration?: number; readonly manaRegeneration?: number; readonly strength?: number; readonly agility?: number; readonly intelligence?: number };
@@ -25,7 +36,7 @@ export interface AbilityType extends ObjectType {
   readonly requiredHeroLevel: number;
   readonly levels: readonly { readonly cooldownSeconds?: number; readonly manaCost?: number; readonly castTimeSeconds?: number; readonly range?: number }[];
 }
-export interface ItemType extends ObjectType { readonly cost: Cost; readonly abilities: readonly string[] }
+export interface ItemType extends ObjectType { readonly stock?: StockDefaults; readonly cost: Cost; readonly abilities: readonly string[] }
 export interface UpgradeType extends ObjectType {
   readonly maxLevel: number;
   readonly category: string;

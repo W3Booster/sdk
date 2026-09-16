@@ -30,3 +30,5 @@ export const inventorySlotIdentity: typeof Contract.inventorySlotIdentity = runt
 export const upgradeIdentity: typeof Contract.upgradeIdentity = runtime.upgradeIdentity;
 export const currentUpgrades: typeof Contract.currentUpgrades = runtime.currentUpgrades;
 export const battleTagName: typeof Contract.battleTagName = runtime.battleTagName;
+/** Stable ID ordering; an empty result does not distinguish unavailable from observed empty. */
+export const pointsOfInterest: typeof Contract.pointsOfInterest = runtime.pointsOfInterest;

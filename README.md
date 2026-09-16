@@ -4,6 +4,23 @@ Browser SDK for realtime W3Booster match data in applications and overlays. It h
 
 ## Quick start
 
+### Neutral map points of interest (SDK 4.3)
+
+Applications granted `match:read` and `pois:read` can read `state.pois` or use
+`pointsOfInterest(state, { kind: 'goblin-merchant' })` from
+`@w3booster/sdk/selectors`. Entries contain building positions and optional offers,
+stock and timing data when supplied by the recorder. Missing fields mean unknown.
+
+In self-play, `state.poiMode === 'initial'`: building locations and starting
+inventories are captured once at game start, without visibility filtering, and
+never updated during the match. Do not advance their timers. Observer/replay
+snapshots may use `poiMode === 'live'`. If the game-start capture was missed, the
+initial collection is unavailable. Catalog sale lists and stock defaults describe
+standard object configuration, not current inventory or custom-map overrides.
+See the [SDK 4.3 guide](https://w3booster.com/developer/sdk-4-3/) for native coverage, stock timers and examples.
+
+### Create an application
+
 New project? Start with the [runnable TypeScript starter](https://github.com/W3Booster/app-starter) and [first-app tutorial](https://w3booster.com/developer/first-app/). It renders a dashboard immediately with demo data; no registered app or Warcraft III installation is needed.
 
 ```sh
@@ -800,6 +817,10 @@ are removed in SDK 3 and later.
 `player.apm.changed` reports changes; zero is valid and absence means unavailable.
 Self-play resources and APM belong to the real local player, independently of
 the selected player; observer/replay access covers participating players.
+Missing economy remains unavailable until gold, lumber, supply and supply cap
+have all been observed; worker supply is optional. A worker-count packet alone
+does not imply zero economy. SDK 4.3 recovers partial local feeds without
+fabricating missing values. Actual observed zero remains valid.
 
 `Hero.mana.regenerationPerSecond` is an optional observed net rate per game
 second. It may be zero or negative; only a positive reading supports a recovery
@@ -811,6 +832,42 @@ healing dealt. Self-damage is included in both damage totals. Healing includes
 self-healing and excludes ordinary regeneration; a separate healing-to-others
 total is not available. Treat these as observations for the hero instance, not
 a guarantee of full-match coverage when recording starts late.
+
+Since SDK 4.3, supporting recorders also provide `hero.combat.damage`: a summon-inclusive
+`total`, unit contributions in `breakdown`, and a `complete` coverage flag.
+The original `damageDealt` remains Warcraft's raw hero counter for compatibility.
+
+```js
+const damage = hero.combat?.damage;
+if (damage) {
+  for (const contribution of damage.breakdown) {
+    // Sum damageDealt once per contribution, not once per listed unit type.
+    renderContribution(contribution.units, contribution.damageDealt);
+  }
+  renderTotal(damage.total, { complete: damage.complete });
+}
+```
+
+Each contribution lists `{ typeId, isIllusion }` unit types. Repeated summons of
+one type are grouped; illusions are separate from real units of the same type.
+Each type/illusion pair appears in only one contribution.
+For example, a Keeper and treants can have separate contributions. A Water
+Elemental redirects its damage to the Archmage: their shared contribution lists
+both types. **Multiple types mean a shared amount, not an individual amount for
+each type.** The SDK never labels that merged counter as the hero's direct damage,
+nor reports a redirected summon as having dealt zero. Contributions always sum
+to `total`. There is no ability breakdown.
+
+Accounting retains observed damage after summons disappear. Standard melee
+summoning relationships provide a fallback only for a unique eligible same-owner
+hero. Duplicate casters or unsupported custom relationships can remain unresolved.
+`complete: false` reports known gaps such as late recording, unresolved sources,
+lost final reads or incomplete enumeration. Doom/Dark Arrow can briefly credit
+the dying enemy instead of their summon; those unrecoverable hits also make the
+summary incomplete. A partial total is a lower bound, not an exact all-summon
+lifetime total. Missing `damage` means the recorder
+does not provide this summary. Never label the legacy fallback as summon-inclusive
+or add current summon damage to the corrected total again.
 
 `PlayerStatsCollection.source` and `observedAt` identify live/cache results and
 the original Unix-millisecond observation time. Older producers may omit them.

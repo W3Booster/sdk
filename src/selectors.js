@@ -26,3 +26,5 @@ export const inventorySlotIdentity = runtime.inventorySlotIdentity;
 export const upgradeIdentity = runtime.upgradeIdentity;
 export const currentUpgrades = runtime.currentUpgrades;
 export const battleTagName = runtime.battleTagName;
+/** Stable ID ordering; an empty result does not distinguish unavailable from observed empty. */
+export const pointsOfInterest = runtime.pointsOfInterest;

@@ -11,7 +11,7 @@ test('resource updates preserve self-play ownership, conversion, scope and match
     {class:'W3Resource',matchId:'match',slotId,type:4,value:50}
   ]);
   const applied = applyLocalRecorderUpdates(state,updates);
-  assert.deepEqual(applied.players[0].resources,{gold:125,lumber:0,supply:34,supplyCap:50,workerSupply:0});
+  assert.deepEqual(applied.players[0].resources,{gold:125,lumber:0,supply:34,supplyCap:50});
   assert.equal(applied.players[1].resources,undefined);
   assert.equal(state.players[0].resources,undefined);
   assert.equal(applyLocalRecorderUpdates({...state,capabilities:[]},updates).players[0].resources,undefined);

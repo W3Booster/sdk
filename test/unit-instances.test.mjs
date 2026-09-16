@@ -446,3 +446,36 @@ test('combat totals preserve engine lifetime values, clear on unavailable data, 
   const badSnapshot = baseline(); badSnapshot.players[0].heroes[id(1)] = { id: id(1), typeId: 'Hpal', isIllusion: false, combat: { ...combat, selfDamage: 500 } };
   assert.throws(() => validateState(badSnapshot, undefined, false), /combat/);
 });
+
+test('summon-inclusive unit contributions reconcile, preserve shared credit and immutable observations', () => {
+  const contribution = (damageDealt, ...types) => ({ damageDealt, units: types.map(typeId => ({ typeId, isIllusion: false })) });
+  const damage = { total: 750, complete: true,
+    breakdown: [contribution(600, 'Hamg', 'hwt3'), contribution(150, 'efon')] };
+  const combat = { damageDealt: 600, selfDamage: 0, damageReceived: 0, healingDealt: 0, damage };
+  const state = apply(baseline(), [hp(1, 'Hamg', 2, { combat })]);
+  const observed = state.players[0].heroes[id(1)].combat;
+  assert.deepEqual(observed.damage, damage);
+  damage.breakdown[0].units[0].typeId = 'Hpal';
+  damage.breakdown[1].damageDealt = 999;
+  assert.equal(observed.damage.breakdown[0].units[0].typeId, 'Hamg');
+  assert.equal(observed.damage.breakdown[1].damageDealt, 150);
+  const partial = { ...observed.damage, complete: false };
+  const updated = apply(state, [hp(1, 'Hamg', 2, { combat: { ...observed, damage: partial } })]);
+  assert.equal(updated.players[0].heroes[id(1)].combat.damage.complete, false);
+  for (const bad of [null, { ...partial, total: 749 }, { ...partial, complete: 'true' },
+    ...[[], [contribution(-1, 'Hamg')], [contribution(Infinity, 'Hamg')], [contribution(750)],
+      [contribution(750, 'invalid')], [contribution(750, 'Hamg', 'Hamg')],
+      [contribution(400, 'Hamg'), contribution(350, 'Hamg')],
+      [contribution(400, 'Hamg', 'hwt3'), contribution(350, 'hwt3')],
+      [{ damageDealt: 750, units: [{ typeId: 'Hamg', isIllusion: 0 }] }]].map(breakdown => ({ ...partial, breakdown }))]) {
+    assert.equal(apply(updated, [hp(1, 'Hamg', 2, { combat: { ...observed, damage: bad } })]), updated);
+    const invalid = baseline(); invalid.players[0].heroes[id(1)] = {
+      id: id(1), typeId: 'Hamg', isIllusion: false, combat: { ...observed, damage: bad } };
+    assert.throws(() => validateState(invalid, undefined, false), /combat/);
+  }
+  const rewind = { total: 0, complete: true, breakdown: [contribution(0, 'Hamg')] };
+  const reset = apply(updated, [hp(1, 'Hamg', 2, { combat: { ...observed, damageDealt: 0, damage: rewind } })]);
+  assert.deepEqual(reset.players[0].heroes[id(1)].combat.damage, rewind);
+  const { damage: omitted, ...legacy } = observed;
+  assert.equal(apply(updated, [hp(1, 'Hamg', 2, { combat: legacy })]).players[0].heroes[id(1)].combat.damage, undefined);
+});

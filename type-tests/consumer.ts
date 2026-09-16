@@ -294,3 +294,17 @@ async function useSdk() {
 }
 
 void useSdk;
+
+function heroDamageSummary(hero: import('../src/index.js').Hero): number | undefined {
+  const damage: import('../src/index.js').HeroDamageSummary | undefined = hero.combat?.damage;
+  if (!damage) return undefined;
+  const contribution: import('../src/index.js').HeroDamageContribution | undefined = damage.breakdown[0];
+  const unit: import('../src/index.js').HeroDamageUnitType | undefined = contribution?.units[0];
+  // @ts-expect-error Damage snapshots are immutable.
+  damage.total = 0;
+  // @ts-expect-error Contribution arrays are immutable.
+  damage.breakdown.push({ units: [], damageDealt: 0 });
+  console.log(damage.complete, unit?.typeId, unit?.isIllusion, contribution?.damageDealt);
+  return damage.total;
+}
+void heroDamageSummary;

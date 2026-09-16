@@ -24,3 +24,5 @@ export declare const inventorySlotIdentity: typeof Contract.inventorySlotIdentit
 export declare const upgradeIdentity: typeof Contract.upgradeIdentity;
 export declare const currentUpgrades: typeof Contract.currentUpgrades;
 export declare const battleTagName: typeof Contract.battleTagName;
+/** Stable ID ordering; an empty result does not distinguish unavailable from observed empty. */
+export declare const pointsOfInterest: typeof Contract.pointsOfInterest;

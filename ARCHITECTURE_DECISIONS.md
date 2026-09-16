@@ -508,3 +508,59 @@ broadcaster in self-play, as already done for APM and control groups. Observer a
 replay modes retain their participant resources. Keep the same resource capability,
 match-ID checks and gold/lumber normalization. No public type/version change is
 needed. API projection enforces the same boundary before state delivery.
+
+## 2026-09-16: Summon-inclusive damage and unit contributions
+
+At the user's request, publish unit contributions instead of an incomplete
+ability breakdown. `Hero.combat.damage` adds `total`, `breakdown`, and `complete`
+without changing the SDK 4.2 engine-counter meaning of `damageDealt`.
+Each contribution has `damageDealt` and `units` (`typeId`, `isIllusion`). Group
+repeated sources of the same type, retaining the real/illusion distinction.
+Where Warcraft redirects summon damage, list all contributing types in one
+shared entry. Never label that amount as the hero's direct damage or show the
+redirected attacker as zero. Count each contribution once when reconciling total.
+
+The recorder owns source identity, attribution, lifetime retention and rewind
+reset. Standard-melee unique-caster fallbacks do not promise arbitrary custom-map
+or ambiguous duplicate-caster attribution. Late recording and lost source reads
+make `complete` false. The SDK validates finite, nonnegative, bounded, reconciled
+contributions; copies/freezes nested arrays through existing state paths; and
+preserves hero-scope and self-play ownership gating. The optional field supports
+older producers. Browser consumers must not add current summon counters again.
+
+
+## 2026-09-16: Neutral POIs freeze at game start during self-play
+
+Expose match-scoped `pois` under `match:read` and `pois:read`, with an explicit
+`poiMode`. At the user's direction, self-play captures the initial buildings,
+positions and starting inventories once, without visibility filtering. After
+that snapshot the native POI reader stops reading POIs for the entire match;
+observations, purchases, removals and cooldown changes never refresh it.
+Reducers also reject every subsequent self-play POI replacement or invalidation.
+The snapshot resets with the match, not with application reconnection. Never
+advance its timers against the current game clock. A late attachment cannot
+substitute current inventory for an unavailable game-start snapshot.
+
+Observer/replay mode may publish live full replacements and explicit invalidation;
+replay rewind replaces values rather than merging old assortments. POIs use full
+instance identities and the shared TimedProgress contract. Missing optional fields
+mean unavailable, not zero or empty. Static catalog stock defaults are separate
+from observed map-specific inventory. Native layouts require build and code
+witness validation; synthetic tests do not establish live gameplay correctness.
+Implementation coverage and live acceptance evidence are recorded in
+`docs/neutral-pois.md` in the platform repository. No release is authorized.
+
+## 2026-09-16: Partial local economy does not fabricate zero values
+
+The local recorder transport retains actual resource observations by player/type
+across messages and same-match reconnects, and clears them on match changes.
+The reducer accumulates that retained batch before publishing `Player.resources`:
+gold, lumber, supply and supplyCap are required, while workerSupply is optional.
+Worker-only packets and incomplete economy stay unavailable, matching the API's
+existing completeness rule. Never initialize unobserved fields to zero. Actual
+measured zero remains valid. Native `W3Resource.value: null` explicitly removes an
+observation; malformed, negative or nonnumeric values are ignored. Invalidation
+of a required field removes the public resource object until recovery. Existing
+match, scope and real-local-player ownership checks apply before accumulation.
+The public Resources type is unchanged. Publish this alongside the native repair
+so local clients understand its unavailable observations.
