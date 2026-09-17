@@ -16,7 +16,7 @@ Aborted/failed requests are retryable. A catalog is shared and immutable.
 
 - `data.units.get(typeId)`: cost, supply, base stats, build time, ability and production relationships.
 - `data.abilities.get(typeId)`: maximum level and per-level cooldown, mana cost, cast time and range.
-- `data.items.get(typeId)`: cost and ability relationships.
+- `data.items.get(typeId)`: cost, ability relationships and optional `initialCharges` (standard starting charges).
 - `data.upgrades.get(typeId)`: source category and ordered levels with name, cost and research time.
 - Each collection supports `has(typeId)` and `values()`.
 - `data.assets.unitIcon/abilityIcon/itemIcon/upgradeIcon(typeId, { graphics, level?, role? })`:
@@ -83,3 +83,51 @@ Items sharing an icon still have independent `typeId` values. The compact item
 catalog currently exposes names, costs and linked abilities, not normalized
 numeric damage/armor effects. Do not parse names or legacy rawcode suffixes as
 balance values (for example, `rat6` is named Claws of Attack +5 in 3.0.0.24268).
+
+## Inventory charges
+
+Join live `Hero.inventoryCharges[slot]` with
+`data.items.get(hero.inventory[slot])?.initialCharges` from the catalog loaded
+for `match.gameDataId`. Remaining counts belong to the hero snapshot; the
+starting default belongs to the shared catalog.
+
+Example hero fields:
+
+```json
+{
+  "id": "00002ba700002ba7",
+  "typeId": "Hamg",
+  "isIllusion": false,
+  "inventory": ["hslv", "hslv", "phea", "bspd", "", ""],
+  "inventoryCharges": [3, 1, 1, 0, null, null]
+}
+```
+
+Corresponding item catalog fields:
+
+```json
+{
+  "typeId": "hslv",
+  "name": "Healing Salve",
+  "initialCharges": 3
+}
+```
+
+- Indices match inventory slots, including empty slots and duplicate item types.
+  Never join live counts by rawcode or compact either array separately.
+- Counts are nonnegative integers. `0` is known zero, `null` is an empty or
+  unobserved slot, and a missing array means charge observations are unavailable.
+- Catalog `initialCharges` is optional standard configuration, not the count
+  recorded when this particular item was acquired, a lifetime maximum, or shop
+  stock. Custom maps and modified item counts can differ.
+- Never substitute the catalog default for an unavailable live count or infer
+  charges from cooldowns. Replacing inventory without counts clears old counts.
+- Charges follow the existing `heroes:read` and player-ownership rules. Subscribe
+  to state or `hero.changed` for live count changes, including unchanged rawcodes.
+
+A remaining-charge display can show three dots for a salve with capacity three,
+filling one when one remains: **● ○ ○**. Show all empty dots for a known zero.
+Hide indicators for missing data or defaults of one or less. If the observed
+count exceeds the default, show the numeric count instead. Match Vision also
+uses a number above ten starting charges to keep its compact icons readable.
+Empty dots describe normal capacity; they do not prove how many uses occurred.

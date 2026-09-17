@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Add optional `Hero.inventoryCharges`: remaining counts aligned with inventory slots, including duplicate items. Preserve observed zero; missing arrays and null slots remain unavailable.
+- Add optional catalog `ItemType.initialCharges` for standard starting capacity. Keep it separate from live counts and shop stock; custom maps can override it. See [inventory charge examples](GAME_DATA.md#inventory-charges).
+
 ## 4.3.0 — 2026-09-16
 
 - Keep incomplete local economy unavailable instead of inventing zero values; preserve measured zero and recover after resource-read invalidation.
