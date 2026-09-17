@@ -66,6 +66,7 @@
     "LICENSE",
     "MIGRATION_3.md",
     "GAME_DATA.md",
+    "HERO_BAR.md",
     "UNIT_CATALOG.md"
   ],
   "scripts": {

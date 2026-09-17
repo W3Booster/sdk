@@ -579,3 +579,24 @@ Existing hero scope and self-play ownership rules apply.
 ItemData `uses`, distinct from remaining charges and shop stock. Consumers decide
 which badges to show; the SDK does not infer uses from cooldowns or substitute
 starting charges for missing observations. Older catalogs/recorders remain valid.
+
+## 2026-09-17: Native hero-bar extent preserves empty slots
+
+Expose optional `gameContext.heroBarLastOccupiedSlot`: the one-based last visible
+native portrait, zero for an observed empty bar, absent when unavailable. Do not
+infer it from owned/controllable hero counts, shared-control flags or heroOrder.
+One owned hero plus one shared hero occupies slots 1 and 4. Dead portraits can
+still occupy space, and the current game caps the rail at seven slots.
+
+The build-validated native reader follows typed CGameUI/CHeroBar/button objects,
+checks every slot and repeats identity/visibility reads without the cycle cache.
+The patch workflow rediscovers this profile alongside the existing HUD root.
+Initial hydration, incremental changes, explicit invalidation and match resets
+carry the observation through datamodel/API/SDK without granting allied stats.
+
+Match Vision owns layout policy: reserve max(3, lastOccupiedSlot) rows on the
+left during self-play and derive the scrolling limit from the same boundary.
+Retain the three-row fallback when unobserved; observer/replay and right-side
+placement stay unchanged. Hero rail geometry uses the existing application scale,
+not the independently adjustable lower Warcraft HUD scale. This is local release
+preparation and does not authorize publication or deployment.

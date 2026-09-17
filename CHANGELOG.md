@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add optional `GameContext.heroBarLastOccupiedSlot` for the actual native hero-bar boundary, preserving empty gaps and shared portraits independently of owned hero data. See [the layout contract](HERO_BAR.md).
 - Add optional `Hero.inventoryCharges`: remaining counts aligned with inventory slots, including duplicate items. Preserve observed zero; missing arrays and null slots remain unavailable.
 - Add optional catalog `ItemType.initialCharges` for standard starting capacity. Keep it separate from live counts and shop stock; custom maps can override it. See [inventory charge examples](GAME_DATA.md#inventory-charges).
 

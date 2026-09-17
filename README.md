@@ -220,7 +220,9 @@ An application requests scopes in its W3Booster metadata. The server filters eve
 | `controlgroups:read` | `controlgroups` | Control-group front units and sizes |
 `state.gameContext` is shared context delivered to every authorized app, including
 apps with an empty scope list. It contains `hudScale` (always present; default 1),
-optional `chatbarOpen`, and optional `teamColors`. Unknown boolean values stay
+optional `chatbarOpen`, optional `teamColors`, and optional
+[`heroBarLastOccupiedSlot`](HERO_BAR.md) for the last occupied native hero slot
+(including gaps and shared portraits). Unknown boolean values stay
 absent. The SDK `gameContext(state)` selector also supplies a scale-1 fallback
 before hydration. These values do not require a data scope or plan.
 

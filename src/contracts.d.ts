@@ -130,6 +130,9 @@ export interface ApplicationState<TSettings extends object = JsonObject> {
 export interface GameContext {
     /** CSS scale multiplier from 0.5 to 1.0. Defaults to 1 when no measurement is available. */
     readonly hudScale: number;
+    /** One-based last occupied native hero-bar slot, preserving empty gaps (0 means empty).
+     * This is local HUD layout, not owned/controllable hero count. Missing means unobserved. */
+    readonly heroBarLastOccupiedSlot?: number;
     readonly chatbarOpen?: boolean;
     readonly teamColors?: boolean;
 }
