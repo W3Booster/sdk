@@ -564,3 +564,18 @@ of a required field removes the public resource object until recovery. Existing
 match, scope and real-local-player ownership checks apply before accumulation.
 The public Resources type is unchanged. Publish this alongside the native repair
 so local clients understand its unavailable observations.
+
+## 2026-09-17: Item charges are slot-aligned live observations
+
+`Hero.inventoryCharges` contains remaining nonnegative signed-32-bit counts,
+aligned with `inventory`. Null slots and missing arrays mean unavailable; an
+observed zero remains zero. Validate lengths, empty-slot associations and values
+at both recorder and snapshot boundaries. Inventory replacement without counts
+clears old counts, even when the rawcodes are unchanged. Duplicate item types
+remain independent slots and use the recorder's full item-instance identity.
+Existing hero scope and self-play ownership rules apply.
+
+`ItemType.initialCharges` is optional build-pinned catalog configuration from
+ItemData `uses`, distinct from remaining charges and shop stock. Consumers decide
+which badges to show; the SDK does not infer uses from cooldowns or substitute
+starting charges for missing observations. Older catalogs/recorders remain valid.

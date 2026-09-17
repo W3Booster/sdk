@@ -36,7 +36,13 @@ export interface AbilityType extends ObjectType {
   readonly requiredHeroLevel: number;
   readonly levels: readonly { readonly cooldownSeconds?: number; readonly manaCost?: number; readonly castTimeSeconds?: number; readonly range?: number }[];
 }
-export interface ItemType extends ObjectType { readonly stock?: StockDefaults; readonly cost: Cost; readonly abilities: readonly string[] }
+export interface ItemType extends ObjectType {
+  readonly stock?: StockDefaults;
+  readonly cost: Cost;
+  readonly abilities: readonly string[];
+  /** Starting charges from this build's item definition, not remaining charges. Maps may override it. */
+  readonly initialCharges?: number;
+}
 export interface UpgradeType extends ObjectType {
   readonly maxLevel: number;
   readonly category: string;

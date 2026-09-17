@@ -479,3 +479,23 @@ test('summon-inclusive unit contributions reconcile, preserve shared credit and 
   const { damage: omitted, ...legacy } = observed;
   assert.equal(apply(updated, [hp(1, 'Hamg', 2, { combat: legacy })]).players[0].heroes[id(1)].combat.damage, undefined);
 });
+
+test('inventory charges follow slots, retain one/zero, and clear unavailable observations', () => {
+  const observation = hero(303, 'Hamg', { inventory: ['hslv', 'hslv', '', '', '', ''], inventoryCharges: [3, 1, null, null, null, null] });
+  const initial = apply(baseline(), [observation]);
+  assert.deepEqual(initial.players[0].heroes[id(303)].inventoryCharges, observation.inventoryCharges);
+  const next = apply(initial, [{ ...observation, inventoryCharges: [0, 2, null, null, null, null] }]);
+  assert.deepEqual(next.players[0].heroes[id(303)].inventoryCharges, [0, 2, null, null, null, null]);
+  assert.equal(initial.players[0].heroes[id(303)].inventoryCharges[0], 3);
+  const moved = apply(next, [{ ...observation, inventory: ['', 'hslv', '', 'hslv', '', ''], inventoryCharges: [null, 1, null, 2, null, null] }]);
+  assert.deepEqual(moved.players[0].heroes[id(303)].inventoryCharges, [null, 1, null, 2, null, null]);
+  const missing = apply(moved, [{ ...observation, inventoryCharges: undefined }]);
+  assert.equal(missing.players[0].heroes[id(303)].inventoryCharges, undefined);
+  for (const charges of [[1], [-1, 1, null, null, null, null], [1.5, 1, null, null, null, null], [NaN, 1, null, null, null, null], [3, 1, 0, null, null, null], [0x80000000, 1, null, null, null, null]]) {
+    assert.equal(apply(initial, [{ ...observation, inventoryCharges: charges }]), initial);
+    const snapshot = baseline();
+    snapshot.players[0].heroes[id(303)] = { id: id(303), typeId: 'Hamg', isIllusion: false, inventory: observation.inventory, inventoryCharges: charges };
+    assert.throws(() => validateState(snapshot, undefined, false), /charges/i);
+  }
+  assert.deepEqual(apply(baseline(['match']), [observation]).players[0].heroes, {});
+});

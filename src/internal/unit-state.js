@@ -45,6 +45,9 @@ export const validTimedProgress = value => isPlainObject(value) && validProgress
     Number.isFinite(value.remainingSeconds) && value.remainingSeconds >= 0 &&
     Number.isFinite(value.totalSeconds) && value.totalSeconds > 0 && value.remainingSeconds <= value.totalSeconds);
 export const timedProgress = value => ({ progress: value.progress, remainingSeconds: value.remainingSeconds, totalSeconds: value.totalSeconds });
+export const validInventoryCharges = (value, inventory) => Array.isArray(value) && Array.isArray(inventory) &&
+  value.length === inventory.length && value.length <= 6 && value.every((count, slot) => count === null ||
+    Boolean(inventory[slot]) && Number.isInteger(count) && count >= 0 && count <= 0x7fffffff);
 export const validInventoryCooldowns = (value, inventory) => Array.isArray(value) && Array.isArray(inventory) &&
   value.length === inventory.length && value.length <= 6 && value.every((cooldown, slot) =>
     cooldown === null || !!inventory[slot] && validTimedProgress(cooldown));
@@ -70,7 +73,8 @@ export function validUnitUpdate(update) {
   if (update.class === 'W3ProductionQueue') return validQueue(update.queue);
   return update.class === 'W3Unit' && update.isHero === true && /^[A-Z]/.test(update.typeId) &&
     Number.isFinite(update.experience) && update.experience >= 0 &&
-    (update.inventoryCooldowns === undefined || validInventoryCooldowns(update.inventoryCooldowns, update.inventory));
+    (update.inventoryCooldowns === undefined || validInventoryCooldowns(update.inventoryCooldowns, update.inventory)) &&
+    (update.inventoryCharges === undefined || validInventoryCharges(update.inventoryCharges, update.inventory));
 }
 
 /** Replace one observation while preserving unrelated fields and object identities. */

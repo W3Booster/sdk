@@ -314,6 +314,9 @@ export interface Hero extends Unit {
     readonly experience?: number;
     readonly abilities?: readonly HeroAbility[];
     readonly inventory?: readonly InventorySlot[];
+    /** Remaining charges, aligned with inventory slots. Null means unobserved or empty;
+     * zero is a known count. Missing arrays are unavailable, never catalog defaults. */
+    readonly inventoryCharges?: readonly (number | null)[];
     /** Direct engine cooldown observations, aligned with inventory slots. Null means no observed active cooldown. */
     readonly inventoryCooldowns?: readonly (TimedProgress | null)[];
 }

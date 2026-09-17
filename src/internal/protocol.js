@@ -1,5 +1,5 @@
 import { validPoiCollection, validInitialPoiCollection } from './poi-state.js';
-import { UNIT_COLLECTIONS, isInstanceId, isTypeId, validPool, validCombat, validTimedProgress, validQueue, validInventoryCooldowns } from './unit-state.js';
+import { UNIT_COLLECTIONS, isInstanceId, isTypeId, validPool, validCombat, validTimedProgress, validQueue, validInventoryCooldowns, validInventoryCharges } from './unit-state.js';
 import { SUPPORTED_PROTOCOL_VERSIONS } from '../version.js';
 import { ProtocolError } from './errors.js';
 import { isPlainObject } from './network.js';
@@ -285,6 +285,9 @@ function validateHero(hero, playerId) {
   }
   if (hero.inventoryCooldowns !== undefined && !validInventoryCooldowns(hero.inventoryCooldowns, hero.inventory)) {
     throw new ProtocolError('INVALID_STATE', `Hero ${String(hero.id)} has invalid inventory cooldowns.`);
+  }
+  if (hero.inventoryCharges !== undefined && !validInventoryCharges(hero.inventoryCharges, hero.inventory)) {
+    throw new ProtocolError('INVALID_STATE', `Hero ${String(hero.id)} has invalid inventory charges.`);
   }
   if (hero.heroOrder !== undefined && (!Number.isInteger(hero.heroOrder) || hero.heroOrder < 1 || hero.heroOrder > 0x7fffffff)) {
     throw new ProtocolError('INVALID_STATE', `Hero ${String(hero.id)} heroOrder must be a positive signed 32-bit integer.`);
