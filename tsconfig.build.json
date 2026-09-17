@@ -23,6 +23,7 @@
     "api-source/app.ts",
     "api-source/standard-game.ts",
     "api-source/assets.ts",
-    "api-source/game-data.ts"
+    "api-source/game-data.ts",
+    "api-source/overlay-input.ts"
   ]
 }

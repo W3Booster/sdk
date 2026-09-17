@@ -1,3 +1,4 @@
+import { GameTimeInterpolator } from './internal/interpolation.js';
 import { SDK_VERSION, PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS } from './version.js';
 import { emitDomainEvents, isActiveMatch } from './internal/domain.js';
 import { registerConsumerIssueReporter } from './internal/consumer-issues.js';
@@ -75,7 +76,14 @@ export async function startClient(options, startup = {}) {
 }
 
 /** Create a client synchronously so lifecycle listeners can be attached before connecting. */
-export function createClient(options) { return new W3BoosterClient(options, CLIENT_CONSTRUCTOR_TOKEN); }
+export function createClient(options) {
+  if (globalThis.window?.location && window.parent !== window && new URLSearchParams(window.location.search).get('w3input') === '1') {
+    // Optional browser-only bridge. Multiple clients share one registration;
+    // its lifetime is the overlay document, not a match-data connection.
+    void import('./overlay-input.runtime.js').then(module => module.initializeOverlayInput()).catch(error => console.warn('Overlay input bridge failed:', error));
+  }
+  return new W3BoosterClient(options, CLIENT_CONSTRUCTOR_TOKEN);
+}
 
 /** Decide whether a host action should be offered from a reactive host snapshot. */
 export { canUseHostCapability, UNAVAILABLE_HOST_SNAPSHOT };
@@ -135,6 +143,14 @@ export class W3BoosterClient {
       get transport() { return diagnostics.transport; },
       get localTransport() { return diagnostics.localTransport; }
     });
+    this.#runtime.interpolator = new GameTimeInterpolator(state => {
+      const previous = this.#state.get();
+      if (!previous || !this.#state.isSynchronized || deepEqual(previous, state)) return;
+      const published = this.#state.setState(state);
+      // Existing changed events follow derived values too. Interpolation never
+      // changes membership, orders, match status or completion observations.
+      emitDomainEvents(previous, published, (type, data) => this.#emit(type, data));
+    });
     this.#runtime.sequence = 0;
     this.#runtime.awaitingSnapshot = false;
     this.#runtime.platformState = null;
@@ -150,7 +166,10 @@ export class W3BoosterClient {
     this.#runtime.localRecorderTransport = new DeferredLocalRecorderTransport({
       enabled: this.#runtime.options.localRecorder !== false,
       onUpdates: updates => this.#handleLocalRecorderUpdates(updates),
-      onStatus: active => { this.#runtime._diagnostics.localTransport = active ? 'recorder-local' : null; },
+      onStatus: active => {
+        if (!active && this.#runtime._diagnostics.localTransport === 'recorder-local') this.#runtime.interpolator.reset();
+        this.#runtime._diagnostics.localTransport = active ? 'recorder-local' : null;
+      },
       onError: error => this.#reportIssue(error, {
         source: 'recorder', severity: 'warning', recoverable: true
       })
@@ -470,6 +489,7 @@ export class W3BoosterClient {
     if (pendingConnection) await Promise.allSettled([pendingConnection]);
     if (this.#runtime.connectPromise === pendingConnection) this.#runtime.connectPromise = null;
     this.#runtime.localRecorderTransport.close();
+    this.#runtime.interpolator.reset();
     this.#runtime.sequence = 0;
     this.#runtime.awaitingSnapshot = false;
     this.#runtime.platformState = null;
@@ -527,6 +547,7 @@ export class W3BoosterClient {
       if (!forwardSnapshot) {
         this.#runtime.sequence = 0;
         this.#runtime.awaitingSnapshot = true;
+        this.#runtime.interpolator.reset();
         this.#state.markStale();
         (this.#runtime.transport || this.#runtime.pendingTransport)?.resync?.();
         return;
@@ -554,8 +575,9 @@ export class W3BoosterClient {
       if (message.type === 'state.snapshot') this.#runtime.awaitingSnapshot = false;
       this.#runtime.platformState = nextPlatformState;
       this.#runtime.localRecorderTransport.configure(nextPlatformState);
-      let nextState = publicApplicationState(nextPlatformState);
+      let nextState = nextPlatformState;
       nextState = this.#runtime.localRecorderTransport.applyTo(nextState);
+      nextState = this.#runtime.interpolator.update(nextState);
       nextState = preservePublicOverlayIdentity(previousState, nextState);
       if (nextState === previousState || (previousState && deepEqual(nextState, previousState))) {
         this.#state.markSynchronized();
@@ -575,6 +597,7 @@ export class W3BoosterClient {
     const recoverable = isRecoverableStreamProtocolError(protocolError);
     this.#runtime.sequence = 0;
     this.#runtime.awaitingSnapshot = recoverable;
+    this.#runtime.interpolator.reset();
     this.#state.markStale({ publish: false });
     if (recoverable) {
       this.#reportIssue(protocolError, {
@@ -604,12 +627,13 @@ export class W3BoosterClient {
 
   #handleLocalRecorderUpdates(updates) {
     const previousState = this.#state.get();
-    if (!previousState) return false;
+    if (!previousState || this.#runtime.awaitingSnapshot || !this.#state.isSynchronized) return false;
     try {
-      let nextState = publicApplicationState(this.#runtime.platformState);
+      let nextState = this.#runtime.platformState;
       nextState = this.#runtime.localRecorderTransport.applyTo(nextState);
       nextState = this.#runtime.localRecorderTransport.applyUpdates(nextState, updates);
       nextState = validateState(nextState, this.#runtime.options.clientId, false);
+      nextState = this.#runtime.interpolator.update(nextState);
       if (deepEqual(previousState, nextState)) return true;
       const state = this.#state.setState(nextState);
       emitDomainEvents(previousState, state, (type, data) => this.#emit(type, data));
@@ -646,6 +670,7 @@ export class W3BoosterClient {
   #setStatus(status, error) {
     let freshnessChanged = false;
     if (status === 'reconnecting' || status === 'error') {
+      this.#runtime.interpolator.reset();
       this.#runtime.sequence = 0;
       this.#runtime.awaitingSnapshot = true;
       freshnessChanged = this.#state.markStale({ publish: false });
@@ -863,12 +888,6 @@ function waitForDelay(delay, signal) {
 }
 function isRecoverableStreamProtocolError(error) {
   return !['UNSUPPORTED_PROTOCOL', 'APPLICATION_MISMATCH'].includes(error.code);
-}
-
-/** Recorder discovery is consumed privately and never delivered to applications. */
-function publicApplicationState(state) {
-  const { transport, ...publicState } = state;
-  return publicState;
 }
 
 /** Preserve application-visible overlay branches when only hidden platform data changed. */

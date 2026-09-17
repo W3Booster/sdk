@@ -2,6 +2,13 @@
 
 Browser SDK for realtime W3Booster match data in applications and overlays. It handles app authorization, transport selection, reconnects, protocol validation, patches, and immutable hydrated state.
 
+## In-game mouse interaction
+
+Mark UI containers with `w3-interactive`. The optional input bridge supports
+block/conditional routing, live region updates and pointer-based dragging.
+See [the overlay input guide](OVERLAY_INPUT.md) for host requirements, examples
+and hang behavior. This capability is not yet published.
+
 ## Quick start
 
 ### Neutral map points of interest (SDK 4.3)
@@ -875,3 +882,5 @@ or add current summon damage to the corrected total again.
 the original Unix-millisecond observation time. Older producers may omit them.
 See the [SDK 4.2 guide](https://w3booster.com/developer/sdk-4-2/) for access and
 lifecycle details, checked examples and the changes since the SDK 3 announcement.
+
+Health, mana and known active progress values can now advance between observations using the engine clock. See [interpolation behavior](./INTERPOLATION.md) for heartbeat frequency, stale-stream handling and coordinated release requirements.

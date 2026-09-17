@@ -1,10 +1,11 @@
+import { validTiming, timingFields } from './interpolation.js';
 import { isPlainObject } from './network.js';
 import { deepEqual } from './values.js';
 
 export const UNIT_COLLECTIONS = ['units', 'heroes', 'buildings'];
 export const isInstanceId = value => typeof value === 'string' && /^[0-9a-f]{16}$/.test(value);
 export const isTypeId = value => typeof value === 'string' && /^[A-Za-z0-9]{4}$/.test(value);
-export const validPool = value => isPlainObject(value) && Number.isFinite(value.current) &&
+export const validPool = value => isPlainObject(value) && validTiming(value) && Number.isFinite(value.current) &&
   Number.isFinite(value.max) && value.max >= 0 && value.current >= 0 && value.current <= value.max &&
   (value.regenerationPerSecond === undefined || Number.isFinite(value.regenerationPerSecond));
 const finiteDamage = value => Number.isFinite(value) && value >= 0;
@@ -40,11 +41,11 @@ export const combatTotals = value => ({ damageDealt: value.damageDealt, selfDama
 export const validPosition = value => isPlainObject(value) && Number.isFinite(value.x) && Number.isFinite(value.y) &&
   Math.abs(value.x) <= 1000000 && Math.abs(value.y) <= 1000000;
 export const validProgress = value => value === null || Number.isFinite(value) && value >= 0 && value <= 1;
-export const validTimedProgress = value => isPlainObject(value) && validProgress(value.progress) &&
+export const validTimedProgress = value => isPlainObject(value) && validTiming(value) && validProgress(value.progress) &&
   (value.remainingSeconds === null && value.totalSeconds === null ||
     Number.isFinite(value.remainingSeconds) && value.remainingSeconds >= 0 &&
     Number.isFinite(value.totalSeconds) && value.totalSeconds > 0 && value.remainingSeconds <= value.totalSeconds);
-export const timedProgress = value => ({ progress: value.progress, remainingSeconds: value.remainingSeconds, totalSeconds: value.totalSeconds });
+export const timedProgress = value => ({ progress: value.progress, remainingSeconds: value.remainingSeconds, totalSeconds: value.totalSeconds, ...timingFields(value) });
 export const validInventoryCharges = (value, inventory) => Array.isArray(value) && Array.isArray(inventory) &&
   value.length === inventory.length && value.length <= 6 && value.every((count, slot) => count === null ||
     Boolean(inventory[slot]) && Number.isInteger(count) && count >= 0 && count <= 0x7fffffff);
@@ -53,7 +54,7 @@ export const validInventoryCooldowns = (value, inventory) => Array.isArray(value
     cooldown === null || !!inventory[slot] && validTimedProgress(cooldown));
 export const validQueue = value => Array.isArray(value) && value.length <= 16 && value.every((item, index) =>
   validTimedProgress(item) && item.position === index && isTypeId(item.typeId) &&
-  (index === 0 || item.remainingSeconds === null && item.totalSeconds === null));
+  (index === 0 || item.timing === undefined && item.remainingSeconds === null && item.totalSeconds === null));
 export function healthCollection(update) {
   return /^[A-Z]/.test(update.typeId) ? 'heroes' : update.targetFlags & 8 ? 'buildings' : 'units';
 }
@@ -102,8 +103,8 @@ export function applyUnitObservation(player, update, capabilities) {
       else delete unit.position;
       if (update.combat !== undefined) unit.combat = combatTotals(update.combat);
       else delete unit.combat;
-      unit.hitpoints = { current: update.hitpoints.current, max: update.hitpoints.max };
-      if (update.mana !== undefined) unit.mana = { current: update.mana.current, max: update.mana.max,
+      unit.hitpoints = { current: update.hitpoints.current, max: update.hitpoints.max, ...timingFields(update.hitpoints) };
+      if (update.mana !== undefined) unit.mana = { current: update.mana.current, max: update.mana.max, ...timingFields(update.mana),
         ...(update.mana.regenerationPerSecond === undefined ? {} : { regenerationPerSecond: update.mana.regenerationPerSecond }) };
       else delete unit.mana;
     }

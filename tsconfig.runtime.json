@@ -21,6 +21,7 @@
     "src/compositor.js",
     "src/testing.js",
     "src/react.js",
-    "src/game-data.runtime.js"
+    "src/game-data.runtime.js",
+    "src/overlay-input.runtime.js"
   ]
 }

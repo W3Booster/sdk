@@ -1,3 +1,4 @@
+import { validClock } from './interpolation.js';
 import { validPoiCollection, validInitialPoiCollection } from './poi-state.js';
 import { UNIT_COLLECTIONS, validUnitUpdate, applyUnitObservation, healthCollection } from './unit-state.js';
 import { hasCapability, isObserverOrReplayMatch } from './domain.js';
@@ -288,6 +289,11 @@ export function applyLocalRecorderUpdates(state, updates) {
           (!deepEqual(next.pois, update.pois) || next.poiMode !== update.mode)) {
         next = { ...next, poiMode: update.mode, pois: structuredCloneSafe(update.pois) };
       }
+    } else if (update.class === 'W3Clock' && validClock(update)) {
+      next = { ...next, transport: { ...next.transport, recorderUrls: next.transport?.recorderUrls || [], interpolation: {
+        source: 'local', entries: [], clock: { sample: update.sample, times: [...update.times], rates: [...update.rates], gameTime: update.gameTime,
+          ageMs: Math.max(0, Date.now() - (update.__w3boosterReceivedAt ?? Date.now())) }
+      } } };
     } else if (update.class === 'W3GameTime' && hasCapability(next, 'match') && Number.isFinite(Number(update.value))) {
       updateMatch('gameTime', Number(update.value));
     } else if (update.class === 'W3ChatbarState') {

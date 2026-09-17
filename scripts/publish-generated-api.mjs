@@ -6,6 +6,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const generated = resolve(root, '.generated-public-api');
 const checkOnly = process.argv.includes('--check');
 const outputs = [
+  'overlay-input.js', 'overlay-input.d.ts',
   'game-data.js', 'game-data.d.ts',
   'index.js',
   'index.d.ts',
@@ -26,6 +27,7 @@ const outputs = [
 ];
 
 const contracts = [
+  'overlay-input-contracts.d.ts',
   'game-data-contracts.d.ts',
   'selectors-contracts.d.ts',
   'store-contracts.d.ts',

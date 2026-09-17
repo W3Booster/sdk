@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 4.4.0 — 2026-09-18
+
+- Interpolate observed health, mana and active production/building timers from bounded simulation-clock anchors, including replay speed and pause changes. Public numeric fields remain unchanged; reconnects restore authoritative state.
+- Add the optional `@w3booster/sdk/overlay-input` entry point and `.w3-interactive` regions for click-through overlays, dynamic visibility and dragging. See [overlay input](OVERLAY_INPUT.md).
 
 - Add optional `GameContext.heroBarLastOccupiedSlot` for the actual native hero-bar boundary, preserving empty gaps and shared portraits independently of owned hero data. See [the layout contract](HERO_BAR.md).
 - Add optional `Hero.inventoryCharges`: remaining counts aligned with inventory slots, including duplicate items. Preserve observed zero; missing arrays and null slots remain unavailable.

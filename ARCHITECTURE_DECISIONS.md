@@ -1,5 +1,17 @@
 # SDK architecture decisions
 
+## 2026-09-17: Declarative in-game input regions
+
+The optional overlay-input entry owns framework-neutral DOM region tracking and
+local parent-frame messages. Updated client creation loads it only for compositor
+launches carrying w3input=1. `.w3-interactive` defaults to blocking a rectangular
+region; conditional routing consumes at pointer/mouse-down, never retroactively
+at click. The compositor authenticates source/origin/document tokens; native
+window routing stays in the desktop main process. Region geometry and input never
+travel through match data or backend transports. Stale regions expire to preserve
+gameplay availability; queued old input must not replay after renderer recovery.
+This is local implementation, not a published host capability. See [OVERLAY_INPUT.md](OVERLAY_INPUT.md).
+
 ## 2026-09-11: Current gameplay configuration and bounded optional data
 
 The user wants current melee unit-type configuration and explicitly authorizes
@@ -600,3 +612,31 @@ Retain the three-row fallback when unobserved; observer/replay and right-side
 placement stay unchanged. Hero rail geometry uses the existing application scale,
 not the independently adjustable lower Warcraft HUD scale. This is local release
 preparation and does not authorize publication or deployment.
+
+## 2026-09-18: Bounded interpolation of engine-anchored values
+
+The user explicitly requested SDK calculation to reduce continuously regenerated
+recorder data. This revisits the September 9 no-wall-clock-countdown decisions for
+health/mana and known active production/construction/upgrade timers. The public
+numeric types stay unchanged. No estimate is added to an unknown timer or initial
+POI stock snapshot.
+
+Consume private validated engine anchors and two precise simulation clock domains.
+The recorder sends clock/rate samples every 200 ms. Derive immutable public values
+at 50 ms intervals against the selected domain; wall time only advances the
+observed simulation rate, never replaces game time. Bound extrapolation to one
+second from receipt, including metadata age. Reset timers for stream gaps,
+disconnects, source/match changes and teardown. New samples correct speed changes,
+pauses, backward seeks, damage and Human power-building rates. Terminal states use
+the last engine time without ticking.
+
+Keep platform snapshots/patches authoritative and separate from derived values.
+Hide all timing/clock transport metadata from public state. Local recorder anchors
+must pass the same existing permissions and ownership projection first. Full
+reconnect snapshots restore all permitted current anchors. Do not create or remove
+jobs, units or lifecycle transitions when interpolated progress reaches a bound.
+Existing changed events follow derived numeric snapshots.
+
+Release together with the new API, recorder and bundled consumer apps; an older
+SDK cannot advance the new sparse samples. Publishing/deployment is separate from
+implementation. See INTERPOLATION.md for consumer behavior and validation scope.

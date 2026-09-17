@@ -1,3 +1,4 @@
+import { validInterpolation } from './interpolation.js';
 import { validPoiCollection, validInitialPoiCollection } from './poi-state.js';
 import { UNIT_COLLECTIONS, isInstanceId, isTypeId, validPool, validCombat, validTimedProgress, validQueue, validInventoryCooldowns, validInventoryCharges } from './unit-state.js';
 import { SUPPORTED_PROTOCOL_VERSIONS } from '../version.js';
@@ -148,6 +149,9 @@ export function validateState(value, clientId, cloneState = true) {
   if (state.transport !== undefined && (!isPlainObject(state.transport) ||
       !Array.isArray(state.transport.recorderUrls) || state.transport.recorderUrls.some(url => typeof url !== 'string'))) {
     throw new ProtocolError('INVALID_STATE', 'Transport metadata must contain recorderUrls.');
+  }
+  if (state.transport?.interpolation !== undefined && !validInterpolation(state.transport.interpolation)) {
+    throw new ProtocolError('INVALID_STATE', 'Invalid private interpolation metadata.');
   }
   return state;
 }
