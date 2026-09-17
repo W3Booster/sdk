@@ -7,7 +7,7 @@ Browser SDK for realtime W3Booster match data in applications and overlays. It h
 Mark UI containers with `w3-interactive`. The optional input bridge supports
 block/conditional routing, live region updates and pointer-based dragging.
 See [the overlay input guide](OVERLAY_INPUT.md) for host requirements, examples
-and hang behavior. This capability is not yet published.
+and hang behavior. Requires SDK 4.4 and the matching desktop host/compositor release.
 
 ## Quick start
 

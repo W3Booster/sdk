@@ -1,8 +1,8 @@
 # In-game overlay interaction
 
 This feature requires a desktop host and compositor with overlay-input protocol
-v1, and this SDK revision. It is local implementation work; the current published
-SDK/desktop release does not yet include it. Older hosts remain click-through.
+v1 and SDK 4.4 or newer. Deploy the desktop host and compositor together with
+the SDK consumer bundle. Older hosts remain click-through.
 OBS/browser sources stay noninteractive through this bridge.
 
 ## Mark an interactive region
