@@ -663,3 +663,30 @@ Existing changed events follow derived numeric snapshots.
 Release together with the new API, recorder and bundled consumer apps; an older
 SDK cannot advance the new sparse samples. Publishing/deployment is separate from
 implementation. See INTERPOLATION.md for consumer behavior and validation scope.
+
+## 2026-09-18: Retire Netease stats provider
+
+The platform owner explicitly retired Netease. Limit the public stats-provider
+union and runtime validation to `bnet` and `w3champions`, matching the platform's
+removal of the native and server integration. Unknown providers remain invalid.
+Refresh generated contracts and consumer fixtures locally; do not publish or
+change registry pins as part of this cleanup.
+
+## 2026-09-18: Optional native in-game menu observation
+
+gameContext.menuOpen reports the native input owner's menu/dialog classification,
+independent of pause, match status, observer status and replay mode. Accept only
+booleans; a null W3MenuState update withdraws the observation, and match reset
+clears it. Preserve initial platform snapshots and local recorder updates without
+changing lifecycle or scope. Consumers choose surface-specific hiding; the SDK
+continues collecting while a menu is open. This additive field supports older
+producers and does not authorize publishing.
+
+## 2026-09-18: Keep the menu release on SDK 4.5
+
+The owner confirms Netease was never used by any integration and is leftover
+legacy code, so its cleanup does not warrant a major version bump. Supersede the unpublished SDK 5 proposal with SDK 4.5.0.
+The provider union still narrows; do not restore obsolete support or describe
+that removal as additive. The menu observation is additive and protocol remains
+4.0. Registry pins change only after publication; packed candidates validate
+integration locally. Nothing was published under the proposed SDK 5 version.

@@ -79,3 +79,15 @@ test('cached stats retain their source and observation time without changing lad
   delete state.players[0].stats.source;
   assert.doesNotThrow(() => validateState(state), 'Older stats without cache metadata still work');
 });
+
+
+test('stats accept only supported providers', () => {
+  for (const provider of ['bnet', 'w3champions']) {
+    const state = snapshot('Reforged', 1000);
+    state.players[0].stats.records[0].provider = provider;
+    assert.doesNotThrow(() => validateState(state));
+  }
+  const state = snapshot('Reforged', 1000);
+  state.players[0].stats.records[0].provider = 'retired-provider';
+  assert.throws(() => validateState(state), /stats record/);
+});

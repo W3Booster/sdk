@@ -1,5 +1,11 @@
 # Changelog
 
+## 4.5.0 — 2026-09-18
+
+- Add optional `gameContext.menuOpen` from the native in-game menu observation. Initial state, local recorder updates, invalidation and match resets preserve the signal independently of replay, observer and pause state.
+- Remove unused legacy Netease code from public types and validation. Supported providers remain `bnet` and `w3champions`.
+- Keep protocol 4.0, entry points and all other public contracts unchanged. Older producers may omit `menuOpen`; treat absence as unavailable. See [menu observation and provider notes](MENU_STATE.md).
+
 ## 4.4.1 — 2026-09-18
 
 - Prevent brief backward ticks of the displayed game clock during forward-moving heartbeat corrections. Preserve immediate health/progress corrections, real replay seeks, pauses, match resets and reconnects; heartbeat traffic is unchanged.

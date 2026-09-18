@@ -6,10 +6,12 @@ internal cancellation helper for catalog and gameplay reads. Test an actual
 installed launcher as well as modern browsers before releasing SDK consumers;
 the browser used to validate a standalone overlay may be newer than the desktop.
 
-SDK 4.x uses protocol 4.0. Ability and upgrade identities are `typeId` with a
+SDK 4.x uses protocol 4.0. SDK 4.5 removes the retired Netease stats provider
+and adds optional native `gameContext.menuOpen`; see [MENU_STATE.md](MENU_STATE.md).
+Ability and upgrade identities are `typeId` with a
 separate level; catalog joins use `match.gameDataId`. SDK 3 cannot consume this
 breaking contract. See [GAME_DATA.md](GAME_DATA.md). Applications consume registry
-artifacts; packed SDK 4 is the prerelease verification lane until publication.
+artifacts; packed SDK candidates are the prerelease verification lane until publication.
 
 The applied-HUD-scale change requires a coordinated recorder/SDK update.
 Current native `W3HudScale.value` is a finite multiplier in 0.5–1.0, and

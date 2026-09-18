@@ -134,6 +134,8 @@ export interface GameContext {
      * This is local HUD layout, not owned/controllable hero count. Missing means unobserved. */
     readonly heroBarLastOccupiedSlot?: number;
     readonly chatbarOpen?: boolean;
+    /** Native in-game menu/dialog owns input. Absent when unavailable; independent of pause and match mode. */
+    readonly menuOpen?: boolean;
     readonly teamColors?: boolean;
 }
 export type OverlayExtensionReservedKey = 'runtime' | 'misc' | 'settings';
@@ -198,7 +200,7 @@ export interface Resources {
     readonly workerSupply?: number;
 }
 export interface PlayerStats {
-    readonly provider: 'bnet' | 'w3champions' | 'netease';
+    readonly provider: 'bnet' | 'w3champions';
     readonly gameMode: '1v1' | '2v2' | '3v3' | '4v4' | 'ffa';
     readonly queue: 'individual' | 'arranged';
     readonly season?: number;

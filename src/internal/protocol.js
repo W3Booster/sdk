@@ -134,7 +134,7 @@ export function validateState(value, clientId, cloneState = true) {
   if (!isPlainObject(state.gameContext) || !Number.isFinite(state.gameContext.hudScale)) {
     throw new ProtocolError('INVALID_STATE', 'Game context must contain a finite hudScale.');
   }
-  validateOptionalFields(state.gameContext, { chatbarOpen: 'boolean', teamColors: 'boolean' }, 'Game context');
+  validateOptionalFields(state.gameContext, { chatbarOpen: 'boolean', menuOpen: 'boolean', teamColors: 'boolean' }, 'Game context');
   const lastHeroSlot = state.gameContext.heroBarLastOccupiedSlot;
   if (lastHeroSlot !== undefined && (!Number.isInteger(lastHeroSlot) || lastHeroSlot < 0 || lastHeroSlot > 32)) {
     throw new ProtocolError('INVALID_STATE', 'Native hero-bar last occupied slot must be an integer from 0 to 32.');
@@ -229,7 +229,7 @@ function validateStatsCollection(stats, playerId) {
   if (stats.observedAt !== undefined && (!Number.isFinite(stats.observedAt) || stats.observedAt < 0)) throw new ProtocolError('INVALID_STATE', 'Invalid stats observation time.');
   if (!Array.isArray(stats.records) || stats.records.length > 128) throw new ProtocolError('INVALID_STATE', 'Stats records must be an array.');
   for (const value of stats.records) {
-    if (!isPlainObject(value) || !['bnet', 'w3champions', 'netease'].includes(value.provider) ||
+    if (!isPlainObject(value) || !['bnet', 'w3champions'].includes(value.provider) ||
         !['1v1', '2v2', '3v3', '4v4', 'ffa'].includes(value.gameMode) || !['individual', 'arranged'].includes(value.queue) ||
         !Number.isInteger(value.wins) || value.wins < 0 || !Number.isInteger(value.losses) || value.losses < 0 || !Number.isFinite(value.winRate)) {
       throw new ProtocolError('INVALID_STATE', `Player ${playerId} stats record is invalid.`);

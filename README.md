@@ -1,5 +1,8 @@
 # @w3booster/sdk
 
+SDK 4.5 uses protocol 4.0. It adds optional native `gameContext.menuOpen` and removes
+the retired Netease stats provider. See [menu observation and provider notes](MENU_STATE.md).
+
 Browser SDK for realtime W3Booster match data in applications and overlays. It handles app authorization, transport selection, reconnects, protocol validation, patches, and immutable hydrated state.
 
 ## In-game mouse interaction

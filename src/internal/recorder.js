@@ -298,6 +298,16 @@ export function applyLocalRecorderUpdates(state, updates) {
       updateMatch('gameTime', Number(update.value));
     } else if (update.class === 'W3ChatbarState') {
       updateContext('chatbarOpen', Number(update.value) === 1);
+    } else if (update.class === 'W3MenuState') {
+      if (update.value === null) {
+        if (next.gameContext.menuOpen !== undefined) {
+          const gameContext = { ...next.gameContext };
+          delete gameContext.menuOpen;
+          next = { ...next, gameContext };
+        }
+      } else if (typeof update.value === 'boolean') {
+        updateContext('menuOpen', update.value);
+      }
     } else if (update.class === 'W3HeroBar') {
       if (update.value === null) {
         if (next.gameContext.heroBarLastOccupiedSlot !== undefined) {
