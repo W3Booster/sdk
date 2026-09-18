@@ -88,7 +88,7 @@ export function interpolateValues(state, entries, times) {
 }
 
 export class GameTimeInterpolator {
-  constructor(onFrame, { now = () => performance.now(), schedule = fn => setTimeout(fn, 50), cancel = clearTimeout } = {}) {
+  constructor(onFrame, { now = () => performance.now(), schedule = fn => setTimeout(fn, 50), cancel = timer => clearTimeout(timer) } = {}) {
     this.onFrame = onFrame; this.now = now; this.schedule = schedule; this.cancel = cancel;
     /** @type {any} */ this.timer = null;
     /** @type {any} */ this.input = null;

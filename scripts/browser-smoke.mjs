@@ -8,7 +8,23 @@ const repository = dirname(fileURLToPath(new URL('../package.json', import.meta.
 const html = `<!doctype html>
 <html><body data-result="pending"><script type="module">
   import { openClient, createClient } from '/src/index.js';
+  import { GameTimeInterpolator } from '/src/internal/interpolation.js';
   try {
+    // Exercise real browser timer receiver rules with a pending frame. Node and
+    // injected test timers accept receivers that Window.clearTimeout rejects.
+    let frames = 0;
+    const interpolation = new GameTimeInterpolator(() => frames++);
+    const running = { match: { id: 'live', status: 'running', gameTime: 10 }, players: [],
+      transport: { interpolation: { source: 'local', entries: [], clock: {
+        sample: 1, times: [10, 10], rates: [1, 1], gameTime: 10, ageMs: 0
+      } } } };
+    interpolation.update(running);
+    if (interpolation.timer === null) throw new Error('regression requires an active timer');
+    interpolation.update({ ...running, match: { ...running.match, id: 'replay' } });
+    interpolation.reset();
+    await new Promise(resolve => setTimeout(resolve, 80));
+    if (frames !== 0 || interpolation.timer !== null) throw new Error('reset left an active interpolation frame');
+
     const unrelated = createClient({ clientId: 'browser_review' });
     if (unrelated.host.available) throw new Error('unrelated top-level page was treated as a host');
 

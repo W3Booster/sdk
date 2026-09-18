@@ -1,5 +1,10 @@
 # Changelog
 
+## 4.5.1 — 2026-09-18
+
+- Fix browser timer cancellation during match changes, local-recorder resets and disconnects. Pending interpolation frames now cancel without an `Illegal invocation` exception in Chromium/Electron.
+- Add a real-browser regression for switching matches with a pending frame and clearing it before disconnect. Public contracts and protocol 4.0 are unchanged.
+
 ## 4.5.0 — 2026-09-18
 
 - Add optional `gameContext.menuOpen` from the native in-game menu observation. Initial state, local recorder updates, invalidation and match resets preserve the signal independently of replay, observer and pause state.
