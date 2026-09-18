@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.4.1 — 2026-09-18
+
+- Prevent brief backward ticks of the displayed game clock during forward-moving heartbeat corrections. Preserve immediate health/progress corrections, real replay seeks, pauses, match resets and reconnects; heartbeat traffic is unchanged.
+
 ## 4.4.0 — 2026-09-18
 
 - Interpolate observed health, mana and active production/building timers from bounded simulation-clock anchors, including replay speed and pause changes. Public numeric fields remain unchanged; reconnects restore authoritative state.

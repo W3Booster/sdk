@@ -1,5 +1,28 @@
 # SDK architecture decisions
 
+## 2026-09-18: Stabilize integer clock presentation across heartbeat corrections
+
+Production observation found three brief backward integer-clock ticks (36–51 ms)
+while server game time continued forward. A new heartbeat can place the precise
+estimate just below a second already displayed by extrapolation. Retain the last
+displayed integer during forward-moving, running observations until the estimate
+catches up. Apply this only to `match.gameTime`; pool/progress calculation and the
+authoritative transport patch baseline must never use the retained display time.
+
+Compare successive observed precise clocks, not the estimated display, to detect
+backward seeks. Clear the hold on any observed rewind or sample-sequence restart,
+pause/zero clock rate, status change, missing clock, match/source change and the
+existing gap/disconnect resets. This allows true corrections and subsecond seeks;
+do not promise monotonic time across these boundaries. Keep the 200 ms wire
+heartbeat, 50 ms projection and one-second freshness bound unchanged.
+
+Deterministic correction and speed-switch regressions fail against SDK 4.4.0 and
+pass with the correction. Tests also cover independent pool/progress correction,
+pause/end, rewind, source/match changes, stale data and real client patch/gap/
+reconnect handling. The synthetic correction durations model the observed flicker;
+they are not a replay of captured precise heartbeat payloads. This change is local
+preparation; publication and consumer deployment require separate authorization.
+
 ## 2026-09-17: Declarative in-game input regions
 
 The optional overlay-input entry owns framework-neutral DOM region tracking and

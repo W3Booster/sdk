@@ -13,6 +13,19 @@ speed, including replay speeds. New observations immediately correct estimates.
 A pause or speed change is detected at the next heartbeat; transport delay still
 applies. The SDK never removes a job or invents completion solely from progress.
 
+The integer `match.gameTime` holds its last displayed second when a forward-moving
+heartbeat corrects an estimate slightly backwards. It advances again when the
+estimate catches up. This avoids a brief `06:35 → 06:34 → 06:35` flicker without
+changing heartbeat frequency. Only the integer clock is held: health, mana and
+progress immediately use the corrected engine times.
+
+This is not a global monotonic clock. An observed precise-clock rewind (even less
+than a second), restarted recorder sample sequence, pause, stopped clock, match
+status/identity change, source change or connection reset clears the hold. Real
+seeks and authoritative pause/end corrections may therefore move the display
+backwards. The existing one-second extrapolation bound still applies; holding a
+display value does not keep stale timers running.
+
 After **one second without a fresh heartbeat**, estimates freeze. Known connection
 errors/gaps stop interpolation immediately; reconnect full snapshots restore
 current anchors. Closed clients cancel their timers. Consumers receive ordinary

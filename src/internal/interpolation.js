@@ -93,16 +93,21 @@ export class GameTimeInterpolator {
     /** @type {any} */ this.timer = null;
     /** @type {any} */ this.input = null;
     /** @type {any} */ this.clock = null;
+    /** @type {number | null} */ this.displayedGameTime = null;
     this.received = 0; this.identity = ''; this.source = '';
   }
   update(raw) {
     const prepared = prepare(raw), incoming = raw.transport?.interpolation?.clock;
     const identity = String(raw.match?.id || ''), source = raw.transport?.interpolation?.source || 'server';
     if (this.identity !== identity || this.source !== source) this.reset();
+    if (this.input?.state.match?.status !== prepared.state.match?.status) this.displayedGameTime = null;
     this.identity = identity; this.source = source; this.input = prepared;
     if (validClock(incoming) && (!this.clock || this.clock.sample !== incoming.sample)) {
+      // Compare observations, not the extrapolated display: a genuine rewind or
+      // restarted recorder must rebase immediately, even within the same second.
+      if (this.clock && (incoming.gameTime < this.clock.gameTime || incoming.sample < this.clock.sample)) this.displayedGameTime = null;
       this.clock = { ...incoming, ageMs: incoming.ageMs || 0 }; this.received = this.now();
-    } else if (!incoming) this.clock = null;
+    } else if (!incoming) { this.clock = null; this.displayedGameTime = null; }
     const state = this.project(); this.start(); return state;
   }
   project() {
@@ -112,7 +117,14 @@ export class GameTimeInterpolator {
     const times = this.clock.times.map((t, i) => t + (state.match?.paused ? 0 : elapsed * this.clock.rates[i]));
     let next = interpolateValues(state, entries, times);
     // Keep the existing integer-second public clock, with no extra wire ticker.
-    const gameTime = Math.floor(this.clock.gameTime + (state.match?.paused ? 0 : elapsed * this.clock.rates[0]));
+    let gameTime = Math.floor(this.clock.gameTime + (state.match?.paused ? 0 : elapsed * this.clock.rates[0]));
+    if (['running', 'starting'].includes(state.match?.status) && !state.match?.paused && this.clock.rates[0] > 0) {
+      // Heartbeat latency/rate corrections can briefly cross a second boundary
+      // backwards. Hold only the integer display; pools and timers above always
+      // use the newly observed engine times. Pauses and stopped clocks rebase.
+      gameTime = Math.max(gameTime, this.displayedGameTime ?? gameTime);
+      this.displayedGameTime = gameTime;
+    } else this.displayedGameTime = null;
     if (['running', 'starting'].includes(state.match?.status) && Number.isFinite(state.match.gameTime) && gameTime !== state.match.gameTime) next = { ...next, match: { ...next.match, gameTime } };
     return next;
   }
@@ -122,5 +134,5 @@ export class GameTimeInterpolator {
     this.timer = this.schedule(() => { this.timer = null; this.onFrame(this.project()); this.start(); });
     this.timer?.unref?.();
   }
-  reset() { if (this.timer !== null) this.cancel(this.timer); this.timer = null; this.input = null; this.clock = null; }
+  reset() { if (this.timer !== null) this.cancel(this.timer); this.timer = null; this.input = null; this.clock = null; this.displayedGameTime = null; }
 }

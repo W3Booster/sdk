@@ -18,6 +18,97 @@ function harness() {
   const interpolator = new GameTimeInterpolator(s => frame = s, { now: () => time, schedule: cb => { callback = cb; return 1; }, cancel: () => callback = undefined });
   return { i: interpolator, advance(ms) { time += ms; const cb = callback; callback = undefined; cb?.(); return frame; }, pending: () => !!callback };
 }
+
+function heartbeat(s, gameTime, sample, rate = 1) {
+  s.match.gameTime = Math.floor(gameTime);
+  s.transport.interpolation.clock = { sample, times: [gameTime, gameTime], rates: [rate, rate], gameTime };
+  return s;
+}
+
+for (const correctionMs of [36, 49, 51]) test(`integer clock holds across a ${correctionMs} ms heartbeat correction; pools and progress rebase`, () => {
+  const h = harness(), s = heartbeat(state(), 10.8, 1);
+  h.i.update(s);
+  assert.equal(h.advance(250).match.gameTime, 11);
+  heartbeat(s, 11 - correctionMs / 1000, 2);
+  // The coarse observation can already be at the next second (as in the live trace).
+  s.match.gameTime = 11;
+  const baseline = structuredClone(s), corrected = h.i.update(s);
+  assert.equal(corrected.match.gameTime, 11);
+  assert.equal(unit(corrected).hitpoints.current, 100 + (s.transport.interpolation.clock.gameTime - 10) * 2);
+  assert.equal(unit(corrected).production.queue[0].remainingSeconds, 100 - (s.transport.interpolation.clock.gameTime - 10));
+  assert.ok(unit(corrected).hitpoints.current < 102.1, 'vitals must not inherit the display hold');
+  assert.equal(h.advance(correctionMs + 1).match.gameTime, 11);
+  assert.deepEqual(s, baseline, 'never modify the transport patch baseline');
+});
+
+test('frequent replay speed changes keep integer seconds stable while pools follow each correction', () => {
+  const h = harness(), s = state(8);
+  h.i.update(heartbeat(s, 10.8, 1, 8));
+  assert.equal(h.advance(100).match.gameTime, 11);
+  let previous = 11;
+  for (const [index, rate] of [4, 2, 8, 4, 2, 1].entries()) {
+    const observed = 10.9 + index * 0.1;
+    const frame = h.i.update(heartbeat(s, observed, index + 2, rate));
+    assert.ok(frame.match.gameTime >= previous);
+    assert.equal(unit(frame).mana.current, 100 + (observed - 10) * 2);
+    const advanced = h.advance(50);
+    assert.ok(advanced.match.gameTime >= frame.match.gameTime);
+    previous = advanced.match.gameTime;
+  }
+  assert.equal(h.i.update(heartbeat(s, 12, 9)).match.gameTime, 12, 'display resumes when observations catch up');
+});
+
+test('backward and forward seeks rebase immediately, including a rewind smaller than one second', () => {
+  const h = harness(), s = state();
+  h.i.update(heartbeat(s, 10.9, 1));
+  assert.equal(h.advance(200).match.gameTime, 11);
+  assert.equal(h.i.update(heartbeat(s, 10.8, 2)).match.gameTime, 10);
+  assert.equal(h.i.update(heartbeat(s, 100, 3)).match.gameTime, 100);
+  assert.equal(h.i.update(heartbeat(s, 5, 4)).match.gameTime, 5);
+  assert.equal(h.advance(1000).match.gameTime, 6);
+});
+
+for (const stop of ['pause', 'zero rate', 'finished']) test(`${stop} accepts the authoritative correction instead of retaining an estimated second`, () => {
+  const h = harness(), s = state();
+  h.i.update(heartbeat(s, 10.8, 1));
+  assert.equal(h.advance(250).match.gameTime, 11);
+  heartbeat(s, 10.9, 2, stop === 'zero rate' ? 0 : 1);
+  if (stop === 'pause') s.match.paused = true;
+  if (stop === 'finished') s.match.status = 'finished';
+  assert.equal(h.i.update(s).match.gameTime, 10);
+  h.advance(50); // Drain an already queued projection; no further ticker is scheduled.
+  assert.equal(h.pending(), false);
+  s.match.paused = false; s.match.status = 'running';
+  assert.equal(h.i.update(heartbeat(s, 10.95, 3)).match.gameTime, 10);
+  assert.equal(h.advance(100).match.gameTime, 11);
+});
+
+for (const reset of ['match', 'source', 'recorder restart', 'disconnect', 'missing clock']) test(`${reset} clears the held display second`, () => {
+  const h = harness(), s = state();
+  h.i.update(heartbeat(s, 10.8, 10));
+  assert.equal(h.advance(250).match.gameTime, 11);
+  if (reset === 'match') s.match.id = 'new-match';
+  if (reset === 'source') s.transport.interpolation.source = 'local';
+  if (reset === 'disconnect') h.i.reset();
+  if (reset === 'missing clock') {
+    delete s.transport.interpolation;
+    assert.equal(h.i.update(s).match.gameTime, 10);
+    s.transport.interpolation = state().transport.interpolation;
+  }
+  assert.equal(h.i.update(heartbeat(s, 10.9, reset === 'recorder restart' ? 1 : 11)).match.gameTime, 10);
+});
+
+test('display hold cannot refresh stale heartbeat extrapolation', () => {
+  const h = harness(), s = state();
+  h.i.update(heartbeat(s, 10.8, 1)); h.advance(250);
+  h.i.update(heartbeat(s, 10.9, 2));
+  assert.equal(h.advance(1000).match.gameTime, 11);
+  assert.equal(h.pending(), false);
+  h.advance(5000);
+  assert.equal(h.i.update(s).match.gameTime, 11);
+  assert.equal(h.pending(), false);
+});
+
 for (const speed of [1, 2, 8]) test(`${speed}x uses simulation time for both pool domains and active production`, () => {
   const h = harness(), input = state(speed), initial = structuredClone(input);
   assert.equal(h.i.update(input).transport, undefined);
@@ -88,6 +179,47 @@ test('local clock metadata uses the matching game and retains the receipt age', 
   const next = applyLocalRecorderUpdates(s, [update]);
   assert.equal(next.transport.interpolation.source, 'local'); assert.ok(next.transport.interpolation.clock.ageMs >= 300);
   assert.equal(applyLocalRecorderUpdates(s, [{ ...update, matchId: 'other' }]).transport?.interpolation, undefined);
+});
+
+for (const recovery of ['gap', 'reconnect']) test(`client ${recovery} snapshot clears the held clock without changing patch baselines`, async () => {
+  const { createClient, PROTOCOL_VERSION } = await import('../src/index.js');
+  let context, resync = 0;
+  const client = createClient({ clientId: 'interpolation_test', localRecorder: false,
+    transport: { name: 'test', open(v) { context = v; }, close() {}, resync() { resync++; } } });
+  try {
+    await client.open();
+    const s = createDemoState({ clientId: 'interpolation_test' });
+    s.match.status = 'running'; s.match.gameTime = 10;
+    s.transport = { recorderUrls: [], interpolation: { clock: {
+      sample: 1, times: [10.8, 10.8], rates: [1, 1], gameTime: 10.8, ageMs: 250
+    }, entries: [] } };
+    const send = (sequence, type, data) => context.onMessage({ version: PROTOCOL_VERSION, sequence, type, data });
+    send(1, 'state.snapshot', s);
+    assert.equal(client.state.get().match.gameTime, 11);
+    const clock = { sample: 2, times: [10.9, 10.9], rates: [1, 1], gameTime: 10.9, ageMs: 0 };
+    send(2, 'state.patch', [{ op: 'replace', path: '/transport/interpolation/clock', value: clock }]);
+    assert.equal(client.state.get().match.gameTime, 11);
+    // Removing interpolation exposes the retained authoritative integer baseline.
+    send(3, 'state.patch', [{ op: 'remove', path: '/transport/interpolation' }]);
+    assert.equal(client.state.get().match.gameTime, 10);
+    send(4, 'state.patch', [{ op: 'add', path: '/transport/interpolation', value: s.transport.interpolation }]);
+    send(5, 'state.patch', [{ op: 'replace', path: '/transport/interpolation/clock', value: clock }]);
+    assert.equal(client.state.get().match.gameTime, 11);
+    assert.equal(resync, 0);
+    if (recovery === 'gap') {
+      send(7, 'state.patch', []);
+      assert.equal(resync, 1);
+    } else {
+      context.onStatus('reconnecting');
+      context.onStatus('connected');
+    }
+    s.transport.interpolation.clock = clock;
+    send(recovery === 'gap' ? 8 : 1, 'state.snapshot', s);
+    assert.equal(client.state.get().match.gameTime, 10);
+    assert.equal(client.state.isSynchronized, true);
+  } finally {
+    await client.disconnect();
+  }
 });
 
 test('real client keeps patch baselines authoritative and freezes on gaps and disconnects', async () => {
