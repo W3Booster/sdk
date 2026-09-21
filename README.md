@@ -1,33 +1,24 @@
 # @w3booster/sdk
 
-SDK 4.5 uses protocol 4.0. It adds optional native `gameContext.menuOpen` and removes
-the retired Netease stats provider. See [menu observation and provider notes](MENU_STATE.md).
+SDK **4.6.0** uses protocol **4.0**. Build with cumulative player statistics, economy history, rolling loss windows and configurable setting shortcuts. Optional state additions stay forward-compatible. See [what changed](CHANGELOG.md) and the [compatibility policy](COMPATIBILITY.md).
 
 Browser SDK for realtime W3Booster match data in applications and overlays. It handles app authorization, transport selection, reconnects, protocol validation, patches, and immutable hydrated state.
 
-## In-game mouse interaction
+## Find the right guide
 
-Mark UI containers with `w3-interactive`. The optional input bridge supports
-block/conditional routing, live region updates and pointer-based dragging.
-See [the overlay input guide](OVERLAY_INPUT.md) for host requirements, examples
-and hang behavior. Requires SDK 4.4 and the matching desktop host/compositor release.
+| Build | Start here |
+| --- | --- |
+| Your first working app | [Starter tutorial](https://w3booster.com/developer/first-app/) |
+| Economy graphs, item events and loss comparisons | [Analytics](ANALYTICS.md) |
+| Understand available fields and self-play limits | [Data availability](https://w3booster.com/developer/data-availability/) |
+| User settings and desktop shortcuts | [Settings guide](https://w3booster.com/developer/settings/) |
+| Smooth health, mana and progress | [Interpolation](INTERPOLATION.md) |
+| Interactive in-game regions | [Overlay input](OVERLAY_INPUT.md) |
+| Match-specific names, costs and icons | [Catalogs](GAME_DATA.md) |
+| Update an existing app | [Upgrade guide](https://w3booster.com/developer/upgrading/) |
+| Look up a type or method | [Generated reference](https://w3booster.com/developer/api/) |
 
 ## Quick start
-
-### Neutral map points of interest (SDK 4.3)
-
-Applications granted `match:read` and `pois:read` can read `state.pois` or use
-`pointsOfInterest(state, { kind: 'goblin-merchant' })` from
-`@w3booster/sdk/selectors`. Entries contain building positions and optional offers,
-stock and timing data when supplied by the recorder. Missing fields mean unknown.
-
-In self-play, `state.poiMode === 'initial'`: building locations and starting
-inventories are captured once at game start, without visibility filtering, and
-never updated during the match. Do not advance their timers. Observer/replay
-snapshots may use `poiMode === 'live'`. If the game-start capture was missed, the
-initial collection is unavailable. Catalog sale lists and stock defaults describe
-standard object configuration, not current inventory or custom-map overrides.
-See the [SDK 4.3 guide](https://w3booster.com/developer/sdk-4-3/) for native coverage, stock timers and examples.
 
 ### Create an application
 
@@ -86,7 +77,7 @@ Set `interval: 0` for a static deterministic fixture, or pass `state` to replace
 
 For real data during development, run the app on localhost and use **Apps → Developer → My apps → Test locally**. The temporary session supplies real credentials and replaces only your app surfaces. Application code remains unchanged.
 
-See the [guides](https://w3booster.com/developer/guides/), [searchable API reference](https://w3booster.com/developer/api/), and [troubleshooting guide](https://w3booster.com/developer/troubleshooting/). Documentation is hosted at `w3booster.com` during prerelease.
+See the [guides](https://w3booster.com/developer/guides/), [searchable API reference](https://w3booster.com/developer/api/), and [troubleshooting guide](https://w3booster.com/developer/troubleshooting/). Documentation and generated API references describe the published SDK release.
 
 W3Booster reserves the URL fragment for its short-lived launch credential; opening a client consumes it and cleans the visible address. Use normal History API paths or query parameters for application routing instead of hash routing.
 
@@ -313,6 +304,26 @@ const saved = await client.host.setSetting('observer.layout', 'wide');
 ```
 
 The event's `settings` and `previousSettings` values can be `undefined` when application state is added or removed. Hydrated state and settings are recursively read-only in TypeScript because the SDK freezes delivered state at runtime.
+
+### Default settings shortcuts
+
+The Windows desktop can toggle a public boolean setting with a global shortcut.
+In the developer settings editor, set **Default shortcut**, or include the optional
+`defaultHotkey` in that field's schema:
+
+```json
+{ "key": "showPanel", "label": "Show panel", "type": "boolean", "default": true,
+  "group": "layout", "defaultHotkey": "Control+Alt+H" }
+```
+
+Use canonical `Control`, `Alt`, `Shift` order followed by a letter, digit or
+F1–F24; F12 is reserved. Letters and digits require Control or Alt. Defaults must
+be unique within your app and cannot belong to internal fields. Users can change,
+clear or restore defaults. The desktop resolves conflicts across apps and reports
+keys unavailable at the OS level. Your app receives ordinary settings changes;
+it does not register keyboard listeners or receive other apps' key events.
+This metadata requires a desktop/API release that supports settings hotkeys.
+
 
 ## Errors and troubleshooting
 
@@ -887,3 +898,30 @@ See the [SDK 4.2 guide](https://w3booster.com/developer/sdk-4-2/) for access and
 lifecycle details, checked examples and the changes since the SDK 3 announcement.
 
 Health, mana and known active progress values can now advance between observations using the engine clock. See [interpolation behavior](./INTERPOLATION.md) for heartbeat frequency, stale-stream handling and coordinated release requirements.
+
+Observer/replay consumers can use explicit participant outcomes, cumulative item
+and economy counters, and bounded loss windows through the optional
+[`@w3booster/sdk/analytics` entry](ANALYTICS.md). Requires the corresponding recorder
+and platform version; unavailable observations remain absent.
+
+## In-game mouse interaction
+
+Mark UI containers with `w3-interactive`. The optional input bridge supports
+block/conditional routing, live region updates and pointer-based dragging.
+See [the overlay input guide](OVERLAY_INPUT.md) for host requirements, examples
+and hang behavior. Requires SDK 4.4 and the matching desktop host/compositor release.
+
+## Neutral map points of interest
+
+Applications granted `match:read` and `pois:read` can read `state.pois` or use
+`pointsOfInterest(state, { kind: 'goblin-merchant' })` from
+`@w3booster/sdk/selectors`. Entries contain building positions and optional offers,
+stock and timing data when supplied by the recorder. Missing fields mean unknown.
+
+In self-play, `state.poiMode === 'initial'`: building locations and starting
+inventories are captured once at game start, without visibility filtering, and
+never updated during the match. Do not advance their timers. Observer/replay
+snapshots may use `poiMode === 'live'`. If the game-start capture was missed, the
+initial collection is unavailable. Catalog sale lists and stock defaults describe
+standard object configuration, not current inventory or custom-map overrides.
+See the [SDK 4.3 guide](https://w3booster.com/developer/sdk-4-3/) for native coverage, stock timers and examples.

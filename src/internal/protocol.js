@@ -1,3 +1,4 @@
+import { validPlayerStatistics, validPlayerLosses, validMatchOutcomes } from './analytics-state.js';
 import { validInterpolation } from './interpolation.js';
 import { validPoiCollection, validInitialPoiCollection } from './poi-state.js';
 import { UNIT_COLLECTIONS, isInstanceId, isTypeId, validPool, validCombat, validTimedProgress, validQueue, validInventoryCooldowns, validInventoryCharges } from './unit-state.js';
@@ -58,7 +59,7 @@ export function validateState(value, clientId, cloneState = true) {
     throw new ProtocolError('INVALID_STATE', 'An active or completed match must have a non-empty ID.');
   }
   validateOptionalFields(state.match, {
-    gameDataId: 'string', gameVersion: 'string', map: 'string', realm: 'string', paused: 'boolean', isReplay: 'boolean', isReforged: 'boolean', isObserver: 'boolean',
+    gameName: 'string', gameDataId: 'string', gameVersion: 'string', map: 'string', realm: 'string', paused: 'boolean', isReplay: 'boolean', isReforged: 'boolean', isObserver: 'boolean',
     broadcasterPlayerId: 'string', realBroadcasterPlayerId: 'string', startedAt: 'string', endedAt: 'string'
   }, 'State match');
   if (state.match.startedAt !== undefined && !isIsoTimestamp(state.match.startedAt)) {
@@ -67,6 +68,7 @@ export function validateState(value, clientId, cloneState = true) {
   if (state.match.endedAt !== undefined && !isIsoTimestamp(state.match.endedAt)) {
     throw new ProtocolError('INVALID_STATE', 'State match endedAt must be an ISO-8601 timestamp.');
   }
+  if (state.match.outcomes !== undefined && !validMatchOutcomes(state.match.outcomes)) throw new ProtocolError('INVALID_STATE', 'Invalid match outcomes.');
   if (state.match.result !== undefined && (!isPlainObject(state.match.result) ||
       typeof state.match.result.playerId !== 'string' || !state.match.result.playerId.trim() ||
       !['won', 'lost'].includes(state.match.result.outcome))) {
@@ -191,6 +193,8 @@ function validatePlayer(player, id) {
   }
   if (player.startPosition !== undefined) validatePoint(player.startPosition, `Player ${id} startPosition`);
   if (player.apm !== undefined && (!Number.isSafeInteger(player.apm) || player.apm < 0)) throw new ProtocolError('INVALID_STATE', `Player ${id} apm must be a nonnegative integer.`);
+  if (player.statistics !== undefined && !validPlayerStatistics(player.statistics)) throw new ProtocolError('INVALID_STATE', 'Invalid observer statistics.');
+  if (player.losses !== undefined && !validPlayerLosses(player.losses)) throw new ProtocolError('INVALID_STATE', 'Invalid player losses.');
   if (player.resources !== undefined) validateResources(player.resources, id);
   if (player.controlgroups !== undefined) validateControlGroups(player.controlgroups, id);
   if (player.stats !== undefined) validateStatsCollection(player.stats, id);

@@ -58,7 +58,7 @@ supported browser matrix remain part of the current contract.
 
 An app can keep its installed SDK version when the API adds optional attributes
 to state objects, including nested match, player, hero, resource, game-context,
-and application data. The SDK validates fields it knows and preserves other safe
+application data, POIs, shop offers, stock and nested timers. The SDK validates fields it knows and preserves other safe
 JSON fields in immutable snapshots. It does not interpret those new fields.
 Preservation is intentional: later patches can replace or remove an attribute
 that the installed SDK does not know. Private `transport` metadata stays hidden.
@@ -100,3 +100,13 @@ the public client. These tests run in the normal SDK test suite.
 The SDK remains framework-neutral and supports the browser versions declared in
 `package.json`. Test runtime contracts, declarations, packed consumers, and browser
 execution before publishing. A local link is not evidence of a registry release.
+
+### SDK 4.6 transition
+
+The POI validator in SDK 4.5.1 and earlier rejected unknown attributes. Upgrade
+POI consumers to 4.6 for `ownerSlot` and the expanded recorder data. The 4.6 fix
+preserves safe optional attributes through cloud snapshots/patches and local
+recorder live/frozen POIs. Regression tests now cover these paths. This fixes a
+violation of the additive policy; it does not make older installed bundles tolerant.
+Protocol remains 4.0. New typed analytics helpers require 4.6, but future optional
+state additions do not require existing 4.6 applications to regenerate bindings.

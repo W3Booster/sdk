@@ -8,6 +8,8 @@ interface FieldBase<TSettings extends object, TPath extends SettingsPath<TSettin
   readonly label: string;
   readonly type: SettingsPathValue<TSettings, TPath> extends boolean ? 'boolean' | 'select' : SettingsPathValue<TSettings, TPath> extends number ? 'number' | 'select' : 'text' | 'country' | 'select';
   readonly default?: SettingsPathValue<TSettings, TPath>;
+  /** Suggested Windows shortcut for a public boolean setting. User overrides win. */
+  readonly defaultHotkey?: string;
   readonly description?: string;
   readonly options?: readonly AppSettingOption<Extract<SettingsPathValue<TSettings, TPath>, JsonValue>>[];
   readonly requiresPlan?: 'pro';

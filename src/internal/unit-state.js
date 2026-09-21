@@ -53,7 +53,7 @@ export const validInventoryCooldowns = (value, inventory) => Array.isArray(value
   value.length === inventory.length && value.length <= 6 && value.every((cooldown, slot) =>
     cooldown === null || !!inventory[slot] && validTimedProgress(cooldown));
 export const validQueue = value => Array.isArray(value) && value.length <= 16 && value.every((item, index) =>
-  validTimedProgress(item) && item.position === index && isTypeId(item.typeId) &&
+  validTimedProgress(item) && (item.buildType === undefined || ['research', 'unit', 'reviving'].includes(item.buildType)) && item.position === index && isTypeId(item.typeId) &&
   (index === 0 || item.timing === undefined && item.remainingSeconds === null && item.totalSeconds === null));
 export function healthCollection(update) {
   return /^[A-Z]/.test(update.typeId) ? 'heroes' : update.targetFlags & 8 ? 'buildings' : 'units';
@@ -91,7 +91,7 @@ export function applyUnitObservation(player, update, capabilities) {
   if (!update.removed) unit.isIllusion = update.isIllusion;
   if (update.class === 'W3ProductionQueue') {
     if (update.removed) delete unit.production;
-    else unit.production = { queue: update.queue.map(item => ({ position: item.position, typeId: item.typeId, ...timedProgress(item) })) };
+    else unit.production = { queue: update.queue.map(item => ({ position: item.position, typeId: item.typeId, ...(item.buildType === undefined ? {} : { buildType: item.buildType }), ...timedProgress(item) })) };
   } else if (update.class === 'W3UnitHealth') {
     if (update.removed) { delete unit.combat; delete unit.hitpoints; delete unit.mana; delete unit.position; delete unit.construction; delete unit.upgrade; }
     else {

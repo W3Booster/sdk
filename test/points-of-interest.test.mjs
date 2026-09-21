@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { extendedPois } from './fixtures/poi-additions.js';
 import assert from 'node:assert/strict';
 import { validPoiCollection } from '../src/internal/poi-state.js';
 import { applyLocalRecorderUpdates } from '../src/internal/recorder.js';
@@ -41,7 +42,7 @@ test('invalid observations cannot replace good data', () => {
     const c = collection(); c[poi().id].offers[0].restock = { ...timer, remainingSeconds }; invalid.push(c);
   }
   const duplicate = collection(); duplicate[poi().id].offers.push(duplicate[poi().id].offers[0]); invalid.push(duplicate);
-  const privateFields = collection(); privateFields[poi().id].address = 1234; invalid.push(privateFields);
+  const badOwner = collection(); badOwner[poi().id].ownerSlot = 28; invalid.push(badOwner);
   for (const c of invalid) {
     assert.equal(validPoiCollection(c), false);
     if (c !== null) assert.equal(applyLocalRecorderUpdates(s, [update(c)]), s);
@@ -90,4 +91,20 @@ test('self-play freezes the initial snapshot, including removals, timers and lat
   validateState(inventorySnapshot); assert.equal(inventorySnapshot.pois[p.id].offers[0].stock.current, 1);
   assert.equal(applyLocalRecorderUpdates(inventorySnapshot, [update(collection())]), inventorySnapshot);
   assert.equal(applyLocalRecorderUpdates(self, [{ ...initial, matchId: 'other' }]), self);
+});
+
+
+test('local recorder accepts nested additions in live and frozen initial POIs', () => {
+  for (const mode of ['live', 'initial']) {
+    const before = state(); before.match.isReplay = mode === 'live';
+    const pois = extendedPois();
+    const next = applyLocalRecorderUpdates(before, [{ ...update(pois), mode, gameTime: 0 }]);
+    assert.deepEqual(next.pois, pois);
+    validateState(next);
+    const malformed = structuredClone(pois); malformed.shop.offers[0].stock.current = -1;
+    assert.equal(validPoiCollection(malformed), false);
+    assert.equal(applyLocalRecorderUpdates(next, [{ ...update(malformed), mode, gameTime: 0 }]), next);
+    const unsafe = structuredClone(next); unsafe.pois.shop.futureAttribute = JSON.parse('{"__proto__":{"polluted":true}}');
+    assert.throws(() => validateState(unsafe), /Unsafe object key/);
+  }
 });

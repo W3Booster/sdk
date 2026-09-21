@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { extendedPois } from './fixtures/poi-additions.js';
 import { createClient } from '../src/index.js';
 
 const snapshot = () => ({
@@ -134,4 +135,27 @@ test('a new protocol major still requires an explicit SDK migration', async t =>
   assert.equal(connection.client.state.get(), null);
   assert.equal(connection.client.status, 'error');
   assert.equal(connection.issues[0].error.code, 'UNSUPPORTED_PROTOCOL');
+});
+
+
+test('future POI fields survive snapshots and nested patches without resync', async t => {
+  const connection = await stream(t);
+  const input = { ...snapshot(), capabilities: ['match', 'pois'], poiMode: 'live', pois: extendedPois() };
+  input.match.isObserver = true;
+  connection.send('state.snapshot', input);
+  assert.deepEqual(connection.client.state.get().pois, input.pois);
+  assert.ok(Object.isFrozen(connection.client.state.get().pois.shop.offers[0].stock.futureAttribute));
+  connection.send('state.patch', [
+    { op: 'replace', path: '/pois/shop/offers/0/stock/futureAttribute/nested/0', value: 2 },
+    { op: 'add', path: '/pois/camp/camp/futureBranch', value: { enabled: true } },
+    { op: 'remove', path: '/pois/mine/mine/futureAttribute' }
+  ]);
+  const next = connection.client.state.get();
+  assert.equal(next.pois.shop.offers[0].stock.futureAttribute.nested[0], 2);
+  assert.equal(next.pois.camp.camp.futureBranch.enabled, true);
+  assert.equal(next.pois.mine.mine.futureAttribute, undefined);
+  assert.equal(input.pois.shop.offers[0].stock.futureAttribute.nested[0], 1);
+  assert.equal(connection.client.lifecycle.get().isSynchronized, true);
+  assert.deepEqual(connection.issues, []);
+  assert.equal(connection.resyncs, 0);
 });

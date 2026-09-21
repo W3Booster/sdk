@@ -1,3 +1,4 @@
+import { validPlayerStatistics, validPlayerLosses, validMatchOutcomes } from './analytics-state.js';
 import { validClock } from './interpolation.js';
 import { validPoiCollection, validInitialPoiCollection } from './poi-state.js';
 import { UNIT_COLLECTIONS, validUnitUpdate, applyUnitObservation, healthCollection } from './unit-state.js';
@@ -241,6 +242,7 @@ function updateMatchesMatch(update, matchId) {
 function localUpdateKey(update) {
   const playerId = localUpdatePlayerId(update);
   if (update.class === 'W3Resource') return `${update.class}:${playerId}:${String(update.type)}`;
+  if (['W3PlayerStatistics', 'W3PlayerLosses'].includes(update.class)) return `${update.class}:${playerId}`;
   if (update.class === 'W3PlayerMetrics') return `${update.class}:${playerId}`;
   if (update.class === 'W3Player') return `${update.class}:${playerId}`;
   if (['W3Unit', 'W3UnitHealth', 'W3ProductionQueue'].includes(update.class)) return `${update.class}:${String(update.id)}`;
@@ -276,7 +278,50 @@ export function applyLocalRecorderUpdates(state, updates) {
 
   for (const update of updates || []) {
     if (!isPlainObject(update) || !updateMatchesMatch(update, next.match?.id)) continue;
-    if (update.class === 'W3PointsOfInterest') {
+    if (['W3PlayerStatistics', 'W3PlayerLosses', 'W3MatchOutcomes'].includes(update.class)) {
+      if (String(update.matchId) !== String(next.match.id)) continue;
+      if (update.class === 'W3MatchOutcomes') {
+        if (hasCapability(next, 'match') && validMatchOutcomes(update.outcomes)) updateMatch('outcomes', Object.fromEntries(Object.entries(update.outcomes).filter(([id]) =>
+          isObserverOrReplayMatch(next.match) || id === next.match.realBroadcasterPlayerId)));
+        continue;
+      }
+      if (!isObserverOrReplayMatch(next.match) && String(localUpdatePlayerId(update)) !== next.match.realBroadcasterPlayerId) continue;
+      const isLoss = update.class === 'W3PlayerLosses';
+      const value = isLoss ? update.losses : update.statistics;
+      const key = isLoss ? 'losses' : 'statistics';
+      if (value !== null && !(isLoss ? validPlayerLosses(value) : validPlayerStatistics(value))) continue;
+      const first = hasCapability(next, isLoss ? 'units' : 'resources');
+      const second = hasCapability(next, isLoss ? 'buildings' : 'heroes');
+      updatePlayer(localUpdatePlayerId(update), player => {
+        const updated = { ...player };
+        if (value === null || !first && !second && (isLoss || !hasCapability(next, 'units'))) delete updated[key];
+        else updated[key] = structuredCloneSafe(isLoss ? {
+          gameTime: value.gameTime, complete: value.complete,
+          ...(first && value.units !== undefined ? { units: value.units } : {}),
+          ...(second && value.buildings !== undefined ? { buildings: value.buildings } : {})
+        } : {
+          gameTime: value.gameTime,
+          ...(first && value.handicapPercent !== undefined ? { handicapPercent: value.handicapPercent } : {}),
+          ...(first && value.racePreference !== undefined ? { racePreference: value.racePreference } : {}),
+          ...(first && value.playerRace !== undefined ? { playerRace: value.playerRace } : {}),
+          ...(first && value.realTimeApm !== undefined ? { realTimeApm: value.realTimeApm } : {}),
+          ...(first && value.slotState !== undefined ? { slotState: value.slotState } : {}),
+          ...(first && value.aiDifficulty !== undefined ? { aiDifficulty: value.aiDifficulty } : {}),
+          ...(first && value.timeInUpkeepMs !== undefined ? { timeInUpkeepMs: value.timeInUpkeepMs } : {}),
+          ...(first && value.goldMined !== undefined ? { goldMined: value.goldMined } : {}),
+          ...(first && value.goldCredited !== undefined ? { goldCredited: value.goldCredited } : {}),
+          ...(first && value.goldDiversionTax !== undefined ? { goldDiversionTax: value.goldDiversionTax } : {}),
+          ...(first && value.lumberCredited !== undefined ? { lumberCredited: value.lumberCredited } : {}),
+          ...(first && value.lumberUpkeepLost !== undefined ? { lumberUpkeepLost: value.lumberUpkeepLost } : {}),
+          ...(first && value.lumberDiversionTax !== undefined ? { lumberDiversionTax: value.lumberDiversionTax } : {}),
+          ...(first && value.goldUpkeepLost !== undefined ? { goldUpkeepLost: value.goldUpkeepLost } : {}),
+          ...(second && value.items !== undefined ? { items: value.items } : {}),
+          ...(second && value.heroes !== undefined ? { heroes: value.heroes } : {}),
+          ...(hasCapability(next, 'units') && value.units !== undefined ? { units: value.units } : {})
+        });
+        return deepEqual(player, updated) ? player : updated;
+      });
+    } else if (update.class === 'W3PointsOfInterest') {
       if (update.matchId == null || String(update.matchId) !== next.match?.id || !hasCapability(next, 'pois')) continue;
       const observer = isObserverOrReplayMatch(next.match);
       if (!observer) {

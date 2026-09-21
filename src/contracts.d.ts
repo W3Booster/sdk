@@ -156,7 +156,89 @@ export interface MatchState<TSettings extends object = JsonObject, TOverlayExten
     readonly overlay?: OverlayState<TOverlayExtensions>;
     readonly application?: ApplicationState<TSettings>;
 }
+/** Cumulative engine player counters (own player in self-play). Missing is unavailable, never zero. */
+export interface PlayerStatistics {
+    /** Native handicap multiplier expressed as a percentage (100 = normal). */
+    readonly handicapPercent?: number;
+    /** Native lobby preference bit flags, and the actual native race enum. */
+    readonly racePreference?: number;
+    readonly playerRace?: number;
+    readonly gameTime: number;
+    readonly realTimeApm?: number;
+    readonly slotState?: 0 | 1 | 2;
+    readonly aiDifficulty?: 0 | 1 | 2;
+    /** Ten native upkeep-tier durations in milliseconds; engine clock semantics. */
+    readonly timeInUpkeepMs?: ReadonlyArray<number>;
+    readonly goldMined?: number;
+    readonly goldUpkeepLost?: number;
+    readonly goldCredited?: number;
+    readonly goldDiversionTax?: number;
+    readonly lumberCredited?: number;
+    readonly lumberUpkeepLost?: number;
+    readonly lumberDiversionTax?: number;
+    readonly items?: Readonly<Record<string, ItemStatistics>>;
+    /** Full hero instance IDs, scoped with heroes:read. */
+    readonly heroes?: Readonly<Record<string, HeroStatistics>>;
+    /** Nonhero, nonbuilding types, scoped with units:read. */
+    readonly units?: Readonly<Record<string, UnitTypeStatistics>>;
+}
+export interface AbilityStatistics {
+    readonly level?: number;
+    readonly isHeroAbility?: boolean;
+    /** Observed active engine timer; omitted when unavailable or inactive. */
+    readonly cooldown?: TimedProgress;
+    readonly damageDealt: number;
+    readonly healingDone: number;
+}
+export interface HeroStatistics {
+    readonly typeId: string;
+    readonly level?: number;
+    readonly nextLevelExperience?: number;
+    readonly deaths: number;
+    readonly totalKills: number;
+    readonly heroKills: number;
+    readonly selfKills: number;
+    readonly buildingKills: number;
+    /** Engine wall-clock milliseconds alive, including replay pauses. Not match time. */
+    readonly timeAliveMs: number;
+    readonly abilities?: Readonly<Record<string, AbilityStatistics>>;
+}
+export interface UnitTypeStatistics {
+    readonly currentAmount: number;
+    /** Objects retained by the engine, including corpses; not lifetime units trained. */
+    readonly totalAmount: number;
+    readonly isPeon: boolean;
+    /** At least one retained unit passes Warcraft's functional-worker predicate. */
+    readonly isFunctionalPeon: boolean;
+    /** Sum across retained instances; can decrease when corpses disappear. */
+    readonly damageDealt: number;
+    readonly damageReceived: number;
+    readonly healingDone: number;
+}
+export interface ItemStatistics {
+    readonly collected: number;
+    readonly purchased: number;
+    readonly sold: number;
+    readonly used: number;
+    /** Includes removal after consuming the last charge; not an additional item loss. */
+    readonly destroyed: number;
+    readonly damageDealt?: number;
+    readonly healingDone?: number;
+}
+/** Cumulative sampled deaths, excluding heroes and illusions. Disappearance is not death. */
+export interface PlayerLosses {
+    readonly gameTime: number;
+    readonly units?: Readonly<Record<string, number>>;
+    readonly buildings?: Readonly<Record<string, number>>;
+    /** False when deaths may be missed between recorder samples or before attachment. */
+    readonly complete: boolean;
+}
+export type MatchOutcomes = Readonly<Record<string, 'won' | 'lost' | 'draw'>>;
 export interface Match {
+    /** Observed lobby name; omitted when unavailable. */
+    readonly gameName?: string;
+    /** Explicit participant results. Self-play is restricted to the local player; observer/replay results may be partial. */
+    readonly outcomes?: MatchOutcomes;
     /** Exact generated catalog/artwork revision of the recorder. Absent when unavailable. */
     readonly gameDataId?: string;
     readonly gameVersion?: string;
@@ -363,6 +445,8 @@ export interface PoiOffer {
     }>>;
 }
 export interface PointOfInterest {
+    /** Native owner slot, including neutral slots 24–27; frozen in self-play. */
+    readonly ownerSlot?: number;
     readonly id: string;
     readonly kind: PointOfInterestKind;
     /** Absent on aggregate creep camps. */
@@ -414,6 +498,8 @@ export interface PointOfInterest {
     };
 }
 export interface ProductionQueueItem extends TimedProgress {
+    /** Observed queue kind; absent when its native reference/category is unavailable. */
+    readonly buildType?: 'research' | 'unit' | 'reviving';
     /** Snapshot position, not a persistent job identity. */
     readonly position: number;
     readonly typeId: string;
@@ -447,6 +533,8 @@ export interface UpgradeState {
     readonly researching: readonly ResearchingUpgrade[];
 }
 export interface Player {
+    readonly statistics?: PlayerStatistics;
+    readonly losses?: PlayerLosses;
     readonly id: string;
     readonly name?: string;
     readonly race?: Race;

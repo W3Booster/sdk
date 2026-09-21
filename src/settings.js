@@ -12,6 +12,7 @@ export function validateSettingsSchema(schema) {
   if (schema.version !== 1) fail('version must be 1');
   if (!Array.isArray(schema.sections)) fail('sections must be an array');
   const fields = new Map();
+  const defaultHotkeys = new Set();
   const sectionIds = new Set();
   for (const section of schema.sections) {
     assertObject(section, 'section');
@@ -30,6 +31,10 @@ export function validateSettingsSchema(schema) {
     }
     for (const field of section.fields) {
       validateField(field, section.id, groups);
+      if (field.defaultHotkey) {
+        if (defaultHotkeys.has(field.defaultHotkey)) fail(`duplicate default hotkey ${field.defaultHotkey}`);
+        defaultHotkeys.add(field.defaultHotkey);
+      }
       if (fields.has(field.key)) fail(`duplicate setting ${field.key}`);
       fields.set(field.key, field);
     }
@@ -150,6 +155,12 @@ function validateField(field, sectionId, groups) {
   if (!SETTING_TYPES.has(field.type)) fail(`${field.key} has unknown type ${String(field.type)}`);
   if (!field.internal && (!field.group || !groups.has(field.group))) fail(`${field.key} must reference a group in ${sectionId}`);
   if (field.default !== undefined) assertSettingValue(field, field.default, 'default');
+  if (field.defaultHotkey !== undefined && field.defaultHotkey !== '') {
+    const match = typeof field.defaultHotkey === 'string'
+      ? /^(Control\+)?(Alt\+)?(Shift\+)?([A-Z0-9]|F(?:[1-9]|1[0-9]|2[0-4]))$/.exec(field.defaultHotkey) : null;
+    if (field.type !== 'boolean' || field.internal === true || !match || match[4] === 'F12' ||
+        (!match[1] && !match[2] && !/^F\d+$/.test(match[4]))) fail(`${field.key} has an invalid default hotkey`);
+  }
   if (field.type === 'select') {
     if (!Array.isArray(field.options) || !field.options.length) fail(`${field.key} options must not be empty`);
     for (const option of field.options) {

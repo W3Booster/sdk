@@ -690,3 +690,57 @@ The provider union still narrows; do not restore obsolete support or describe
 that removal as additive. The menu observation is additive and protocol remains
 4.0. Registry pins change only after publication; packed candidates validate
 integration locally. Nothing was published under the proposed SDK 5 version.
+
+
+## 2026-09-20: Default hotkeys are optional settings metadata
+
+Public boolean fields may declare `defaultHotkey` using the Windows desktop's
+canonical accelerator subset. The directly authored settings entry validates and
+preserves this metadata, rejects duplicate defaults within a schema, and keeps it
+out of generated user setting values. Desktop/API validation matches the SDK.
+User overrides, OS registration, permissions, global conflict resolution and UI
+remain platform responsibilities. No browser keyboard listener or dynamic
+hotkey-registration API belongs in the SDK. This is an additive, unreleased
+contract; it does not change settings delivery or native Warcraft state.
+
+## 2026-09-20: Observer outcomes and optional match analytics history
+
+The caster requirements add `Match.outcomes` without changing the meaning of
+local-player `Match.result`. Outcomes are explicit per-participant observations;
+unknown/partial results and replay exits never imply a winner. Optional per-player
+observer statistics and sampled death counters use the existing independent data
+grants. Both hosted and local-recorder projections enforce the same policy.
+
+The optional generated `analytics` entry supplies bounded game-time history and
+loss-window aggregation without frameworks, timers, transport or persistence.
+Counter deltas carry observation intervals; late joins/gaps do not fabricate past
+events. Coverage, sampled completeness and window-boundary uncertainty are separate.
+Static costs require the match-pinned catalog; unknown values stay null and sales
+require an explicit refund policy. UI and scoreboard deduplication stay app-owned.
+See ANALYTICS.md. These additions are prepared locally, not published.
+
+
+Player analytics extend to the actual local player in self-play, under existing
+grants; observer/replay access retains participant scope. Preserve native and
+catalog semantics: retained unit instances are not lifetime production, wall-clock
+hero age is not match time, and static definitions do not assert custom-map
+runtime values. The optional analytics entry owns bounded history and window
+estimation; applications own presentation and persistence.
+
+
+## 2026-09-21: Optional data additions must preserve SDK compatibility
+
+The user explicitly accepts the current ownerSlot transition and requires future
+optional attributes to remain compatible with installed SDKs. Validate known
+fields, required structure, bounds, identities and permissions; do not reject a
+valid gameplay object merely because it contains additional JSON fields. This
+applies to nested objects as well as top-level state and includes the datamodel
+validator shared by hosted and local-recorder delivery.
+
+Preserve unknown public fields through snapshots and patches without interpreting
+them, so subsequent patch paths remain valid. POI field allowlists must not act
+as closed schemas. Existing JSON safety checks, private transport projection and
+self-play restrictions still apply. This rule concerns added optional fields;
+changing required fields, existing meanings/types or closed enum values requires
+an explicit compatibility decision. Regression tests must exercise unknown
+nested fields, subsequent patches and malformed known fields together.

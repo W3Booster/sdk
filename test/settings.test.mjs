@@ -84,3 +84,22 @@ test('database definitions generate a canonical plain ESM binding for JavaScript
     /format must be typescript or javascript/
   );
 });
+
+test('default hotkeys are public boolean metadata, not user settings, and must be unique', () => {
+  const make = () => {
+    const value = structuredClone(schema);
+    value.sections[0].fields[0].defaultHotkey = 'Control+Alt+H';
+    return value;
+  };
+  const validated = validateSettingsSchema(make());
+  assert.equal(validated.sections[0].fields[0].defaultHotkey, 'Control+Alt+H');
+  assert.deepEqual(settingsDefaults(validated), { display: { enabled: true, position: 'left' } });
+  for (const patch of [{ type: 'text', default: '' }, { internal: true }, { defaultHotkey: 'H' },
+    { defaultHotkey: 'Shift+H' }, { defaultHotkey: 'F12' }, { defaultHotkey: 'Control+F12' },
+    { defaultHotkey: 'Alt+Control+H' }, { defaultHotkey: 'F25' }, { defaultHotkey: null }]) {
+    const value = make(); Object.assign(value.sections[0].fields[0], patch);
+    assert.throws(() => validateSettingsSchema(value), /invalid default hotkey/);
+  }
+  const duplicate = make(); duplicate.sections[0].fields.push({ ...duplicate.sections[0].fields[0], key: 'display.other' });
+  assert.throws(() => validateSettingsSchema(duplicate), /duplicate default hotkey/);
+});

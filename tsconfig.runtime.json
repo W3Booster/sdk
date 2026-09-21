@@ -22,6 +22,7 @@
     "src/testing.js",
     "src/react.js",
     "src/game-data.runtime.js",
-    "src/overlay-input.runtime.js"
+    "src/overlay-input.runtime.js",
+    "src/analytics.runtime.js"
   ]
 }

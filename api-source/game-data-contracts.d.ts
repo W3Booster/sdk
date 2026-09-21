@@ -37,6 +37,8 @@ export interface AbilityType extends ObjectType {
   readonly levels: readonly { readonly cooldownSeconds?: number; readonly manaCost?: number; readonly castTimeSeconds?: number; readonly range?: number }[];
 }
 export interface ItemType extends ObjectType {
+  /** Item definition level from the exact build catalog. */
+  readonly level?: number;
   readonly stock?: StockDefaults;
   readonly cost: Cost;
   readonly abilities: readonly string[];

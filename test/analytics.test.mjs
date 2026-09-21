@@ -1,0 +1,74 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createMatchHistory } from '../src/analytics.js';
+import { applyLocalRecorderUpdates } from '../src/internal/recorder.js';
+import { validateState } from '../src/internal/protocol.js';
+const stats = (time, used=0, sold=0) => ({ gameTime: time, goldMined: time*10, goldUpkeepLost: time*2,
+  items: { tpot: { collected: 2, purchased: 1, used, sold, destroyed: 0 } } });
+const state = (time, used=0, units=0, sold=0) => ({ capabilities: ['match','players','heroes','resources','units','buildings'], gameContext: { hudScale: 1 },
+  match: { id: 'one', status: 'running', gameTime: time, mode: '1v1', isReplay: true, gameDataId: 'test' }, players: [{ id: '0',
+    statistics: stats(time,used,sold), losses: { gameTime: time, units: { hfoo: units }, buildings: {}, complete: false } }] });
+const catalog = { id: 'test', items: { get: () => ({ cost: { gold: 300, lumber: 0 }, initialCharges: 3 }) },
+  units: { get: () => ({ cost: { gold: 135, lumber: 0 }, supply: { used: 2 } }) } };
+test('observer counters produce bounded immutable windows and economic graph samples', () => {
+ const h=createMatchHistory(); h.push(state(0)); h.push(state(30,1,2));
+ const w=h.window('0',30,catalog);
+ assert.equal(w.counts['item-used'].tpot,1); assert.equal(w.counts['unit-lost'].hfoo,2);
+ assert.deepEqual(w.cost,{gold:370,lumber:0,food:4}); assert.equal(w.covered,true); assert.equal(w.complete,false);
+ assert.deepEqual(h.economy('0').at(-1),{gameTime:30,goldMined:300,goldUpkeepLost:60,netGold:240});
+ assert.throws(()=>w.events.push({})); assert.throws(()=>{w.counts['unit-lost'].hfoo=20;});
+ h.push(state(31,1,2)); assert.equal(h.window('0',1).events.length,0);
+ assert.equal(h.window('0',30).boundaryUncertain,true);
+ assert.throws(()=>h.window('0',30,{...catalog,id:'wrong'}));
+});
+test('late attach, withdrawn data, replay rewind, counter regression, mode and permissions never invent history', () => {
+ const h=createMatchHistory(); h.push(state(100,5,2)); assert.equal(h.window('0',30).events.length,0); assert.equal(h.window('0',30).covered,false);
+ h.push(state(101,6,3)); assert.equal(h.window('0',30).events.length,2);
+ h.push(state(10)); assert.equal(h.window('0',30).events.length,0); assert.equal(h.economy('0').length,1);
+ h.push(state(11,1,1)); const missing=state(12); delete missing.players[0].statistics; h.push(missing);
+ h.push(state(13,4,2)); assert.equal(h.window('0',30).counts['item-used'].tpot,1); assert.equal(h.window('0',30).covered,false);
+ const noScopes=state(14,5,3); noScopes.capabilities=['match']; h.push(noScopes); assert.equal(h.window('0',30).events.length,0); assert.deepEqual(h.economy('0'),[]);
+ const self=state(15); self.match.isReplay=false; h.push(self); assert.equal(h.window('0',30).covered,false);
+});
+test('sale losses use explicit refund and retention/counter rollbacks remain visible', () => {
+ const h=createMatchHistory({maxEvents:1,maxSamples:2,maxSeconds:60}); h.push(state(0)); h.push(state(1,1,1,1));
+ const sale=h.window('0',30,catalog,{kinds:['item-sold'],soldItemRefundRate:0.5});
+ // Retention evicted the item events rather than misreporting complete history.
+ assert.equal(sale.covered,false);
+ const s=createMatchHistory();s.push(state(0));s.push(state(1,0,0,1));
+ assert.equal(s.window('0',1,catalog,{kinds:['item-sold']}).cost.gold,null);
+ assert.equal(s.window('0',1,catalog,{kinds:['item-sold'],soldItemRefundRate:0.5}).cost.gold,150);
+ s.push(state(2));assert.equal(s.window('0',30).events.length,0);
+ assert.throws(()=>createMatchHistory({maxEvents:0}));assert.throws(()=>s.window('0',-1));
+});
+test('local recorder projection gates analytics by match, mode and per-field capabilities', () => {
+ const baseline=state(1); delete baseline.players[0].statistics;delete baseline.players[0].losses;
+ const updates=[{class:'W3PlayerStatistics',slotId:0,matchId:'one',statistics:stats(2,1)},
+ {class:'W3PlayerLosses',slotId:0,matchId:'one',losses:{gameTime:2,units:{hfoo:1},buildings:{hbar:1},complete:false}},
+ {class:'W3MatchOutcomes',matchId:'one',outcomes:{0:'won'}}];
+ let next=applyLocalRecorderUpdates(baseline,updates);validateState(next);
+ assert.equal(next.match.outcomes['0'],'won');assert.equal(next.players[0].statistics.items.tpot.used,1);
+ next=applyLocalRecorderUpdates({...baseline,capabilities:['match','resources','buildings']},updates);
+ assert.equal(next.players[0].statistics.items,undefined);assert.equal(next.players[0].losses.units,undefined);
+ assert.equal(next.players[0].losses.buildings.hbar,1);
+ next=applyLocalRecorderUpdates({...baseline,match:{...baseline.match,isReplay:false}},updates);
+ assert.equal(next.players[0].statistics,undefined);assert.deepEqual(next.match.outcomes,{});
+ next=applyLocalRecorderUpdates(baseline,updates.map(u=>({...u,matchId:'other'})));assert.equal(next.players[0].losses,undefined);
+ assert.throws(()=>validateState({...baseline,match:{...baseline.match,outcomes:{0:'victory'}}}));
+ const invalid=state(1);invalid.players[0].statistics.items.tpot.used=-1;assert.throws(()=>validateState(invalid));
+ next=applyLocalRecorderUpdates(state(2),[{...updates[0],statistics:null}]);assert.equal(next.players[0].statistics,undefined);
+});
+
+test('consuming the last charge does not count native item destruction as a second loss', () => {
+ const h=createMatchHistory();h.push(state(0));
+ const consumed=state(1,1);consumed.players[0].statistics.items.tpot.destroyed=1;
+ h.push(consumed);const window=h.window('0',1,catalog);
+ assert.equal(window.events.length,1);assert.equal(window.events[0].kind,'item-used');
+ assert.equal(window.cost.gold,100);
+});
+
+test('self-play history accepts own data and excludes opponent data even in directly supplied snapshots',()=>{
+ const h=createMatchHistory();const make=t=>{const s=state(t,t);s.match.isReplay=false;s.match.realBroadcasterPlayerId='0';s.players.push({...s.players[0],id:'1'});return s;};
+ h.push(make(0));h.push(make(1));assert.equal(h.window('0',1).events.length,1);
+ assert.equal(h.window('1',1).events.length,0);assert.deepEqual(h.economy('1'),[]);
+});

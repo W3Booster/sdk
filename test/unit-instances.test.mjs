@@ -499,3 +499,19 @@ test('inventory charges follow slots, retain one/zero, and clear unavailable obs
   }
   assert.deepEqual(apply(baseline(['match']), [observation]).players[0].heroes, {});
 });
+
+
+test('production kind survives both snapshot and recorder validation and is withdrawn when unavailable', () => {
+  for (const buildType of ['research', 'unit', 'reviving']) {
+    const update = queue(1, [], { queue: [{ position: 0, typeId: 'Hamg', buildType, progress: 0.25, remainingSeconds: 15, totalSeconds: 20 }] });
+    const state = apply(baseline(), [update]);
+    assert.equal(state.players[0].buildings[id(1)].production.queue[0].buildType, buildType);
+    validateState(state);
+    const bad = structuredClone(update); bad.queue[0].buildType = 'guessed';
+    assert.equal(apply(state, [bad]), state);
+    const malformed = structuredClone(state); malformed.players[0].buildings[id(1)].production.queue[0].buildType = 2;
+    assert.throws(() => validateState(malformed));
+    const unknown = structuredClone(update); delete unknown.queue[0].buildType;
+    assert.equal(apply(state, [unknown]).players[0].buildings[id(1)].production.queue[0].buildType, undefined);
+  }
+});

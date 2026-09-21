@@ -1,5 +1,16 @@
 # Changelog
 
+
+## 4.6.0 — 2026-09-21
+
+- Add optional player economy, upkeep, item, hero, ability and retained-unit statistics, sampled unit/building losses, explicit participant outcomes and lobby names.
+- Add the optional `/analytics` entry: bounded economy history, selectable loss windows and build-matched catalog cost estimates with coverage/completeness flags.
+- Add production `buildType` (`unit`, `research`, `reviving`), POI `ownerSlot` and catalog item levels. Self-play statistics remain restricted to the actual local player.
+- Add boolean-setting `defaultHotkey` metadata; the desktop owns registration and normal settings delivery.
+- Fix forward compatibility for optional fields throughout nested POI snapshots and patches, including local recorder state. Known field validation, immutable snapshots and data grants remain enforced.
+- Protocol remains 4.0. SDK 4.5.1 and earlier reject new POI attributes; consumers of `pois:read` should upgrade for this rollout. From 4.6, optional attribute additions are covered by public-client and recorder regression tests. Closed enum/type/required-field changes still need an explicit compatibility transition.
+
+
 ## 4.5.1 — 2026-09-18
 
 - Fix browser timer cancellation during match changes, local-recorder resets and disconnects. Pending interpolation frames now cancel without an `Illegal invocation` exception in Chromium/Electron.
