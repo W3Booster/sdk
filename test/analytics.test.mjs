@@ -72,3 +72,41 @@ test('self-play history accepts own data and excludes opponent data even in dire
  h.push(make(0));h.push(make(1));assert.equal(h.window('0',1).events.length,1);
  assert.equal(h.window('1',1).events.length,0);assert.deepEqual(h.economy('1'),[]);
 });
+
+test('withdrawn economy never compares a fresh player with an old opponent sample', () => {
+ const h=createMatchHistory();
+ const frame=(time, a, b) => ({
+  capabilities:['match','players','resources'], gameContext:{hudScale:1},
+  match:{id:'antoine',status:'running',gameTime:time,mode:'1v1',isReplay:true,gameDataId:'test'},
+  players:[{id:'0',statistics:a},{id:'1',statistics:b}]
+ });
+ const gold=(time,value)=>({gameTime:time,goldMined:value,goldUpkeepLost:0});
+ h.push(frame(201.05,gold(201.05,1770),gold(201.05,1840)));
+ assert.equal(h.economy('0').at(-1).netGold-h.economy('1').at(-1).netGold,-70);
+ // The native statistics object can still contain other lanes after gold is withdrawn.
+ h.push(frame(203.2,gold(203.2,1790),{gameTime:203.2,units:{}}));
+ assert.deepEqual(h.economy('1'),[]);
+ h.push(frame(279.75,gold(279.75,2560),{gameTime:279.75,units:{}}));
+ assert.equal(h.economy('0').at(-1).netGold,2560);
+ assert.deepEqual(h.economy('1'),[]); // Cannot produce 2560 - stale 1840 = +720.
+ h.push(frame(281,gold(281,2570),gold(281,2640)));
+ assert.deepEqual(h.economy('1'),[{gameTime:281,goldMined:2640,goldUpkeepLost:0,netGold:2640}]);
+ assert.equal(h.economy('0').at(-1).netGold-h.economy('1').at(-1).netGold,-70);
+});
+
+test('missing, invalid and frozen economy feeds reset independently and retain observed zero', () => {
+ const h=createMatchHistory();
+ const push=(time,statistics)=>h.push({...state(time),players:[{id:'0',statistics}]});
+ const zero={gameTime:1,goldMined:0,goldUpkeepLost:0};
+ push(1,zero);
+ assert.equal(h.economy('0').at(-1).netGold,0);
+ push(6,zero); assert.equal(h.economy('0').length,1);
+ push(6.01,zero); assert.deepEqual(h.economy('0'),[]);
+ for (const withdrawn of [undefined,{gameTime:10,goldMined:100},{gameTime:10,goldUpkeepLost:0},{gameTime:10,goldMined:-1,goldUpkeepLost:0}]) {
+  push(9,{gameTime:9,goldMined:90,goldUpkeepLost:0});
+  assert.equal(h.economy('0').length,1);
+  push(10,withdrawn);assert.deepEqual(h.economy('0'),[]);
+ }
+ push(11,{gameTime:20,goldMined:100,goldUpkeepLost:0});
+ assert.deepEqual(h.economy('0'),[]);
+});

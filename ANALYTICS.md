@@ -26,6 +26,10 @@ item levels, upgrade maximum levels and standard stock limits through the exact
 `match.gameDataId` catalog. These definitions describe the standard ruleset;
 custom-map overrides must not be presented as measured standard catalog values.
 
+Item statistics expose only native keys representable as four-character item IDs.
+Internal numeric damage keys are omitted, never attributed to a guessed item. An
+unreadable item table omits `items` without withdrawing independently read economy.
+
 `goldMined` is the gross JASS score: credited gold plus upkeep loss. Resource totals
 are actual resource units. The engine also increments `destroyed` when an item's
 last charge is consumed; destruction is diagnostic and must not add a second loss.
@@ -85,6 +89,12 @@ means an event's interval straddles the selected window start. `covered` means t
 window is retained and observed for every requested category; it does not promise
 complete death detection. Check `complete` separately. Use those flags in the app
 when presenting partial comparisons.
+
+Economy history contains the current contiguous observed segment. Missing gold or
+upkeep fields, or a statistics timestamp more than five game seconds from the
+match clock, clear that player's series. Recovery starts a new segment; an empty
+series means unavailable, not zero income. Compare players at matching sample
+times, never subtract arbitrarily old last points from a current sample.
 
 Default retention is 7,200 game seconds, 15,000 economy samples per player, and
 20,000 loss events total. Limits are configurable and bounded. Missing feeds reset

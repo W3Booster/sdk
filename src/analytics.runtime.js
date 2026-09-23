@@ -40,14 +40,14 @@ export function createMatchHistory(options = {}) {
       observe(player.id, p, 'items', items, stats?.gameTime);
       observe(player.id, p, 'units', units, losses?.gameTime);
       observe(player.id, p, 'buildings', buildings, losses?.gameTime);
-      if (state.capabilities.includes('resources') && stats?.goldMined !== undefined && stats.goldUpkeepLost !== undefined) {
+      if (state.capabilities.includes('resources') && stats?.goldMined !== undefined && stats.goldUpkeepLost !== undefined && Math.abs(time - stats.gameTime) <= 5) {
         const last = p.economy[p.economy.length - 1];
         if (last && (stats.gameTime < last.gameTime || stats.goldMined < last.goldMined || stats.goldUpkeepLost < last.goldUpkeepLost)) p.economy = [];
         const sample = Object.freeze({ gameTime: stats.gameTime, goldMined: stats.goldMined, goldUpkeepLost: stats.goldUpkeepLost, netGold: stats.goldMined - stats.goldUpkeepLost });
         if (p.economy.length && p.economy[p.economy.length - 1].gameTime === sample.gameTime) p.economy[p.economy.length - 1] = sample;
         else p.economy.push(sample);
         p.economy = p.economy.filter(sample => sample.gameTime >= retentionStart).slice(-maxSamples);
-      }
+      } else p.economy = [];
     }
     events = events.filter(event => event.gameTime >= retentionStart);
     if (events.length > maxEvents) { retentionStart = Math.max(retentionStart, events[events.length-maxEvents-1].gameTime); events = events.slice(-maxEvents); }

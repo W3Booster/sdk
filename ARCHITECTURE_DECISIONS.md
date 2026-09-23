@@ -744,3 +744,13 @@ self-play restrictions still apply. This rule concerns added optional fields;
 changing required fields, existing meanings/types or closed enum values requires
 an explicit compatibility decision. Regression tests must exercise unknown
 nested fields, subsequent patches and malformed known fields together.
+
+## 2026-09-23: Economy history resets on withdrawn or stale observations
+
+A real replay exposed a native economy dropout while the opponent continued.
+Keeping the missing player's last sample let consumers compute a false +720
+advantage from points 78.7 game seconds apart. `economy()` now returns the current
+contiguous segment: absent/invalid gold or upkeep, or statistics more than five
+game seconds from the match clock, clear it; recovery starts a new segment.
+Observed zero remains valid. Consumers must compare matching sample times.
+The API shape remains unchanged; no timers, interpolation or fabricated income.

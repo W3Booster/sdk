@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.6.1 — 2026-09-23
+
+- Reset economy history across invalid or stale analytics gaps and resume on recovery.
+- Keep valid economy data when native item analytics are unavailable.
+
+## Unreleased
+
+- Reset a player's economy history when gold/upkeep is withdrawn or its sample is stale. Recovery starts a new segment, preventing comparisons against a frozen opponent value and lines across missing data.
+
 
 ## 4.6.0 — 2026-09-21
 

@@ -46,6 +46,7 @@ export interface MatchHistory {
   push(state: MatchState): void;
   /** Call on disconnect/gaps. Match changes, rewinds and scope/mode changes reset automatically. */
   reset(): void;
+  /** Contiguous observed economy history. Missing fields or samples over five game seconds from the match clock clear it; a new observation starts a new segment. Compare players at matching sample times. */
   economy(playerId: string): readonly EconomySample[];
   /** Window ends at the latest pushed game time. Exact build-matched catalog is optional. */
   window(playerId: string, seconds: number, data?: GameData, options?: LossWindowOptions): LossWindow;
