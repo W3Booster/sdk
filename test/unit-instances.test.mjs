@@ -26,6 +26,33 @@ const apply = (state, updates) => {
   validateState(next, undefined, false);
   return next;
 };
+test('ordinary unit mana supports independent changes, zero, missing observations, ownership and scopes', () => {
+  const caster = hp(20, 'hmpr', 2, { unitMana: { current: 100, max: 200, regenerationPerSecond: 1.5 } });
+  let state = apply(baseline(), [caster]);
+  assert.deepEqual(state.players[0].units[id(20)].mana, caster.unitMana);
+  assert.equal(state.players[0].units[id(20)].unitMana, undefined); // Private wire spelling stays private.
+  state = apply(state, [{ ...caster, unitMana: { current: 0, max: 300 } }]);
+  assert.deepEqual(state.players[0].units[id(20)].mana, { current: 0, max: 300 });
+  for (const unitMana of [null, { current: NaN, max: 200 }, { current: -1, max: 200 }, { current: 201, max: 200 }, { current: 0, max: -1 }]) {
+    const previous = state;
+    state = apply(state, [{ ...caster, unitMana }]);
+    assert.equal(state, previous);
+  }
+  state = apply(state, [{ ...caster, unitMana: undefined }]);
+  assert.equal(state.players[0].units[id(20)].mana, undefined);
+  state = apply(state, [{ ...caster, unitMana: { current: 0, max: 0 } }]);
+  assert.deepEqual(state.players[0].units[id(20)].mana, { current: 0, max: 0 });
+  state = apply(state, [{ ...caster, slotId: 1 }, { ...caster, removed: true }]);
+  assert.equal(state.players[0].units[id(20)], undefined);
+  assert.deepEqual(state.players[1].units[id(20)].mana, caster.unitMana);
+  state = apply(state, [{ ...caster, slotId: 1, removed: true }]);
+  assert.equal(state.players[1].units[id(20)], undefined);
+  assert.deepEqual(apply(baseline(['match', 'heroes']), [caster]).players[0].units, {});
+  const self = baseline(); self.match.isReplay = false; self.match.realBroadcasterPlayerId = '0';
+  state = apply(self, [caster, { ...caster, id: id(21), slotId: 1 }]);
+  assert.deepEqual(state.players[0].units[id(20)].mana, caster.unitMana);
+  assert.deepEqual(state.players[1].units, {});
+});
 test('unit selectors order complete IDs deterministically across snapshot permutations without numeric precision loss', () => {
   const ids = ['0020000000000000', '0020000000000001', '0020000080000000'];
   for (const [collection, select] of [['units', playerUnits], ['heroes', playerHeroes], ['buildings', playerBuildings]]) {

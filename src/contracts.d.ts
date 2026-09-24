@@ -328,7 +328,7 @@ export interface ControlGroup {
 export interface ValuePool {
     readonly current: number;
     readonly max: number;
-    /** Observed net change per game second, currently available for hero mana. May be zero or negative; absent when unavailable. */
+    /** Observed net change per game second for mana. May be zero or negative; absent when unavailable. */
     readonly regenerationPerSecond?: number;
 }
 export interface HeroAbility {
@@ -348,6 +348,7 @@ export interface Unit {
     /** Actual Warcraft unit type rawcode; never an instance identity. */
     readonly typeId: string;
     readonly hitpoints?: ValuePool;
+    /** Observed current/max mana, including ordinary units. Missing means unavailable; max 0 means an observed unit without mana capacity. */
     readonly mana?: ValuePool;
     /** Warcraft map coordinates; omitted until observed. */
     /** Heroes: sampled every 200 ms. Structures: first observed position, retained. Ordinary units: omitted. */

@@ -212,8 +212,8 @@ An application requests scopes in its W3Booster metadata. The server filters eve
 | `match:read` | `match` | Match lifecycle, time, map, mode, realm, and broadcaster IDs |
 | `players:read` | `players` | Player identity, race, team, color, and position |
 | `stats:read` | `stats` | Ranking statistics and main-account data |
-| `units:read` | `units` | Ordinary unit instances and health |
-| `buildings:read` | `buildings` | Building instances and health |
+| `units:read` | `units` | Ordinary unit instances, health, and observed mana |
+| `buildings:read` | `buildings` | Building instances, health, and observed mana |
 | `production:read` | `production` | Building identity and production queues |
 | `heroes:read` | `heroes` | Heroes, health, mana, abilities, and inventory |
 | `upgrades:read` | `upgrades` | Completed, active, and researching upgrades |
@@ -813,7 +813,12 @@ building and production capabilities. Production, construction, heroes and resea
 require PRO in self-play; observing and replaying are free. Native collection and
 API capabilities enforce this before the SDK receives the data.
 
-SDK processing adds no poller. Ordinary health and queues follow the native
+`Unit.mana` exposes observed `current` and `max` values for ordinary units as well
+as heroes. Missing mana means unavailable, not zero; `max: 0` is an observed unit
+without mana capacity. For a caster group's average, use observed members with
+`mana.max > 0` and keep unknown members distinct from empty mana pools.
+
+SDK processing adds no poller. Ordinary health, mana and queues follow the native
 200 ms cycle; hero HP/mana follows the XP loop. Unchanged observations do not
 publish a new snapshot, and untouched instance objects retain identity.
 
@@ -845,7 +850,7 @@ have all been observed; worker supply is optional. A worker-count packet alone
 does not imply zero economy. SDK 4.3 recovers partial local feeds without
 fabricating missing values. Actual observed zero remains valid.
 
-`Hero.mana.regenerationPerSecond` is an optional observed net rate per game
+`Unit.mana.regenerationPerSecond` is an optional observed net rate per game
 second. It may be zero or negative; only a positive reading supports a recovery
 estimate. Use the current catalog ability level’s mana cost. Do not extrapolate
 actual mana or run a wall-clock countdown through a paused replay.

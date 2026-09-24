@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.7.0
+
+- Add observed mana values for ordinary units, including explicit zero-capacity values.
+
 ## 4.6.1 — 2026-09-23
 
 - Reset economy history across invalid or stale analytics gaps and resume on recovery.

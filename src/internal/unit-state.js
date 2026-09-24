@@ -70,7 +70,8 @@ export function validUnitUpdate(update) {
       validTimedProgress(update.upgrade) && isTypeId(update.upgrade.typeId)) &&
     (update.position === undefined || (/^[A-Z]/.test(update.typeId) || update.targetFlags & 8) && validPosition(update.position)) &&
     (update.combat === undefined || /^[A-Z]/.test(update.typeId) && validCombat(update.combat)) &&
-    (update.mana === undefined || /^[A-Z]/.test(update.typeId) && validPool(update.mana));
+    (update.mana === undefined || /^[A-Z]/.test(update.typeId) && validPool(update.mana)) &&
+    (update.unitMana === undefined || !/^[A-Z]/.test(update.typeId) && validPool(update.unitMana));
   if (update.class === 'W3ProductionQueue') return validQueue(update.queue);
   return update.class === 'W3Unit' && update.isHero === true && /^[A-Z]/.test(update.typeId) &&
     Number.isFinite(update.experience) && update.experience >= 0 &&
@@ -104,8 +105,9 @@ export function applyUnitObservation(player, update, capabilities) {
       if (update.combat !== undefined) unit.combat = combatTotals(update.combat);
       else delete unit.combat;
       unit.hitpoints = { current: update.hitpoints.current, max: update.hitpoints.max, ...timingFields(update.hitpoints) };
-      if (update.mana !== undefined) unit.mana = { current: update.mana.current, max: update.mana.max, ...timingFields(update.mana),
-        ...(update.mana.regenerationPerSecond === undefined ? {} : { regenerationPerSecond: update.mana.regenerationPerSecond }) };
+      const mana = /^[A-Z]/.test(update.typeId) ? update.mana : update.unitMana;
+      if (mana !== undefined) unit.mana = { current: mana.current, max: mana.max, ...timingFields(mana),
+        ...(mana.regenerationPerSecond === undefined ? {} : { regenerationPerSecond: mana.regenerationPerSecond }) };
       else delete unit.mana;
     }
   }
