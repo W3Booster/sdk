@@ -62,6 +62,9 @@ export function validateState(value, clientId, cloneState = true) {
     gameName: 'string', gameDataId: 'string', gameVersion: 'string', map: 'string', realm: 'string', paused: 'boolean', isReplay: 'boolean', isReforged: 'boolean', isObserver: 'boolean',
     broadcasterPlayerId: 'string', realBroadcasterPlayerId: 'string', startedAt: 'string', endedAt: 'string'
   }, 'State match');
+  if (state.match.gameSpeed !== undefined && (!Number.isFinite(state.match.gameSpeed) || state.match.gameSpeed < 0 || state.match.gameSpeed > 64)) {
+    throw new ProtocolError('INVALID_STATE', 'Invalid observed game speed.');
+  }
   if (state.match.startedAt !== undefined && !isIsoTimestamp(state.match.startedAt)) {
     throw new ProtocolError('INVALID_STATE', 'State match startedAt must be an ISO-8601 timestamp.');
   }

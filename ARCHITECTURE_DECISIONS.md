@@ -1,5 +1,50 @@
 # SDK architecture decisions
 
+## 2026-09-24: Analytics freshness follows observed replay speed
+
+Actual 64× captures reproduce 16 and 36 history clears despite complete paired
+gold observations. Supersede the fixed-five-game-second policy for accelerated
+replay history. Expose optional public `Match.gameSpeed` from the existing fresh
+simulation clock: measured game seconds per real second, 0..64, zero when paused
+or finished and absent with an unavailable/stale clock. This derived gameplay
+value is public; raw clock domains, anchors and sequence IDs remain private.
+No native/API wire change or production deployment is part of this repair.
+
+Scale the existing five-second game-clock tolerance by measured replay speed,
+with a one-second recent-rate maximum for transitions/zero-rate jitter. Carry a
+sample's allowance until replacement, but cap frozen timestamps at five active
+real seconds. Missing/invalid fields still clear immediately; no sample received
+after a silent gap may backfill the gap. All loss lanes use the same freshness
+policy. Plain snapshots without speed retain the old game-clock tolerance.
+`MatchHistoryOptions.now` injects monotonic receipt time for offline processing;
+default to performance.now without adding a timer. Pause/finish suspend aging.
+
+Also revisit September 18's zero-rate display reset: the Sok–Lyn capture contains
+a forward heartbeat with rate zero that made the integer display move backward
+and falsely reset history. Hold the integer display across zero-rate readings
+while unpaused; observed precise rewinds, sample restart, explicit pause, finish,
+source/match changes and gaps still rebase. Do not hold pool/progress corrections.
+Sanitized captured regressions require retaining all 62/81 observed gold pairs;
+separate tests preserve outage, frozen-opponent, permission and rewind behavior.
+
+## 2026-09-24: Include hero deaths in optional loss history
+
+At the user's request, extend the locally computed loss-kind union and default
+history window with `hero-lost`. Use existing authorized native hero death
+counters, keyed by full instance ID, and expose `heroId` on each hero event.
+Aggregate counts by type without mixing same-type instances or owners. New and
+returning instances establish baselines; missing data never implies a death.
+Preserve observation intervals, bounded retention, resets and scope/self-play
+gates. A counter regression invalidates only that hero's events and coverage.
+
+Exclude hero events from gold, lumber and food cost estimates: recruitment price
+is not death/revival expenditure. Document zero hero-only estimates as excluded
+costs, not free revival. Default coverage now also requires hero statistics;
+callers can explicitly select the existing kinds to retain the previous lanes.
+This SDK upgrade adds a local output enum member; it does not change the wire
+protocol. Existing deployed SDKs keep their existing behavior. No native,
+API or Match Vision UI change, publication or deployment is part of this work.
+
 ## 2026-09-18: Stabilize integer clock presentation across heartbeat corrections
 
 Production observation found three brief backward integer-clock ticks (36–51 ms)

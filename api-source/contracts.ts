@@ -264,6 +264,8 @@ export interface Match {
   readonly status: MatchStatus;
   /** Elapsed in-game time in whole seconds, excluding paused time. */
   readonly gameTime: number;
+  /** Observed simulation game seconds per real second (0..64), not the requested replay speed. Zero while paused/finished; omitted when no fresh clock observation is available. */
+  readonly gameSpeed?: number;
   readonly mode: string;
   /** Human-readable, display-ready map name. Producers decode transport escaping before SDK delivery. */
   readonly map?: string;

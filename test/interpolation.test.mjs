@@ -68,11 +68,11 @@ test('backward and forward seeks rebase immediately, including a rewind smaller 
   assert.equal(h.advance(1000).match.gameTime, 6);
 });
 
-for (const stop of ['pause', 'zero rate', 'finished']) test(`${stop} accepts the authoritative correction instead of retaining an estimated second`, () => {
+for (const stop of ['pause', 'finished']) test(`${stop} accepts the authoritative correction instead of retaining an estimated second`, () => {
   const h = harness(), s = state();
   h.i.update(heartbeat(s, 10.8, 1));
   assert.equal(h.advance(250).match.gameTime, 11);
-  heartbeat(s, 10.9, 2, stop === 'zero rate' ? 0 : 1);
+  heartbeat(s, 10.9, 2, 1);
   if (stop === 'pause') s.match.paused = true;
   if (stop === 'finished') s.match.status = 'finished';
   assert.equal(h.i.update(s).match.gameTime, 10);
@@ -81,6 +81,16 @@ for (const stop of ['pause', 'zero rate', 'finished']) test(`${stop} accepts the
   s.match.paused = false; s.match.status = 'running';
   assert.equal(h.i.update(heartbeat(s, 10.95, 3)).match.gameTime, 10);
   assert.equal(h.advance(100).match.gameTime, 11);
+});
+
+test('a transient zero speed cannot turn a forward heartbeat into a replay rewind', () => {
+  const h = harness(), s = state(40);
+  h.i.update(heartbeat(s, 691.875, 1, 40));
+  assert.equal(h.advance(100).match.gameTime, 695);
+  assert.equal(h.i.update(heartbeat(s, 691.875, 2, 0)).match.gameTime, 695);
+  assert.equal(h.i.update(heartbeat(s, 697.25, 3, 36)).match.gameTime, 697);
+  assert.equal(h.i.update(heartbeat(s, 690, 4, 0)).match.gameTime, 690, 'actual backward observation still rewinds');
+  h.i.reset();
 });
 
 for (const reset of ['match', 'source', 'recorder restart', 'disconnect', 'missing clock']) test(`${reset} clears the held display second`, () => {

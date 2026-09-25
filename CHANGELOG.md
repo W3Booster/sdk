@@ -1,5 +1,10 @@
 # Changelog
 
+## 4.8.0 — 2026-09-25
+
+- Preserve analytics history at accelerated replay speeds using observed `match.gameSpeed`, while expiring frozen feeds after five unpaused real seconds. Keep the displayed clock stable across transient zero-rate readings; true rewinds and pauses still rebase. Offline history processing can supply a monotonic `now` clock.
+- Include `hero-lost` events in match history, with hero instance IDs and death counts grouped by type. Hero deaths are excluded from cost estimates. Default window coverage now also requires hero statistics; select explicit loss kinds to retain the previous lanes.
+
 ## 4.7.0
 
 - Add observed mana values for ordinary units, including explicit zero-capacity values.
@@ -10,8 +15,6 @@
 - Keep valid economy data when native item analytics are unavailable.
 
 ## Unreleased
-
-- Reset a player's economy history when gold/upkeep is withdrawn or its sample is stale. Recovery starts a new segment, preventing comparisons against a frozen opponent value and lines across missing data.
 
 
 ## 4.6.0 — 2026-09-21

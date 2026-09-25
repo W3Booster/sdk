@@ -3,13 +3,119 @@ import assert from 'node:assert/strict';
 import { createMatchHistory } from '../src/analytics.js';
 import { applyLocalRecorderUpdates } from '../src/internal/recorder.js';
 import { validateState } from '../src/internal/protocol.js';
-const stats = (time, used=0, sold=0) => ({ gameTime: time, goldMined: time*10, goldUpkeepLost: time*2,
+const stats = (time, used=0, sold=0) => ({ gameTime: time, goldMined: time*10, goldUpkeepLost: time*2, heroes: {},
   items: { tpot: { collected: 2, purchased: 1, used, sold, destroyed: 0 } } });
 const state = (time, used=0, units=0, sold=0) => ({ capabilities: ['match','players','heroes','resources','units','buildings'], gameContext: { hudScale: 1 },
   match: { id: 'one', status: 'running', gameTime: time, mode: '1v1', isReplay: true, gameDataId: 'test' }, players: [{ id: '0',
     statistics: stats(time,used,sold), losses: { gameTime: time, units: { hfoo: units }, buildings: {}, complete: false } }] });
 const catalog = { id: 'test', items: { get: () => ({ cost: { gold: 300, lumber: 0 }, initialCharges: 3 }) },
   units: { get: () => ({ cost: { gold: 135, lumber: 0 }, supply: { used: 2 } }) } };
+const heroA = '0000000100000001', heroB = '0000000100000002';
+const heroStats = (deaths, typeId = 'Hamg') => ({ typeId, deaths, totalKills: 0, heroKills: 0, selfKills: 0, buildingKills: 0, timeAliveMs: 0 });
+const heroState = (time, heroes) => {
+ const s = state(time); s.players[0].statistics.heroes = heroes; return s;
+};
+const heroWindow = (h, seconds = 30) => h.window('0', seconds, undefined, { kinds: ['hero-lost'] });
+
+test('hero deaths retain instance identity, aggregate by type and exclude recruitment costs', () => {
+ const h = createMatchHistory();
+ h.push(heroState(0, { [heroA]: heroStats(2), [heroB]: heroStats(0) }));
+ h.push(heroState(10, { [heroA]: heroStats(3), [heroB]: heroStats(2) }));
+ const w = heroWindow(h);
+ assert.deepEqual(w.events, [
+  { playerId: '0', heroId: heroA, typeId: 'Hamg', kind: 'hero-lost', count: 1, fromGameTime: 0, gameTime: 10 },
+  { playerId: '0', heroId: heroB, typeId: 'Hamg', kind: 'hero-lost', count: 2, fromGameTime: 0, gameTime: 10 }
+ ]);
+ assert.equal(w.counts['hero-lost'].Hamg, 3);
+ assert.equal(w.covered, true); assert.equal(w.complete, true);
+ assert.deepEqual(w.cost, { gold: 0, lumber: 0, food: 0 });
+ assert.throws(() => { w.events[0].heroId = heroB; });
+ const next = heroState(20, { [heroA]: heroStats(3), [heroB]: heroStats(3) });
+ next.players[0].losses.units.hfoo = 1; h.push(next);
+ assert.deepEqual(h.window('0', 30, catalog).cost, { gold: 135, lumber: 0, food: 2 });
+ assert.equal(heroWindow(h, 5).boundaryUncertain, true);
+ assert.equal(h.window('0', 30, catalog, { kinds: ['unit-lost'] }).events.length, 1);
+});
+
+test('new, missing and transferred heroes establish baselines without inventing deaths', () => {
+ const h = createMatchHistory(); h.push(heroState(0, {}));
+ h.push(heroState(1, { [heroA]: heroStats(3) }));
+ assert.equal(heroWindow(h).events.length, 0); assert.equal(heroWindow(h).covered, false);
+ h.push(heroState(2, { [heroA]: heroStats(4) }));
+ h.push(heroState(3, {})); // Disappearance is not a death and does not erase real events.
+ h.push(heroState(4, { [heroA]: heroStats(6) }));
+ assert.equal(heroWindow(h).counts['hero-lost'].Hamg, 1);
+ const transfer = heroState(5, {});
+ transfer.players.push({ id: '1', statistics: { gameTime: 5, heroes: { [heroA]: heroStats(6) } } });
+ h.push(transfer);
+ assert.equal(h.window('1', 30, undefined, { kinds: ['hero-lost'] }).events.length, 0);
+ transfer.match.gameTime = 6; transfer.players[1].statistics.gameTime = 6;
+ transfer.players[1].statistics.heroes[heroA].deaths = 7; h.push(transfer);
+ assert.equal(h.window('1', 1, undefined, { kinds: ['hero-lost'] }).counts['hero-lost'].Hamg, 1);
+});
+
+test('hero feed withdrawal, invalidity and staleness never backfill an outage', () => {
+ for (const outage of ['missing', 'invalid', 'stale']) {
+  const h = createMatchHistory(); h.push(heroState(0, { [heroA]: heroStats(0) }));
+  h.push(heroState(1, { [heroA]: heroStats(1) }));
+  const gap = heroState(8, { [heroA]: heroStats(2) });
+  if (outage === 'missing') delete gap.players[0].statistics.heroes;
+  if (outage === 'invalid') gap.players[0].statistics.heroes[heroA].deaths = -1;
+  if (outage === 'stale') gap.players[0].statistics.gameTime = 1;
+  h.push(gap); h.push(heroState(9, { [heroA]: heroStats(4) }));
+  assert.equal(heroWindow(h).counts['hero-lost'].Hamg, 1);
+  assert.equal(heroWindow(h).covered, false);
+  h.push(heroState(10, { [heroA]: heroStats(5) }));
+  assert.equal(heroWindow(h, 1).counts['hero-lost'].Hamg, 1);
+  assert.equal(heroWindow(h, 1).covered, true);
+ }
+});
+
+test('hero counter rollback and changed identity reset only affected hero history', () => {
+ for (const replacement of [heroStats(0), heroStats(1, 'Hpal')]) {
+  const h = createMatchHistory();
+  h.push(heroState(0, { [heroA]: heroStats(0), [heroB]: heroStats(0) }));
+  h.push(heroState(1, { [heroA]: heroStats(1), [heroB]: heroStats(1) }));
+  const s = heroState(2, { [heroA]: replacement, [heroB]: heroStats(1) });
+  s.players[0].losses.units.hfoo = 1; h.push(s);
+  assert.deepEqual(heroWindow(h).events.map(e => e.heroId), [heroB]);
+  assert.equal(heroWindow(h).covered, false);
+  assert.equal(h.window('0', 30).counts['unit-lost'].hfoo, 1);
+  h.push(heroState(0, { [heroA]: heroStats(0) }));
+  assert.equal(heroWindow(h).events.length, 0);
+ }
+});
+
+test('hero history enforces hero capability and self-play ownership, including direct snapshots', () => {
+ const h = createMatchHistory();
+ const self = (time, deaths) => {
+  const s = heroState(time, { [heroA]: heroStats(deaths) });
+  s.match.isReplay = false; s.match.realBroadcasterPlayerId = '0';
+  s.players.push({ ...s.players[0], id: '1' }); return s;
+ };
+ h.push(self(0, 0)); h.push(self(1, 1));
+ assert.equal(heroWindow(h).events.length, 1);
+ assert.equal(h.window('1', 1, undefined, { kinds: ['hero-lost'] }).events.length, 0);
+ for (const time of [2, 3]) {
+  const s = self(time, time); s.capabilities = ['match', 'players', 'units']; h.push(s);
+ }
+ assert.equal(heroWindow(h).events.length, 0); assert.equal(heroWindow(h).covered, false);
+ h.push(self(4, 4)); assert.equal(heroWindow(h).events.length, 0);
+});
+
+test('local recorder hero counters feed loss history with permissions intact', () => {
+ const h = createMatchHistory();
+ const baseline = state(0); delete baseline.players[0].statistics;
+ for (const time of [0, 1]) {
+  const updates = [{ class: 'W3PlayerStatistics', slotId: 0, matchId: 'one',
+   statistics: { gameTime: time, heroes: { [heroA]: heroStats(time) } } }];
+  baseline.match.gameTime = time;
+  const projected = applyLocalRecorderUpdates(baseline, updates); validateState(projected); h.push(projected);
+  const denied = applyLocalRecorderUpdates({ ...baseline, capabilities: ['match', 'players', 'units'] }, updates);
+  assert.equal(denied.players[0].statistics?.heroes, undefined);
+ }
+ assert.equal(heroWindow(h).counts['hero-lost'].Hamg, 1);
+});
 test('observer counters produce bounded immutable windows and economic graph samples', () => {
  const h=createMatchHistory(); h.push(state(0)); h.push(state(30,1,2));
  const w=h.window('0',30,catalog);

@@ -118,14 +118,22 @@ export class GameTimeInterpolator {
     let next = interpolateValues(state, entries, times);
     // Keep the existing integer-second public clock, with no extra wire ticker.
     let gameTime = Math.floor(this.clock.gameTime + (state.match?.paused ? 0 : elapsed * this.clock.rates[0]));
-    if (['running', 'starting'].includes(state.match?.status) && !state.match?.paused && this.clock.rates[0] > 0) {
+    if (['running', 'starting'].includes(state.match?.status) && !state.match?.paused) {
       // Heartbeat latency/rate corrections can briefly cross a second boundary
       // backwards. Hold only the integer display; pools and timers above always
-      // use the newly observed engine times. Pauses and stopped clocks rebase.
+      // use the newly observed engine times. A transient zero rate is not a
+      // rewind; explicit pauses and backward observed clocks still rebase.
       gameTime = Math.max(gameTime, this.displayedGameTime ?? gameTime);
       this.displayedGameTime = gameTime;
     } else this.displayedGameTime = null;
     if (['running', 'starting'].includes(state.match?.status) && Number.isFinite(state.match.gameTime) && gameTime !== state.match.gameTime) next = { ...next, match: { ...next.match, gameTime } };
+    // Expose the measured rate, never the private clock/sample/anchor metadata.
+    const gameSpeed = state.match?.paused || state.match?.status === 'finished' ? 0
+      : Math.max(0, this.now() - this.received) + this.clock.ageMs < STALE_AFTER_MS ? this.clock.rates[0] : undefined;
+    if (next.match.gameSpeed !== gameSpeed) {
+      const { gameSpeed: previousSpeed, ...match } = next.match;
+      next = { ...next, match: gameSpeed === undefined ? match : { ...match, gameSpeed } };
+    }
     return next;
   }
   start() {

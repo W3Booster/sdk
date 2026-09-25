@@ -1,4 +1,5 @@
 import { loadGameData, abilityCooldown, abilityCooldownsForState } from '../src/game-data.js';
+import { createMatchHistory, type LossKind } from '../src/analytics.js';
 import type {
   MatchState,
   GameContext,
@@ -308,3 +309,17 @@ function heroDamageSummary(hero: import('../src/index.js').Hero): number | undef
   return damage.total;
 }
 void heroDamageSummary;
+
+function heroLossHistory(state: MatchState) {
+  const history = createMatchHistory({ now: () => performance.now() });
+  const observedSpeed: number | undefined = state.match.gameSpeed;
+  history.push(state);
+  const kind: LossKind = 'hero-lost';
+  const window = history.window('0', 30, undefined, { kinds: [kind] });
+  const deaths: number | undefined = window.counts['hero-lost'].Hamg;
+  const heroId: string | undefined = window.events[0]?.heroId;
+  // @ts-expect-error Loss events are immutable.
+  window.events[0].heroId = '0000000100000001';
+  return { deaths, heroId, observedSpeed };
+}
+void heroLossHistory;

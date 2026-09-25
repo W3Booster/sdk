@@ -46,7 +46,7 @@ an ever-trained counter. Unit-type damage/healing sums those retained instances
 and can decrease when corpses disappear. `isFunctionalPeon` is Warcraft's worker
 predicate, not an idle-worker estimate.
 
-Death counters count observed alive-to-dead transitions. They ignore heroes,
+Unit/building death counters count observed alive-to-dead transitions. They ignore heroes,
 illusions, transfers, type changes and unreadable/disappearing instances. They
 currently carry `complete: false`: attachment time and sampling can miss deaths.
 
@@ -84,17 +84,55 @@ costs require an explicit `soldItemRefundRate` (for example, `0.5` if that is yo
 ruleset), and use purchase price minus proceeds. Never label every missing item
 as sold or consumed. Filter with `kinds` to choose which loss categories to show.
 
+Hero death-counter increases produce `hero-lost` events under `heroes:read` and
+the existing self-play ownership rules. Events include the full `heroId` instance
+identity; `counts['hero-lost']` aggregates deaths by hero type. Reviving and dying
+again can produce another event for the same hero. These events are included in
+the default window, or select only them with `{ kinds: ['hero-lost'] }`.
+Hero deaths are excluded from **all** cost totals: neither recruitment cost nor
+revival cost is charged, and a hero-only window has zero estimated cost. This
+does not mean revival is free; its actual cost is not observed.
+
+Each newly observed hero establishes its own baseline, including after a transfer
+or disappearance. Existing lifetime deaths are never backfilled. Missing/stale
+statistics break coverage; counter regressions invalidate that hero's retained
+events. Hero-only completeness refers to continuously observed native counters,
+not exact death timestamps. Requesting hero history without hero statistics makes
+coverage unavailable; consumers wanting only ordinary losses can explicitly
+select `unit-lost` and `building-lost`.
+
 Each event has a `(fromGameTime, gameTime]` observation interval. `boundaryUncertain`
 means an event's interval straddles the selected window start. `covered` means the
 window is retained and observed for every requested category; it does not promise
 complete death detection. Check `complete` separately. Use those flags in the app
 when presenting partial comparisons.
 
-Economy history contains the current contiguous observed segment. Missing gold or
-upkeep fields, or a statistics timestamp more than five game seconds from the
-match clock, clear that player's series. Recovery starts a new segment; an empty
-series means unavailable, not zero income. Compare players at matching sample
-times, never subtract arbitrarily old last points from a current sample.
+Economy history contains the current contiguous observed segment. Missing or
+invalid gold/upkeep clears that player's series immediately. Freshness uses
+optional `match.gameSpeed`, the recorder's measured simulation rate, to scale the
+five-game-second tolerance during replays. A one-second recent-rate allowance
+handles speed transitions and transient zero readings; an existing observation
+retains its speed allowance until replaced. Without observed speed, the original
+five-game-second tolerance applies. Live self-play/observer history keeps that
+same tolerance.
+
+A timestamp that stops advancing still expires after five **unpaused real
+seconds**, regardless of speed. New data after that delivery gap starts a fresh
+segment and fresh loss-counter baselines. Unrelated updates or counter changes
+at the same timestamp cannot refresh the deadline. Pause and finished states do
+not age observations; disconnect/gap callbacks must still call `reset()`.
+The same freshness rules apply to item, hero, unit and building loss counters.
+
+History uses `performance.now()` without starting timers. For offline processing,
+provide `createMatchHistory({ now: () => recordedReceiptMilliseconds })` and
+advance that monotonic clock before each `push`. Preserve the snapshot's observed
+`gameSpeed`; do not infer it from how quickly an offline loop executes.
+
+An empty series means unavailable, not zero income. Compare players at matching
+sample times, never subtract arbitrarily old last points from a current sample.
+Maximum-speed replay observations are sparse: plotting at their actual game times
+is supported, but connecting the points estimates unobserved values and cannot
+recover missed events. The SDK does not fabricate intermediate gold samples.
 
 Default retention is 7,200 game seconds, 15,000 economy samples per player, and
 20,000 loss events total. Limits are configurable and bounded. Missing feeds reset
