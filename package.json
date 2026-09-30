@@ -1,6 +1,6 @@
 {
   "name": "@w3booster/sdk",
-  "version": "4.8.0",
+  "version": "4.8.1",
   "description": "One SDK for realtime W3Booster match data in overlays and web apps.",
   "type": "module",
   "main": "./src/index.js",
@@ -79,7 +79,9 @@
     "OVERLAY_INPUT.md",
     "INTERPOLATION.md",
     "MENU_STATE.md",
-    "ANALYTICS.md"
+    "ANALYTICS.md",
+    "DEBUGGING.md",
+    "examples/debugging"
   ],
   "scripts": {
     "build:api": "node scripts/generate-api-facades.mjs && tsc -p tsconfig.build.json && node scripts/publish-generated-api.mjs",

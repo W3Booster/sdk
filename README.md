@@ -1,6 +1,6 @@
 # @w3booster/sdk
 
-SDK **4.6.0** uses protocol **4.0**. Build with cumulative player statistics, economy history, rolling loss windows and configurable setting shortcuts. Optional state additions stay forward-compatible. See [what changed](CHANGELOG.md) and the [compatibility policy](COMPATIBILITY.md).
+SDK **4.8.1** uses protocol **4.0**. Build with cumulative player statistics, economy history, rolling loss windows and configurable setting shortcuts. Optional state additions stay forward-compatible. See [what changed](CHANGELOG.md) and the [compatibility policy](COMPATIBILITY.md).
 
 Browser SDK for realtime W3Booster match data in applications and overlays. It handles app authorization, transport selection, reconnects, protocol validation, patches, and immutable hydrated state.
 
@@ -8,6 +8,7 @@ Browser SDK for realtime W3Booster match data in applications and overlays. It h
 
 | Build | Start here |
 | --- | --- |
+| Debug a blank or unstable overlay (humans and coding agents) | [Debugging guide and runnable fixtures](DEBUGGING.md) |
 | Your first working app | [Starter tutorial](https://w3booster.com/developer/first-app/) |
 | Economy graphs, item events and loss comparisons | [Analytics](ANALYTICS.md) |
 | Understand available fields and self-play limits | [Data availability](https://w3booster.com/developer/data-availability/) |

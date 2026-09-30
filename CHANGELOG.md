@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.8.1 — 2026-09-30
+
+- Add a debugging guide and runnable lifecycle fixtures for diagnosing blank or unstable overlays without changing the runtime contract.
+
 ## 4.8.0 — 2026-09-25
 
 - Preserve analytics history at accelerated replay speeds using observed `match.gameSpeed`, while expiring frozen feeds after five unpaused real seconds. Keep the displayed clock stable across transient zero-rate readings; true rewinds and pauses still rebase. Offline history processing can supply a monotonic `now` clock.
