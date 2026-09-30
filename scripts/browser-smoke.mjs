@@ -75,10 +75,14 @@ try {
   });
   const address = server.address();
   const url = `http://127.0.0.1:${address.port}/`;
+  // Keep headless rendering independent from an inherited WSLg/Wayland desktop,
+  // which can otherwise stall animation frames and viewport updates.
+  const browserEnv = { ...process.env };
+  delete browserEnv.WAYLAND_DISPLAY;
   for (const [name, browserType] of Object.entries({ chromium, firefox, webkit })) {
     let browser;
     try {
-      browser = await browserType.launch({ headless: true });
+      browser = await browserType.launch({ headless: true, env: browserEnv });
       const page = await browser.newPage();
       await page.goto(url);
       await page.waitForFunction(() => document.body.dataset.result !== 'pending', null, { timeout: 20000 });
