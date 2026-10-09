@@ -834,7 +834,7 @@ consumer SDK releases need a coordinated rollout. See the [SDK 4 migration guide
 `season`/`race`, and provider-reported `mmr`, rank, league and win/loss values.
 Arranged records carry `team.id` and `team.members`; they are never collapsed into
 a player's random-team rating. Unknown values remain absent.
-`standardGame.statsForMode(player, mode, { queue, teamId })` selects one exact
+`standardGame.statsForMode(player, mode, { provider, queue, teamId })` selects one exact
 record and returns undefined for unavailable or ambiguous ladders. There is no
 fallback to another mode or race. `preferredStats` and the old solo/team slots
 are removed in SDK 3 and later.
@@ -931,3 +931,24 @@ snapshots may use `poiMode === 'live'`. If the game-start capture was missed, th
 initial collection is unavailable. Catalog sale lists and stock defaults describe
 standard object configuration, not current inventory or custom-map overrides.
 See the [SDK 4.3 guide](https://w3booster.com/developer/sdk-4-3/) for native coverage, stock timers and examples.
+
+### Stats for the current platform
+
+W3C records can also be available during Battle.net matches. Every ladder record
+retains its `provider`; results from both providers coexist without replacing
+one another. Use the recorder realm to select the current platform:
+
+```js
+import { currentStatsProvider, currentPlatformStats } from '@w3booster/sdk/selectors';
+import { statsForMode } from '@w3booster/sdk/standard-game';
+const records = currentPlatformStats(state.match, player);
+const provider = currentStatsProvider(state.match);
+const rating = provider ? statsForMode(player, state.match.mode, { provider }) : undefined;
+```
+
+`Reforged`/`Battle.net` select `bnet`; `W3Champions` regional realms select
+`w3champions`. Unknown realms return no provider. These selectors never fall back
+to another platform's stats. W3C lookup requires an exact full BattleTag; aliases
+are not guessed. Existing scopes and identity redaction still apply.
+Collection `source`/`observedAt`, when present in a mixed collection, describe the
+Battle.net desktop observation, not the freshness of W3C records.

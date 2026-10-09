@@ -66,3 +66,8 @@ export function pointsOfInterest(
   state: Pick<MatchState, 'pois'> | null | undefined,
   options?: { readonly kind?: import('./contracts.js').PointOfInterestKind }
 ): readonly import('./contracts.js').PointOfInterest[];
+
+/** Provider associated with the recorder realm; unknown realms stay explicit. */
+export function currentStatsProvider(match: Pick<Match, 'realm'> | null | undefined): 'bnet' | 'w3champions' | undefined;
+/** Only the current platform's records. Never falls back to another provider. */
+export function currentPlatformStats(match: Pick<Match, 'realm'> | null | undefined, player: Pick<Player, 'stats'> | null | undefined): readonly import('./contracts.js').PlayerStats[];

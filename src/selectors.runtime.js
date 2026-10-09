@@ -179,3 +179,14 @@ const selectPointsOfInterest = createImmutableSelector((pois, kind) => Object.fr
 export function pointsOfInterest(state, options = {}) {
   return selectPointsOfInterest(state?.pois, options.kind);
 }
+
+export function currentStatsProvider(match) {
+  const realm = match?.realm?.toLowerCase();
+  if (realm === 'reforged' || realm === 'battle.net') return 'bnet';
+  if (realm?.startsWith('w3champions')) return 'w3champions';
+  return undefined;
+}
+export function currentPlatformStats(match, player) {
+  const provider = currentStatsProvider(match);
+  return Object.freeze(provider ? (player?.stats?.records ?? []).filter(record => record.provider === provider) : []);
+}

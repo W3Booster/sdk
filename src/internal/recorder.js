@@ -1,4 +1,4 @@
-import { validPlayerStatistics, validPlayerLosses, validMatchOutcomes } from './analytics-state.js';
+import { validPlayerStatistics, validPlayerLosses, validMatchOutcomes, validControlGroups } from './analytics-state.js';
 import { validClock } from './interpolation.js';
 import { validPoiCollection, validInitialPoiCollection } from './poi-state.js';
 import { UNIT_COLLECTIONS, validUnitUpdate, applyUnitObservation, healthCollection } from './unit-state.js';
@@ -317,7 +317,8 @@ export function applyLocalRecorderUpdates(state, updates) {
           ...(first && value.goldUpkeepLost !== undefined ? { goldUpkeepLost: value.goldUpkeepLost } : {}),
           ...(second && value.items !== undefined ? { items: value.items } : {}),
           ...(second && value.heroes !== undefined ? { heroes: value.heroes } : {}),
-          ...(hasCapability(next, 'units') && value.units !== undefined ? { units: value.units } : {})
+          ...(hasCapability(next, 'units') && value.units !== undefined ? { units: value.units } : {}),
+          ...(hasCapability(next, 'units') && value.unitInstances !== undefined ? { unitInstances: value.unitInstances } : {})
         });
         return deepEqual(player, updated) ? player : updated;
       });
@@ -391,9 +392,13 @@ export function applyLocalRecorderUpdates(state, updates) {
       if (value === null) delete resources[resource];
       else resources[resource] = resource === 'gold' || resource === 'lumber' ? value / 10 : value;
       resourceObservations.set(String(playerId), resources);
-    } else if (update.class === 'W3Player' && hasCapability(next, 'controlgroups') && isPlainObject(update.controlgroups)) {
+    } else if (update.class === 'W3Player' && hasCapability(next, 'controlgroups') && (update.controlgroups === null || validControlGroups(update.controlgroups))) {
       updatePlayer(localUpdatePlayerId(update), player => {
         if (!isObserverOrReplayMatch(next.match) && String(player.id) !== String(next.match?.realBroadcasterPlayerId)) return player;
+        if (update.controlgroups === null) {
+          if (player.controlgroups === undefined) return player;
+          const nextPlayer = { ...player }; delete nextPlayer.controlgroups; return nextPlayer;
+        }
         const controlgroups = structuredCloneSafe(update.controlgroups);
         return deepEqual(player.controlgroups, controlgroups) ? player : { ...player, controlgroups };
       });

@@ -4,3 +4,5 @@
 import * as runtime from './analytics.runtime.js';
 /** Optional framework-neutral current-match history. No timers, transport or persistence. */
 export const createMatchHistory = runtime.createMatchHistory;
+/** Optional bounded unit contribution history; costs and application-specific grouping remain app-side. */
+export const createUnitHistory = runtime.createUnitHistory;

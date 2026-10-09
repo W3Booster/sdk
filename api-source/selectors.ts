@@ -32,3 +32,7 @@ export const currentUpgrades: typeof Contract.currentUpgrades = runtime.currentU
 export const battleTagName: typeof Contract.battleTagName = runtime.battleTagName;
 /** Stable ID ordering; an empty result does not distinguish unavailable from observed empty. */
 export const pointsOfInterest: typeof Contract.pointsOfInterest = runtime.pointsOfInterest;
+/** Provider associated with the recorder realm; unknown realms stay explicit. */
+export const currentStatsProvider: typeof Contract.currentStatsProvider = runtime.currentStatsProvider;
+/** Only the current platform's records. Never falls back to another provider. */
+export const currentPlatformStats: typeof Contract.currentPlatformStats = runtime.currentPlatformStats;

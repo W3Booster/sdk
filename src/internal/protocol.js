@@ -1,3 +1,4 @@
+import { validControlGroups } from './analytics-state.js';
 import { validPlayerStatistics, validPlayerLosses, validMatchOutcomes } from './analytics-state.js';
 import { validInterpolation } from './interpolation.js';
 import { validPoiCollection, validInitialPoiCollection } from './poi-state.js';
@@ -221,12 +222,7 @@ function validateResources(resources, playerId) {
 }
 
 function validateControlGroups(controlgroups, playerId) {
-  if (!isPlainObject(controlgroups)) throw new ProtocolError('INVALID_STATE', `Player ${playerId} controlgroups must be an object.`);
-  for (const [key, group] of Object.entries(controlgroups)) {
-    if (!isPlainObject(group) || typeof group.frontunit !== 'string' || !Number.isFinite(group.size)) {
-      throw new ProtocolError('INVALID_STATE', `Player ${playerId} controlgroup ${key} is invalid.`);
-    }
-  }
+  if (!validControlGroups(controlgroups)) throw new ProtocolError('INVALID_STATE', `Player ${playerId} controlgroups are invalid.`);
 }
 
 function validateStatsCollection(stats, playerId) {
@@ -234,7 +230,10 @@ function validateStatsCollection(stats, playerId) {
   if (!['loading', 'ready', 'unavailable'].includes(stats.status)) throw new ProtocolError('INVALID_STATE', 'Invalid stats status.');
   if (stats.source !== undefined && !['live', 'cache'].includes(stats.source)) throw new ProtocolError('INVALID_STATE', 'Invalid stats source.');
   if (stats.observedAt !== undefined && (!Number.isFinite(stats.observedAt) || stats.observedAt < 0)) throw new ProtocolError('INVALID_STATE', 'Invalid stats observation time.');
-  if (!Array.isArray(stats.records) || stats.records.length > 128) throw new ProtocolError('INVALID_STATE', 'Stats records must be an array.');
+  if (!Array.isArray(stats.records) || stats.records.length > 256) throw new ProtocolError('INVALID_STATE', 'Stats records must be an array.');
+  for (const provider of ['bnet', 'w3champions']) {
+    if (stats.records.filter(record => record?.provider === provider).length > 128) throw new ProtocolError('INVALID_STATE', 'Too many records for a stats provider.');
+  }
   for (const value of stats.records) {
     if (!isPlainObject(value) || !['bnet', 'w3champions'].includes(value.provider) ||
         !['1v1', '2v2', '3v3', '4v4', 'ffa'].includes(value.gameMode) || !['individual', 'arranged'].includes(value.queue) ||

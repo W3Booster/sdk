@@ -190,3 +190,5 @@ function limit(value, fallback, maximum) {
   if (!Number.isInteger(value) || value <= 0 || value > maximum) throw new RangeError(`History limit must be an integer between 1 and ${maximum}.`);
   return value;
 }
+
+export { createUnitHistory } from './unit-history.runtime.js';

@@ -1,5 +1,44 @@
 # SDK architecture decisions
 
+## 2026-10-09: Per-instance contributions, control-group members and independent ranking providers
+
+Expose recorder combat counters for ordinary non-illusion units as optional
+`statistics.unitInstances`, keyed by full 64-bit hexadecimal instance identity,
+under the existing units permission and own-player/observer access rules. Keep
+legacy type aggregates; they describe retained engine instances, not lifetime
+production or combat history. Omit incomplete instance reads rather than emit
+partial counters or invented zeros. No new offsets or cost fields are required.
+
+Offer optional framework-neutral `createUnitHistory` through the SDK analytics
+entry. Baseline first observations and genuine gaps; retain positive observed
+counter deltas after corpse removal. Preserve full identity and attribution by
+player/type. Transfers, transformations and counter regressions establish new
+baselines. Bounded timed windows expose coverage, uncertain observation boundaries
+and partial-capacity results. Match/catalog/mode/permission changes and rewinds
+reset; consumers reset on disconnect. Retain queryable per-instance entries even for zero-contribution units, so apps
+can choose their own grouping and observed-instance count policy. Raw counters
+remain available to applications that need a different history policy. Gold/lumber/food estimates belong in consuming
+apps using the exact catalog, with the existing custom-map limitations.
+
+Control groups keep `frontunit`/`size` and add ordered `{unitId,typeId}` members.
+Include identity, type and order in change detection. Bound and validate list walks;
+failed reads withdraw groups, and a successfully observed empty collection clears
+them. Older records without members remain valid; absence never implies known
+membership. Preserve control-group permissions and self-play restrictions.
+
+Fetch W3C by exact full BattleTag in supported Battle.net and W3C realms, with a
+provider/race/season cache independent of the active realm. Merge provider records
+in either arrival order; an empty result removes only its provider's records.
+Keep existing context/identity/redaction and Battle.net cache provenance gates.
+Merged collections preserve the 128-record bound per provider (256 total).
+Every record retains `provider`. SDK `currentStatsProvider(match)` and
+`currentPlatformStats(match,player)` select the active realm explicitly with no
+fallback to another provider. Collection `source`/`observedAt` describe the desktop
+Battle.net observation in a mixed collection, not W3C freshness.
+
+Implementation authorization does not authorize publishing or deploying these
+changes. Native build checks do not replace a build-matched live release check.
+
 ## 2026-09-24: Analytics freshness follows observed replay speed
 
 Actual 64× captures reproduce 16 and 36 history clears despite complete paired

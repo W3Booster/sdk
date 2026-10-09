@@ -195,6 +195,8 @@ export interface PlayerStatistics {
   readonly heroes?: Readonly<Record<string, HeroStatistics>>;
   /** Nonhero, nonbuilding types, scoped with units:read. */
   readonly units?: Readonly<Record<string, UnitTypeStatistics>>;
+  /** Raw nonhero/nonbuilding counters by full instance ID, including retained dead units. Omitted on incomplete reads. */
+  readonly unitInstances?: Readonly<Record<string, UnitInstanceStatistics>>;
 }
 export interface AbilityStatistics {
   readonly level?: number;
@@ -216,6 +218,15 @@ export interface HeroStatistics {
   /** Engine wall-clock milliseconds alive, including replay pauses. Not match time. */
   readonly timeAliveMs: number;
   readonly abilities?: Readonly<Record<string, AbilityStatistics>>;
+}
+/** Engine lifetime counters for one observed ordinary unit, scoped with units:read. */
+export interface UnitInstanceStatistics {
+  readonly typeId: string;
+  readonly alive: boolean;
+  readonly damageDealt: number;
+  readonly damageReceived: number;
+  /** Warcraft-attributed healing, including self healing; ordinary regeneration is excluded. */
+  readonly healingDone: number;
 }
 export interface UnitTypeStatistics {
   readonly currentAmount: number;
@@ -309,13 +320,19 @@ export interface PlayerStats {
 export interface PlayerStatsCollection {
   readonly status: 'loading' | 'ready' | 'unavailable';
   readonly records: readonly PlayerStats[];
-  /** Unix milliseconds when these stats were observed, retained across cache reuse. */
+  /** Battle.net observation milliseconds, retained across cache reuse; does not describe W3C freshness in mixed collections. */
   readonly observedAt?: number;
-  /** Cached results are a fallback after fresh lookup retries fail. Absent on older providers. */
+  /** Battle.net provenance: cached fallback after fresh retries fail. Does not describe W3C records. */
   readonly source?: 'live' | 'cache';
 }
 export interface MainAccount { readonly name: string; readonly country?: string; readonly mainRace?: Race }
-export interface ControlGroup { readonly frontunit: string; readonly size: number }
+export interface ControlGroupMember { readonly unitId: string; readonly typeId: string }
+export interface ControlGroup {
+  readonly frontunit: string;
+  readonly size: number;
+  /** Ordered alive members. Absent with older recorders; empty differs from unavailable. */
+  readonly members?: readonly ControlGroupMember[];
+}
 export interface ValuePool {
   readonly current: number;
   readonly max: number;

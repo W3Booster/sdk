@@ -15,6 +15,10 @@ const validHeroStatistics = value => analyticsRecord(value) && typeof value.type
   (value.nextLevelExperience === undefined || analyticsCount(value.nextLevelExperience)) &&
   ['deaths', 'totalKills', 'heroKills', 'selfKills', 'buildingKills', 'timeAliveMs'].every(key => analyticsCount(value[key])) &&
   (value.abilities === undefined || analyticsTypes(value.abilities, validAbilityStatistics));
+const validUnitInstances = value => analyticsRecord(value) && Object.keys(value).length <= 4096 &&
+  Object.entries(value).every(([id, unit]) => /^[0-9a-f]{16}$/.test(id) && id !== '0000000000000000' && analyticsRecord(unit) &&
+    /^[A-Za-z0-9]{4}$/.test(unit.typeId) && typeof unit.alive === 'boolean' &&
+    ['damageDealt', 'damageReceived', 'healingDone'].every(key => analyticsDamage(unit[key])));
 const validUnitTypeStatistics = value => analyticsRecord(value) && ['currentAmount', 'totalAmount'].every(key => analyticsCount(value[key])) &&
   value.currentAmount <= value.totalAmount && typeof value.isPeon === 'boolean' && typeof value.isFunctionalPeon === 'boolean' &&
   ['damageDealt', 'damageReceived', 'healingDone'].every(key => analyticsDamage(value[key]));
@@ -26,6 +30,7 @@ export const validPlayerStatistics = value => analyticsRecord(value) && analytic
   ['slotState', 'aiDifficulty'].every(key => value[key] === undefined || [0,1,2].includes(value[key])) &&
   (value.timeInUpkeepMs === undefined || Array.isArray(value.timeInUpkeepMs) && value.timeInUpkeepMs.length === 10 && value.timeInUpkeepMs.every(analyticsCount)) &&
   (value.units === undefined || analyticsTypes(value.units, validUnitTypeStatistics)) &&
+  (value.unitInstances === undefined || validUnitInstances(value.unitInstances)) &&
   (value.heroes === undefined || analyticsRecord(value.heroes) && Object.keys(value.heroes).length <= 256 &&
     Object.entries(value.heroes).every(([id, hero]) => /^[0-9a-f]{16}$/.test(id) && validHeroStatistics(hero))) &&
   ['goldMined', 'goldUpkeepLost', 'goldCredited', 'goldDiversionTax', 'lumberCredited', 'lumberUpkeepLost', 'lumberDiversionTax'].every(key => value[key] === undefined || analyticsCount(value[key])) &&
@@ -37,3 +42,11 @@ export const validPlayerLosses = value => analyticsRecord(value) && analyticsTim
   (value.buildings === undefined || analyticsTypes(value.buildings, analyticsCount));
 export const validMatchOutcomes = value => analyticsRecord(value) && Object.keys(value).length <= 24 &&
   Object.entries(value).every(([key, entry]) => /^(?:[0-9]|1[0-9]|2[0-3])$/.test(key) && typeof entry === 'string' && ['won', 'lost', 'draw'].includes(entry));
+
+export const validControlGroups = value => analyticsRecord(value) && Object.entries(value).every(([key, group]) =>
+  /^[0-9]$/.test(key) && analyticsRecord(group) && typeof group.frontunit === 'string' &&
+  Number.isInteger(group.size) && group.size >= 0 && group.size <= 4096 &&
+  (group.members === undefined || Array.isArray(group.members) && group.members.length === group.size &&
+    new Set(group.members.map(member => member?.unitId)).size === group.members.length &&
+    group.members.every(member => analyticsRecord(member) && /^[0-9a-f]{16}$/.test(member.unitId) &&
+      member.unitId !== '0000000000000000' && /^[A-Za-z0-9]{4}$/.test(member.typeId))));

@@ -26,3 +26,7 @@ export declare const currentUpgrades: typeof Contract.currentUpgrades;
 export declare const battleTagName: typeof Contract.battleTagName;
 /** Stable ID ordering; an empty result does not distinguish unavailable from observed empty. */
 export declare const pointsOfInterest: typeof Contract.pointsOfInterest;
+/** Provider associated with the recorder realm; unknown realms stay explicit. */
+export declare const currentStatsProvider: typeof Contract.currentStatsProvider;
+/** Only the current platform's records. Never falls back to another provider. */
+export declare const currentPlatformStats: typeof Contract.currentPlatformStats;

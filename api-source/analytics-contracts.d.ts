@@ -57,3 +57,72 @@ export interface MatchHistory {
 }
 /** Optional framework-neutral current-match history. No timers, transport or persistence. */
 export function createMatchHistory(options?: MatchHistoryOptions): MatchHistory;
+
+export interface UnitContributionQuery {
+  readonly playerId?: string;
+  readonly unitId?: string;
+  readonly typeId?: string;
+}
+export interface UnitContributions {
+  readonly damageDealt: number;
+  readonly damageReceived: number;
+  readonly healingDone: number;
+  /** Unit retention capacity was exceeded; results are partial until reset. */
+  readonly truncated: boolean;
+}
+/** One retained player/type attribution for a full unit instance ID. */
+export interface UnitContributionEntry {
+  readonly playerId: string;
+  readonly unitId: string;
+  readonly typeId: string;
+  readonly damageDealt: number;
+  readonly damageReceived: number;
+  readonly healingDone: number;
+  readonly firstObservedGameTime: number;
+  readonly lastObservedGameTime: number;
+  /** Last observed alive flag; disappearance never implies death. */
+  readonly alive: boolean;
+  /** Presence in the latest complete collection. Absent while the feed is unavailable. */
+  readonly present?: boolean;
+}
+export interface UnitContributionEvent {
+  readonly playerId: string;
+  readonly unitId: string;
+  readonly typeId: string;
+  readonly fromGameTime: number;
+  readonly gameTime: number;
+  readonly damageDealt: number;
+  readonly damageReceived: number;
+  readonly healingDone: number;
+}
+export interface UnitContributionWindow extends UnitContributions {
+  readonly fromGameTime: number;
+  readonly toGameTime: number;
+  readonly events: readonly UnitContributionEvent[];
+  readonly covered: boolean;
+  /** Sampled counters never guarantee every intervening attribution. */
+  readonly complete: false;
+  readonly boundaryUncertain: boolean;
+}
+export interface UnitHistoryOptions {
+  /** Defaults: 8192 instances, 20000 intervals/events, 7200 game seconds. */
+  readonly maxUnits?: number;
+  readonly maxEvents?: number;
+  readonly maxSeconds?: number;
+  /** Monotonic receipt milliseconds for offline processing. No timer is started. */
+  readonly now?: () => number;
+}
+export interface UnitHistory {
+  /** First observation and observations after gaps/transfers/transformations establish baselines. */
+  push(state: MatchState): void;
+  /** Call on disconnect. Match, rewind, catalog, mode and permission changes reset automatically. */
+  reset(): void;
+  /** Positive counter deltas observed since attachment, retained after corpse removal and timed-event expiry. */
+  contributions(query?: UnitContributionQuery): UnitContributions;
+  /** Retained identities and observed contributions, including zero-contribution units. Apps choose their grouping/count/cost policy. */
+  entries(query?: UnitContributionQuery): readonly UnitContributionEntry[];
+  /** Query a trailing window. Events span observation intervals, not exact combat timestamps. */
+  window(seconds: number, query?: UnitContributionQuery): UnitContributionWindow;
+}
+/** Optional bounded unit contribution history; costs and application-specific grouping remain app-side. */
+export function createUnitHistory(options?: UnitHistoryOptions): UnitHistory;

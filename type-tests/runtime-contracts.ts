@@ -29,3 +29,8 @@ import * as PublicGameData from '../src/game-data.js';
 import * as RuntimeGameData from '../src/game-data.runtime.js';
 const gameDataRuntime: typeof PublicGameData = RuntimeGameData;
 void gameDataRuntime;
+
+import * as PublicAnalytics from '../src/analytics.js';
+import * as RuntimeAnalytics from '../src/analytics.runtime.js';
+const analyticsRuntime: typeof PublicAnalytics = RuntimeAnalytics;
+void analyticsRuntime;

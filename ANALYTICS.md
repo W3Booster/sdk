@@ -147,3 +147,70 @@ or `reviving`, under the existing production permission. Revival classification
 uses the native queue's full unit reference; ordinary categories use the exact
 match catalog. Unknown or stale references omit the kind. Progress and timers
 retain their existing semantics, including cancellation and restart.
+
+## Per-unit counters and optional contribution history
+
+`player.statistics.unitInstances[unitId]` exposes `typeId`, `alive`,
+`damageDealt`, `damageReceived`, and `healingDone` for ordinary units. IDs retain
+all 16 hexadecimal digits. Heroes, buildings and illusions are excluded from this
+collection. Dead units remain while the engine retains their instances. The
+collection requires `units:read` and a matching recorder; missing means unavailable,
+while `{}` means a complete observation of no eligible instances. Existing type
+aggregates remain available. Healing preserves Warcraft's attribution, including
+self healing; ordinary regeneration is excluded.
+
+```js
+import { createUnitHistory } from '@w3booster/sdk/analytics';
+const history = createUnitHistory();
+// Push each authorized SDK snapshot; reset on disconnect.
+history.push(state);
+const unit = history.contributions({ unitId: '0000000100000001' });
+const footmen = history.contributions({ playerId: '0', typeId: 'hfoo' });
+const retained = history.entries({ playerId: '0' });
+const recent = history.window(30, { playerId: '0' });
+```
+
+This helper retains positive counter deltas observed since attachment, including
+after corpse removal. The initial counters establish a baseline: they are still
+available in the raw snapshot, but the helper cannot place their earlier damage
+in time. Missing/stale feeds, returning units, transfers, transformations and
+counter regressions establish fresh baselines rather than backfill gaps. Earlier
+contributions stay attributed to their original player/type.
+
+`entries()` retains identities even for units that contributed zero damage. Each
+entry includes the original player/type attribution, first/last observation time,
+last observed `alive` flag and presence in the last complete collection. Presence
+is absent while the feed is unavailable. Transfers/type changes can create multiple
+attributions for one ID: deduplicate IDs for an observed-instance count. This is
+not an authoritative trained-unit count. Missing units never imply death. Apps
+can group these entries and resolve catalog costs using their own chosen policy.
+
+Queries can select an instance, type, player, or any combination; omitting filters
+sums all authorized players. `window` returns retained delta events with
+`fromGameTime`/`gameTime` observation intervals. `covered` indicates continuous
+collection observations across the requested interval; `complete` remains false.
+`boundaryUncertain` marks an interval crossing the window's start. Unknown timing
+and contributions during gaps are never invented.
+
+Defaults bound retention to 8192 unit identities/attribution totals, 20000 timed
+events/coverage intervals and 7200 game seconds. Configure `maxUnits`, `maxEvents`
+and `maxSeconds`; timed expiry does not remove cumulative contribution totals.
+`truncated` reports exhausted identity/attribution capacity. Replay freshness
+accounts for observed speed and expires frozen timestamps after five unpaused
+real seconds; inject monotonic receipt milliseconds with `now` for offline feeds.
+No timers, transport or persistence are added. Match, catalog, mode, permission
+changes and rewinds reset history. Call `reset()` on a connection gap.
+
+Applications resolve costs, names and icons from the exact `match.gameDataId`
+catalog and aggregate the unit/type/player results for their own UI. There are
+no cost fields or game-specific efficiency formulas in this helper.
+
+## Control-group composition
+
+`player.controlgroups['0'].members` contains ordered `{unitId,typeId}` members,
+with full instance IDs. `frontunit` and `size` remain available. Members contain
+alive units, including eligible heroes/buildings; composition is aggregated by
+the app. This requires `controlgroups:read` and respects own-player/observer access.
+Missing `members` supports older recorders; it is not an empty member list.
+An empty control-group collection is an observed empty result. Failed bounded
+native reads withdraw `controlgroups` until a complete observation is available.

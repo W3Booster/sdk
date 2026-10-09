@@ -28,3 +28,7 @@ export const currentUpgrades = runtime.currentUpgrades;
 export const battleTagName = runtime.battleTagName;
 /** Stable ID ordering; an empty result does not distinguish unavailable from observed empty. */
 export const pointsOfInterest = runtime.pointsOfInterest;
+/** Provider associated with the recorder realm; unknown realms stay explicit. */
+export const currentStatsProvider = runtime.currentStatsProvider;
+/** Only the current platform's records. Never falls back to another provider. */
+export const currentPlatformStats = runtime.currentPlatformStats;

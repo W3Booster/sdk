@@ -1,5 +1,12 @@
 # Changelog
 
+## 4.9.0 — 2026-10-09
+
+- Add optional `player.statistics.unitInstances`, keyed by full instance ID, with observed damage dealt/received, healing, alive state and type for ordinary non-hero, non-building and non-illusion units.
+- Add optional `createUnitHistory` for contribution windows and observed-instance entries, preserving zero-contribution identities and reporting coverage and reset boundaries.
+- Add ordered unit identities to control groups through `{ unitId, typeId }` members, with bounded traversal and explicit empty/withdrawn semantics.
+- Merge exact BattleTag statistics from Battle.net and W3Champions independently; expose `currentStatsProvider` and `currentPlatformStats` without cross-provider fallback.
+
 ## 4.8.1 — 2026-09-30
 
 - Add a debugging guide and runnable lifecycle fixtures for diagnosing blank or unstable overlays without changing the runtime contract.

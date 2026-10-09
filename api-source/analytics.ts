@@ -8,3 +8,5 @@ export type * from './analytics-contracts.js';
 
 /** Optional framework-neutral current-match history. No timers, transport or persistence. */
 export const createMatchHistory: typeof Contract.createMatchHistory = runtime.createMatchHistory;
+/** Optional bounded unit contribution history; costs and application-specific grouping remain app-side. */
+export const createUnitHistory: typeof Contract.createUnitHistory = runtime.createUnitHistory;
