@@ -344,6 +344,16 @@ export function applyLocalRecorderUpdates(state, updates) {
       updateMatch('gameTime', Number(update.value));
     } else if (update.class === 'W3ChatbarState') {
       updateContext('chatbarOpen', Number(update.value) === 1);
+    } else if (update.class === 'W3AdvancedObserverMode') {
+      if (update.value === null) {
+        if (next.gameContext.advancedObserverMode !== undefined) {
+          const gameContext = { ...next.gameContext };
+          delete gameContext.advancedObserverMode;
+          next = { ...next, gameContext };
+        }
+      } else if (typeof update.value === 'boolean') {
+        updateContext('advancedObserverMode', update.value);
+      }
     } else if (update.class === 'W3MenuState') {
       if (update.value === null) {
         if (next.gameContext.menuOpen !== undefined) {

@@ -838,3 +838,11 @@ contiguous segment: absent/invalid gold or upkeep, or statistics more than five
 game seconds from the match clock, clear it; recovery starts a new segment.
 Observed zero remains valid. Consumers must compare matching sample times.
 The API shape remains unchanged; no timers, interpolation or fabricated income.
+
+## 2026-10-21: Advanced Observer layout is optional shared game context
+
+`gameContext.advancedObserverMode` reports the active native Advanced Observer UI
+layout. True and false are observations; absence means unavailable. It is separate
+from observer/replay identity and requires no gameplay scope. Consumers select
+their visualization. The SDK validates booleans and applies recorder boolean/null
+transitions immutably; null withdraws the observation. No saved-setting inference.

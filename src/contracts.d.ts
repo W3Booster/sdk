@@ -136,6 +136,8 @@ export interface GameContext {
     readonly chatbarOpen?: boolean;
     /** Native in-game menu/dialog owns input. Absent when unavailable; independent of pause and match mode. */
     readonly menuOpen?: boolean;
+    /** Active native Advanced Observer UI layout. Missing means unobserved, not disabled. */
+    readonly advancedObserverMode?: boolean;
     readonly teamColors?: boolean;
 }
 export type OverlayExtensionReservedKey = 'runtime' | 'misc' | 'settings';

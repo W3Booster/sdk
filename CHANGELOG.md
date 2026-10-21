@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.10.0 — 2026-10-21
+
+- Add optional `gameContext.advancedObserverMode` to report the active native Advanced Observer layout. The field is absent when unavailable and preserves boolean/null transitions through local and streamed state.
+
 ## 4.9.0 — 2026-10-09
 
 - Add optional `player.statistics.unitInstances`, keyed by full instance ID, with observed damage dealt/received, healing, alive state and type for ordinary non-hero, non-building and non-illusion units.

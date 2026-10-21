@@ -140,7 +140,7 @@ export function validateState(value, clientId, cloneState = true) {
   if (!isPlainObject(state.gameContext) || !Number.isFinite(state.gameContext.hudScale)) {
     throw new ProtocolError('INVALID_STATE', 'Game context must contain a finite hudScale.');
   }
-  validateOptionalFields(state.gameContext, { chatbarOpen: 'boolean', menuOpen: 'boolean', teamColors: 'boolean' }, 'Game context');
+  validateOptionalFields(state.gameContext, { chatbarOpen: 'boolean', menuOpen: 'boolean', advancedObserverMode: 'boolean', teamColors: 'boolean' }, 'Game context');
   const lastHeroSlot = state.gameContext.heroBarLastOccupiedSlot;
   if (lastHeroSlot !== undefined && (!Number.isInteger(lastHeroSlot) || lastHeroSlot < 0 || lastHeroSlot > 32)) {
     throw new ProtocolError('INVALID_STATE', 'Native hero-bar last occupied slot must be an integer from 0 to 32.');
